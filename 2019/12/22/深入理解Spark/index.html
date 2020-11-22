@@ -271,6 +271,7 @@
 <h4 id="1、Spark-是什么？"><a href="#1、Spark-是什么？" class="headerlink" title="1、Spark 是什么？"></a>1、Spark 是什么？</h4><p>&#8195;&#8195;Spark是一种分布式的并行计算框架，什么是计算框架？所谓的计算（在数据层面理解）其实是用于数据处理和分析的一套解决方案，例如Python的Pandas，相信用过Pandas都很容易理解Pandas擅长做什么，加载数据、对数据进行各类加工、分析数据等，只不过Pandas只适合在单机上的、数据量百万到千万级的计算组件，而Spark则是分布式的、超大型多节点可并行处理数据的计算组件。</p>
 <p>&#8195;&#8195;Spark通常会跟MapReduce做对比，它与MapReduce 的最大不同之处在于Spark是基于内存的迭代式计算——Spark的Job处理的中间（排序和shuffling）输出结果可以保存在内存中，而不是在HDFS磁盘上反复IO浪费时间。除此之外，一个MapReduce 在计算过程中只有Map 和Reduce 两个阶段。而在Spark的计算模型中，它会根据rdd依赖关系预选设计出DAG计算图，把job分为n个计算阶段（Stage），因为它内存迭代式的，在处理完一个阶段以后，可以继续往下处理很多个阶段，而不只是两个阶段。<br>&#8195;&#8195;Spark提供了超过80种不同的Transformation和Action算子，如map，reduce，filter，reduceByKey，groupByKey，sortByKey，foreach等，并且采用函数式编程风格，实现相同的功能需要的代码量极大缩小（尤其用Scala和Python写计算业务代码方面）。正是基于使用易用性，因此Spark能更好地用于基于分布式大数据的数据挖掘与机器学习等需要迭代的MapReduce的算法。Spark生态如下：<br><img src="https://img-blog.csdnimg.cn/20191222113158864.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <a id="more"></a>
+
 <h4 id="2、Spark-运行模式"><a href="#2、Spark-运行模式" class="headerlink" title="2、Spark 运行模式"></a>2、Spark 运行模式</h4><p>目前最为常用的Spark运行模式有：</p>
 <ul>
 <li>Local：本地进程运行，例如启动一个pyspark交互式shell，一般用于开发调试Spark应用程序</li>
@@ -287,7 +288,8 @@
 </ul>
 <h4 id="4、Spark相关术语"><a href="#4、Spark相关术语" class="headerlink" title="4、Spark相关术语"></a>4、Spark相关术语</h4><p><img src="https://img-blog.csdnimg.cn/20191221131426758.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">一个完整的Spark应用程序，例如wordcount，在提交集群运行时:<br><code>./bin/spark-submit  --name word_count_app --master yarn  --deploy-mode cluster  --py-files word_count.py</code><br>它涉及到上图流程的相关术语： </p>
 <ul>
-<li>SparkContext:整个应用的上下文，控制应用的生命周期。</li>
+<li><p>SparkContext:整个应用的上下文，控制应用的生命周期。</p>
+</li>
 <li><p>RDD：是弹性分布式数据集（Resilient Distributed Dataset）的简称，是分布式内存的一个抽象概念，提供了一种高度受限的共享内存模型（鉴于RDD是Spark的核心概念，后面的有一篇博客给出相关讨论）。无法快速理解RDD？这里有两种方式可助于理解：<br>A、把它设想为分布式的Pandas dataframe，df也是一个数据集，也是被加载到内存上，然后利用pandas各个算子对df反复迭代最后得出计算结果。<br>B、<code>rdd = sc.parallelize(list(range(1000)), 10)</code>，这就创建了一个“轻量”的rdd数据集，设想下：这个数组有10亿项，分10个分区，有10个计算节点，每个节点负责1个分区的计算，也就是说从计算节点来看，每个节点负责1亿行的“小块rdd”；而从用户逻辑层面来看：就一个大rdd，包含10亿项数据</p>
 </li>
 <li><p>RDD的窄依赖和宽依赖</p>
@@ -325,17 +327,22 @@
 <li><p>Shared Variables共享变量：Application在整个运行过程中，可能需要一些变量在每个Task中都使用，用于节省计算时间和IO。Spark有两种共享变量：一种缓存到各个节点的广播变量：broadcast；一种只支持加法操作：accumulator，一般用于对rdd求和sum以及累加计数counter。 这个概念需结合实际用例说明，否则难以理解。</p>
 </li>
 </ul>
-<p>&#8195;&#8195;一句话：一个Application(其实就是你设计的Spark业务程序)由多个Job组成，一个Job由多个Stage组成，一个Stage由多个Task组成一个TaskSet。Stage是作业调度的基本单位，Task是执行计算和操作rdd的最小工作单元，以下面的wordcount语句对于的关系图说明：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br></pre></td></tr></table></figure><br><img src="https://img-blog.csdnimg.cn/20191221150736129.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;这里为何画了2个Job，因为该计算任务包含两个Action：reduceByKey和sortBy。Application里面有多少个Action算子，Driver就给Application分配多少个Job。</p>
+<p>&#8195;&#8195;一句话：一个Application(其实就是你设计的Spark业务程序)由多个Job组成，一个Job由多个Stage组成，一个Stage由多个Task组成一个TaskSet。Stage是作业调度的基本单位，Task是执行计算和操作rdd的最小工作单元，以下面的wordcount语句对于的关系图说明：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br></pre></td></tr></table></figure>
+<p><img src="https://img-blog.csdnimg.cn/20191221150736129.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;这里为何画了2个Job，因为该计算任务包含两个Action：reduceByKey和sortBy。Application里面有多少个Action算子，Driver就给Application分配多少个Job。</p>
 <p>&#8195;&#8195;Spark计算涉及的相关部件比较多而且相对抽象，需要在实际spark集群上跑几个测试application结合理解，本博客在前面的文章已经在测试项目中结合spark UI的截图就Job、Stage、Task等给出较为详细的说明，参考<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102536716">《基于hadoop3.1.2分布式平台上部署spark HA集群》</a>第7章内容。</p>
 <h4 id="5、Spark程序执行流程"><a href="#5、Spark程序执行流程" class="headerlink" title="5、Spark程序执行流程"></a>5、Spark程序执行流程</h4><p><img src="https://img-blog.csdnimg.cn/20191221131426758.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;Spark 程序执行流程基于不同资源管理器其有不同的执行流程，以下以Standalone模式说明执行流程。其他资源管理模式的执行流程可以参考这篇文章：<a target="_blank" rel="noopener" href="https://www.cnblogs.com/frankdeng/p/9301485.html">《Spark任务提交方式和执行流程》</a></p>
 <ul>
-<li>1)构建Spark Application的运行环境，启动SparkContext也即启动Driver，Driver向资源管理器注册并申请运行Executor资源；</li>
-<li>2)资源管理器分配Executor资源并启动StandaloneExecutorBackend，Executor运行情况将随着心跳发送到资源管理器上；</li>
+<li><p>1)构建Spark Application的运行环境，启动SparkContext也即启动Driver，Driver向资源管理器注册并申请运行Executor资源；</p>
+</li>
+<li><p>2)资源管理器分配Executor资源并启动StandaloneExecutorBackend，Executor运行情况将随着心跳发送到资源管理器上；</p>
+</li>
 <li><p>3)Driver根据算子链预先构建成DAG图，将DAG图分解成Stage，并把Taskset发送给Task Scheduler。Executor向SparkContext申请Task。</p>
 </li>
 <li><p>4)TaskScheduler将Task发送给Executor运行，同时Driver将应用程序代码传给Executor。</p>
 </li>
-<li>5)Task在Executor上运行，运行完毕释放所有资源。</li>
+<li><p>5)Task在Executor上运行，运行完毕释放所有资源。</p>
+</li>
 </ul>
 <p>其实不管在哪种种资源模式下，Spark的程序执行流程一定离不开三条主线：</p>
 <ul>
@@ -344,7 +351,11 @@
 <li>Executor 领取Task和业务代码并执行</li>
 </ul>
 <h4 id="6、理解Spark-Stage的划分"><a href="#6、理解Spark-Stage的划分" class="headerlink" title="6、理解Spark Stage的划分"></a>6、理解Spark Stage的划分</h4><p>&#8195;&#8195;本部分内容比较重要，也是理解spark任务调度原理的关键，本章节内容参考<a target="_blank" rel="noopener" href="http://sharkdtu.com/posts/spark-scheduler.html">《Spark Scheduler内部原理剖析》</a>其中任务调度内容</p>
-<h5 id="6-1-Spark-Stage的划分"><a href="#6-1-Spark-Stage的划分" class="headerlink" title="6.1 Spark Stage的划分"></a>6.1 Spark Stage的划分</h5><p>&#8195;&#8195;这里以wordcount的Scala语句分析Spark对于一个application是如何划分stage的<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).saveAsTextFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;result&quot;)</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;以上就是一个Job，由rdd和Action方法封装而成，SparkContext将Job交给DAGScheduler提交，它会根据rdd的血缘关系的DAG图（你可以理解为预先规划的计算流程）进行切分，将一个Job划分为若干Stages，具体划分策略是，由处于末端的RDD不断通过依赖回溯判断父依赖是否为宽依赖，即以Shuffle为界，划分Stage。<br>划分的Stages分两类，一类叫做ResultStage，由Action方法决定，是DAG计算流程图最下游的Stage，这个Stage会最先被划分出来（因为是从末端回溯，因此首先遇到宽依赖reduceByKey，因此ResultStage最先被划出）。另一类叫做ShuffleMapStage，为下游ResultStage准备数据。<br>以下面的DAG流程作为说明：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).saveAsTextFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;result&quot;)</span><br></pre></td></tr></table></figure><br><img src="https://img-blog.csdnimg.cn/20191221172609660.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;Job由Action算子saveAsFile触发，该Job由rdd3和saveAsTextFile方法组成，根据rdd之间的依赖关系：</p>
+<h5 id="6-1-Spark-Stage的划分"><a href="#6-1-Spark-Stage的划分" class="headerlink" title="6.1 Spark Stage的划分"></a>6.1 Spark Stage的划分</h5><p>&#8195;&#8195;这里以wordcount的Scala语句分析Spark对于一个application是如何划分stage的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).saveAsTextFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;result&quot;)</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;以上就是一个Job，由rdd和Action方法封装而成，SparkContext将Job交给DAGScheduler提交，它会根据rdd的血缘关系的DAG图（你可以理解为预先规划的计算流程）进行切分，将一个Job划分为若干Stages，具体划分策略是，由处于末端的RDD不断通过依赖回溯判断父依赖是否为宽依赖，即以Shuffle为界，划分Stage。<br>划分的Stages分两类，一类叫做ResultStage，由Action方法决定，是DAG计算流程图最下游的Stage，这个Stage会最先被划分出来（因为是从末端回溯，因此首先遇到宽依赖reduceByKey，因此ResultStage最先被划出）。另一类叫做ShuffleMapStage，为下游ResultStage准备数据。<br>以下面的DAG流程作为说明：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).saveAsTextFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;result&quot;)</span><br></pre></td></tr></table></figure>
+<p><img src="https://img-blog.csdnimg.cn/20191221172609660.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;Job由Action算子saveAsFile触发，该Job由rdd3和saveAsTextFile方法组成，根据rdd之间的依赖关系：</p>
 <ul>
 <li>首先从rdd3开始回溯搜索，在回溯搜索过程中，rdd3依赖rdd2，遇到reduceByKey需要宽依赖，所以在rdd3和rdd2之间划分Stage，该Stage为ResultStage</li>
 <li>继续回溯，rdd2依赖rdd1，遇到Map窄依赖，不划分stage</li>
@@ -354,12 +365,12 @@
 <p>小结：一个Spark应用程序包括Job、Stage以及Task三个概念：</p>
 <ul>
 <li>Job是以Action方法(算子)为界，遇到一个Action方法则触发一个Job</li>
-<li>Stage是Job的子集，以RDD宽依赖(即Shuffle)为界，遇到Shuffle做一次Stage划分<ul>
+<li>Stage是Job的子集，以RDD宽依赖(即Shuffle)为界，遇到Shuffle做一次Stage划分</li>
 <li>Task是Stage的子集，以并行度(分区数)来衡量，一个Stage有多少个partition就有多个task</li>
 </ul>
-</li>
-</ul>
-<h5 id="6-2-Spark-DAG的可视化"><a href="#6-2-Spark-DAG的可视化" class="headerlink" title="6.2 Spark DAG的可视化"></a>6.2 Spark DAG的可视化</h5><p>&#8195;&#8195;为了更直观理解6.1 stage的划分，以及DAG可视化，这里用另外一个名为word-count的application语句跑一个测试，并在spark web UI查看相关划分情况以及执行计划：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br></pre></td></tr></table></figure><br>从提交语句的逻辑即可直接看出分为两个Stage。在web端可直观看到Application有2个executor分别位于两个不同spark节点上。<br>==对于Stage 0：==<br>Stage 0 的Taskset有3个task，其中1个task在节点5上的executor0进程跑，另外2个task在节点6的executor1进程上跑。executor进程会使用多线程方式运行自己管辖的tasks<br><img src="https://img-blog.csdnimg.cn/20191222095742807.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">==对于Stage 1：==<br>Stage 1 的Taskset有3个task，其中1个task在节点5上的executor0进程跑，另外2个task在节点6的executor1进程上跑。executor进程会使用多线程方式运行自己管辖的tasks<br><img src="https://img-blog.csdnimg.cn/20191222101000161.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>这从两张图也可以看到Application的运行机制：引用官网文档<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/job-scheduling.html">Scheduling Across Applications</a>的一句话：</p>
+<h5 id="6-2-Spark-DAG的可视化"><a href="#6-2-Spark-DAG的可视化" class="headerlink" title="6.2 Spark DAG的可视化"></a>6.2 Spark DAG的可视化</h5><p>&#8195;&#8195;为了更直观理解6.1 stage的划分，以及DAG可视化，这里用另外一个名为word-count的application语句跑一个测试，并在spark web UI查看相关划分情况以及执行计划：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br></pre></td></tr></table></figure>
+<p>从提交语句的逻辑即可直接看出分为两个Stage。在web端可直观看到Application有2个executor分别位于两个不同spark节点上。<br>==对于Stage 0：==<br>Stage 0 的Taskset有3个task，其中1个task在节点5上的executor0进程跑，另外2个task在节点6的executor1进程上跑。executor进程会使用多线程方式运行自己管辖的tasks<br><img src="https://img-blog.csdnimg.cn/20191222095742807.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">==对于Stage 1：==<br>Stage 1 的Taskset有3个task，其中1个task在节点5上的executor0进程跑，另外2个task在节点6的executor1进程上跑。executor进程会使用多线程方式运行自己管辖的tasks<br><img src="https://img-blog.csdnimg.cn/20191222101000161.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>这从两张图也可以看到Application的运行机制：引用官网文档<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/job-scheduling.html">Scheduling Across Applications</a>的一句话：</p>
 <blockquote>
 <p>When running on a cluster, each Spark application gets an independent set of executor JVMs that only run tasks and store data for that application<br>当提交的application是在集群上跑时，每个application包含多个executor JVMs运行进程，这些executors（JVM进程）只负责为当前的application运行它的tasks任务和存储数据</p>
 </blockquote>
@@ -376,7 +387,7 @@
 <ul>
 <li>如果你是部门经理，部门只有9个人，3个岗位，如果现在接到一个开发项目，你当然很清楚和也容易安排每个岗位的人负责项目哪部分开发工作，并指定谁跟谁如何协调某部分内容。</li>
 <li>如果你是市长，假设现在你接到一个上级大型项目，需要你亲自统筹和设计出如何让20个局完成该大型项目的方案。首先需要设计出10个局单位之间怎么配合，10个局单位共有100个岗位，每个局的每个岗位具体负责哪部分工作，并且你要设计出项目某部分内容是由哪个岗位和哪个岗位直接如何调度完成，够崩溃的。这就是大数据生态圈，概念多、杂，概念之间有一定逻辑关系，这些都需要你去理解和记忆，这就是难点所在。<br>）<br><img src="https://img-blog.csdnimg.cn/2019122211433139.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></li>
-<li>Driver初始化SparkContext过程中，会分别初始化DAGScheduler、TaskScheduler、SchedulerBackend以及HeartbeatReceiver（这四部分是程序里面类或者模块，不是线程），并启动SchedulerBackend线程以及HeartbeatReceiver线程。</li>
+<li> Driver初始化SparkContext过程中，会分别初始化DAGScheduler、TaskScheduler、SchedulerBackend以及HeartbeatReceiver（这四部分是程序里面类或者模块，不是线程），并启动SchedulerBackend线程以及HeartbeatReceiver线程。</li>
 <li>当Driver启动后，ApplicationMaster会通过本地的RPC连接Driver，并开始向ResourceManager申请Container资源运行Executor进程（一个Executor对应与一个Container），当ResourceManager返回Container资源，则在对应的Container上启动Executor。</li>
 <li>SchedulerBackend通过ApplicationMaster申请资源，并不断从TaskScheduler中拿到合适的Task分发到Executor执行。HeartbeatReceiver负责接收Executor的心跳信息，监控Executor的存活状况，并通知到TaskScheduler。</li>
 <li>DAGScheduler负责的Stage调度</li>
@@ -483,14 +494,14 @@
       <div class="site-state-item site-state-posts">
           <a href="/blog/archives/">
         
-          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/blog/categories/">
           
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -536,12 +547,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">554k</span>
+    <span title="站点总字数">575k</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:23</span>
+    <span title="站点阅读时长">8:43</span>
 </div>
 
         

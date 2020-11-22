@@ -266,13 +266,14 @@
       
         <h4 id="1、Hadoop是一种具体的技术吗？"><a href="#1、Hadoop是一种具体的技术吗？" class="headerlink" title="1、Hadoop是一种具体的技术吗？"></a>1、Hadoop是一种具体的技术吗？</h4><p>&#8195;&#8195;准确的说，Hadoop是一套大数据的解决方案或者技术栈，不仅仅特指某种大数据技术，由Apache基金会上多个与大数据有关的明星组件构成，包括HDFS（分布式文件系统），YARN（分布式资源调度系统），MapReduce（分布式计算系统）、Spark、Hive、Hbase、Mahout、Zookeeper、Flume等，如下图所示。<img src="https://img-blog.csdnimg.cn/20191014221453428.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <a id="more"></a>
+
 <p>&#8195;&#8195;本文将重点讨论HDFS、YARN以及MapReduce，为何？<br>设想这么一个场景：<br>1）、如果T企业每天产生10T的数据，一年为3650T，显然单台服务器是无法存储的，必须分别存放在多台服务器上。HDFS就是负责存放这些超大数据文件的核心组件。<br>2）、对于初始数据价值密度低的数据文件，T企业需要对其进行数据挖掘，提取高价值密度数据，用以协助调整自身的商业策略，那么这环节会涉及到从多台服务器上读数据、并执行相应的计算、统计逻辑任务（业务代码），这里就涉及如何从多台服务器上的数据计算出一份有价值数据出来呢？这是MapReduce要负责的活。<br>3）、在MapReduce这一场景中，例如T企业同时运行多个主题的计算任务，如果没有对于多台服务器的cpu+内存+网络吞吐资源进行统一分配、有效管理、回收，那么有可能计算非核心任务a占据集群资源的80%，而核心任务确只能分配到20%计算资源，显然无法达到计算资源最优化，这就是YARN要做的事情。<br>当然三个组件要负责的具体工作远不止以上的描述，博客将分别发布三篇文章讨论对应以上三个组件。<br>此外，从Hadoop的演进历史来看：<br>Hadoop1.0版本为两个核心（分布式存储+计算）：HDFS+MapReduce<br>Hadoop2.0版本，引入了Yarn：HDFS+Yarn+Mapreduce<br>Yarn是资源调度框架。能够细粒度的管理和调度任务。此外，还能够支持其他的计算框架，比如Spark等。</p>
 <h4 id="2、HDFS"><a href="#2、HDFS" class="headerlink" title="2、HDFS"></a>2、HDFS</h4><p>&#8195;&#8195;一个HDFS集群是由一个Namenode和一定数目的Datanodes组成。Namenode是一个中心服务器，负责管理文件系统的名字空间(namespace)以及客户端对文件的访问。集群中的Datanode一般是一个节点一个，负责管理它所在节点上的存储。HDFS暴露了文件系统的名字空间，用户能够以文件的形式在上面存储数据。<br>HDFS 采用Master/Slave的架构来存储数据，这里以下图所示作为说明：<br><img src="https://img-blog.csdnimg.cn/20191014231209135.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <h5 id="2-1-Hadoop-block块概念"><a href="#2-1-Hadoop-block块概念" class="headerlink" title="2.1 Hadoop block块概念"></a>2.1 Hadoop block块概念</h5><p>&#8195;&#8195;block是物理的文件，真正存储的位置在磁盘中例如目录：{hadoop.tmp.dir}/data，将客户端上传的完整数据文件切分多个block后存储的块文件。Hadoop1.0是按64MB切，BlockSize=64MB。Hadoop2.0 BlockSize=128MB<br>&#8195;&#8195;文件分块存储，DateNode中存储以数字编号的方块用于备份，每个块都会复制到其他节点上（默认3个节点）,如果一个块不可用，可从其它节点读取副本，副本默认为3份，如果配置文件中副本设置为 4 ，而仅有2台Datanode，最后block副本还是2</p>
 <p>&#8195;&#8195;对存储小文件，1000个1M的小文件会占用1024个块和1024个 inode，每个1M文件只是占用1个物理文件块中的1M，不会占用整个128M的完整block，但因为inode存储在NameNode的内存里，如果NameNode内存不足以存储更多的inode，那么磁盘也无法存储更多数据block文件，白白浪费存储资源，因此HDFS并不适合存储小文件，务必考虑将小文件合并为大文件，再扔到HDFS上。</p>
 <p>&#8195;&#8195;补充：inode的内容：文件（这里指代Linux一切皆文件的文件）索引数据结构，inode中主要存储以下这些元数据：</p>
-<pre><code>- inode编号
-</code></pre><ul>
+<pre><code>- inode编号</code></pre>
+<ul>
 <li>文件大小</li>
 <li>占用的块数目与块大小</li>
 <li>文件类型（普通文件、目录、管道，etc.）</li>
@@ -291,9 +292,12 @@
 <h5 id="2-3-NameNode：Master角色，名字节点"><a href="#2-3-NameNode：Master角色，名字节点" class="headerlink" title="2.3 NameNode：Master角色，名字节点"></a>2.3 NameNode：Master角色，名字节点</h5><p>&#8195;&#8195;管理元数据信息（Metadata），只存储元数据信息，存放在内存中，会通过fsimage和edits文件，将元数据信息持久化到磁盘上<br>管理数据块（Block）映射信息<br>配置副本策略<br>处理客户端读写请求<br>注意：Hadoop1.0版本使用SecondaryNamenode做fsimage和edits文件的合并，但是这种机制达不到热备的效果，即存在单点故障问题，Hadoop2.0解决了该缺点。 </p>
 <h5 id="2-4-fsimage、edits"><a href="#2-4-fsimage、edits" class="headerlink" title="2.4 fsimage、edits"></a>2.4 fsimage、edits</h5><p>&#8195;&#8195;fsimage 文件，记录元数据信息的文件edits文件，记录元数据信息改动的文件。只要元数据发生变化，这个edits文件就会有对应记录。<br>fsimage和edits文件会定期做合并，这个周期默认是3600s。fsimage根据edits里改动记录进行元数据更新。<br>元数据信息如果丢失，HDFS就不能正常工作了，因此在生产环境中，元数据是需要做备份的。<br>hadoop集群部署中，命令hadoop namenode -format 执行时，创建了初始的fsimage文件和edits文件，如下所示：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@nn current]# pwd</span><br><span class="line">&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;namenode&#x2F;current</span><br><span class="line">......</span><br><span class="line">edits_0000000000000000556-0000000000000000557  fsimage_0000000000000001186</span><br><span class="line">edits_0000000000000000558-0000000000000000655  fsimage_0000000000000001186.md5</span><br></pre></td></tr></table></figure>
+
 <h5 id="2-5-Secondary-Namenode"><a href="#2-5-Secondary-Namenode" class="headerlink" title="2.5 Secondary Namenode"></a>2.5 Secondary Namenode</h5><p>辅助 NameNode，分担其工作量。<br>定期合并 fsimage和fsedits，并推送给NameNode。<br>在紧急情况下，可辅助恢复 NameNode。<br>Hadoop集群最开始启动的时候，创建Fsimage和edits文件，这个namenode负责，此外，namenode会做一次文件合并工作，这么做的目的是确保元数据信息是最新的，之后的合并工作，就交给SN去做了。这种SN机制是Hadoop1.0的机制，该机制达不到元数据的实时更新，若NN宕机，元数据信息可能还会丢失。</p>
 <h5 id="2-6-DataNode"><a href="#2-6-DataNode" class="headerlink" title="2.6 DataNode"></a>2.6 DataNode</h5><p>Slave角色，具体干活者，NameNode下发指令操作，DataNode 执行实际的操作<br>存储实际的物理数据块block。<br>执行数据块的读/写操作。<br>为了防止datanode挂掉造成的数据丢失，对于文件块要有备份，一个文件块有三个副本。这里体现出hdfs是一种高容错的文件系统。<br>在服务器上的构成：</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 subdir0]# pwd</span><br><span class="line">/opt/hadoop-3.1.2/datanode/current/BP-1004123743-192.188.0.4-***current/finalized/subdir0/subdir0</span><br><span class="line">......</span><br><span class="line">blk_1073741876_1052.meta  blk_1073741901_1078.meta  blk_1073741916_1100.meta</span><br><span class="line">blk_1073741877            blk_1073741902</span><br><span class="line">blk_1073741877_1053.meta  blk_1073741902_1079.meta</span><br></pre></td></tr></table></figure>
+
+
 <h5 id="2-7-HDFS写文件流程图"><a href="#2-7-HDFS写文件流程图" class="headerlink" title="2.7 HDFS写文件流程图"></a>2.7 HDFS写文件流程图</h5><p><img src="https://img-blog.csdnimg.cn/20191015000223140.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <p>1）、发起一个写数据请求，并指定上传文件的路径，然后去找NN。NN首先会判断路径合法性以及客户端是否有写权限，若符合，则NN会给客户端返回一个输出流。此外，NN会为文件分配块存储信息（理解为记录block文件位置大小等信息的索引文件）。注意NN也是分配块的存储信息，但不做物理切块工作。</p>
 <p>2）、客户端拿到输出流以及块存储信息之后，就开始向DN节点写数据。因为一个块数据，有三个副本，所以图里有三个NN节点。<br>3）、数据块的发送（管道发送或者接力棒传递方式），先发给第一台DN节点，数据再从第一台DN发往第二台DN，……，此方式用到了pipeLine 数据流管道的机制，就像redis发送管道命令，然后批量返回结果，从而减少网络来回RTT时间消耗。<br>pipeLine:[bl1,datanode01-datanode02-datanode-03]<br>数据流管道充分利用每台机器的带宽，避免网络瓶颈和高延时的连接，最小化推送所有数据的延时，提高传输效率。<br>packet 默认为64kb大小的数据包</p>
@@ -309,11 +313,12 @@
 </li>
 <li><p>fsImage_*：元数据镜像文件，即系统的目录树，包括文件目录和inodes元信息（文件名，文件大小，创建时间，备份级别，访问权限，block size，所有block的构成)，每个inode是hdfs的一个代表文件或者目录的元数据。这个镜像文件相当于hdfs的元数据额数据库文件。</p>
 </li>
-<li><p>edits<em>*：编辑日志文件，也就是事务日志文件，也就是针对文件系统做的修改操作记录，记录元数据的变化，相当于操作日志文件。一个文件的创建，追加，移动等。 NameNode内存中存储的是=fsimage+edits 检查点：NameNode启动时，从磁盘中读取上面两种文件，然后把edits</em><em>里面记录的事务全部刷新到 fsimage_</em>中，这样就截去了旧的edits_*事务日志，这个过程叫checkpoint。</p>
+<li><p>edits_<em>：编辑日志文件，也就是事务日志文件，也就是针对文件系统做的修改操作记录，记录元数据的变化，相当于操作日志文件。一个文件的创建，追加，移动等。 NameNode内存中存储的是=fsimage+edits 检查点：NameNode启动时，从磁盘中读取上面两种文件，然后把edits_</em>里面记录的事务全部刷新到 fsimage_<em>中，这样就截去了旧的edits_</em>事务日志，这个过程叫checkpoint。</p>
 </li>
-<li><p>==为何使用一大一小两种数据结构的文件？ 因为fsimage本身是大文件，试想你要向大文件每时每刻open file—&gt;append new line—&gt; close file，也太累了吧。因此可把新来的操作记录放到小的EditLog里， 再设定每隔一段时间，把一个FsImage和一个Editlog 进行合并会得到一个新的FsImage。==</p>
+<li><p>==为何使用一大一小两种数据结构的文件？ 因为fsimage本身是大文件，试想你要向大文件每时每刻open file–&gt;append new line–&gt; close file，也太累了吧。因此可把新来的操作记录放到小的EditLog里， 再设定每隔一段时间，把一个FsImage和一个Editlog 进行合并会得到一个新的FsImage。==</p>
 </li>
-<li>==fsimage中存储的信息就相当于整个hdfs在某一时刻的一个快照==，既然这个快照可以管理整个hdfs集群的文件信息，那么对其备份则非常重要，于是<br>引入一个叫SendaryNamenode的节点用来做备份fsimage，它会定期的和namenode就行通信来完成整个的备份操作，具体工作原理见第4点：</li>
+<li><p>==fsimage中存储的信息就相当于整个hdfs在某一时刻的一个快照==，既然这个快照可以管理整个hdfs集群的文件信息，那么对其备份则非常重要，于是<br>引入一个叫SendaryNamenode的节点用来做备份fsimage，它会定期的和namenode就行通信来完成整个的备份操作，具体工作原理见第4点：</p>
+</li>
 </ul>
 <h4 id="4、SecondaryNameNode合并FSImage"><a href="#4、SecondaryNameNode合并FSImage" class="headerlink" title="4、SecondaryNameNode合并FSImage"></a>4、SecondaryNameNode合并FSImage</h4><p><img src="https://img-blog.csdnimg.cn/20191015220557202.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;为何NN节点不负责合并工作而是由其他节点服务器来运行此任务？<br>因为这两个文件合并过程需要消耗内存、磁盘io以及cpu，因此将这些“蓝领”工作交给其他节点做，否则NN主节点消耗大量资源。<br>具体流程：<br>1）、SN定时和NN通信chectpoint，在什么时候进行checkpoint？由两个参数dfs.namenode.checkpoint.preiod(默认值是3600，即1小时)和dfs.namenode.checkpoint.txns(默认值是1000000)来决定），通过请求NN其停止使用edits文件，暂时将新的操作写到一个新的edits.new文件<br>2）、SN通过HTTP GET方式从NN上获取到fsimge和edits文件，并下载到本地的相应目录下；<br>3）、SN将下载下来的fsimage载入到内存，然后一条一条地执行edits文件中的各项更新操作，使得内存中的fsimge保持最新；这个过程就是edits和fsimage文件合并，同时SN节点也会在磁盘上存放一份fsimage（不就实现了fsimage的备份吗）<br>4）、SN执行完（3）操作之后，会通过HTTP POST方式将新的fsimage文件发送到NN节点上<br>5）、 NN将从SN接收到的新的fsimage替换掉旧fsimage文件，同时将edits.new替换edits文件，通过这个过程edit内容就变小而且都是最新的操作日志。</p>
 <h4 id="5、文件blocks副本存放策略"><a href="#5、文件blocks副本存放策略" class="headerlink" title="5、文件blocks副本存放策略"></a>5、文件blocks副本存放策略</h4><p>&#8195;&#8195;NN节点如何选择在哪个datanode 存储block副本？<br>这里需要对可靠性、写入带宽和读取带宽进行权衡。Hadoop对DN存储副本有自己的副本策略，在其发展过程中一共有两个版本的副本策略，分别如下所示：<br><img src="https://img-blog.csdnimg.cn/20191015223215262.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
@@ -416,14 +421,14 @@
       <div class="site-state-item site-state-posts">
           <a href="/blog/archives/">
         
-          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/blog/categories/">
           
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -469,12 +474,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">554k</span>
+    <span title="站点总字数">575k</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:23</span>
+    <span title="站点阅读时长">8:43</span>
 </div>
 
         

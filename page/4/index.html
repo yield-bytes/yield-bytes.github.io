@@ -187,6 +187,200 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          
+            <a href="/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/" class="post-title-link" itemprop="url">基于redis实现分布式锁（单实例）</a>
+        </h2>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-09-19 22:00:53" itemprop="dateCreated datePublished" datetime="2019-09-19T22:00:53+08:00">2019-09-19</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 20:16:06" itemprop="dateModified" datetime="2020-02-03T20:16:06+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Redis/" itemprop="url" rel="index"><span itemprop="name">Redis</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>7.7k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>7 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+          <p>&#8195;&#8195;zookeeper的分布式方案当然最优雅也最可靠，如果redis集群服务已经搭起或者哨兵模式已经部署的条件下，那么基于多个redis实例实现的分布式锁同样高可用，而且redis性能凸显，本文给出的是在单个redis服务上使用setnx+expire实现可用的分布式锁，也可使用redis的事务MULTI+WATCH机制实现分布式锁，只不过这种方式相对简单，本文不再赘述。</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/#more" rel="contents">
+                阅读全文 &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
+      
+    </div>
+
+    
+    
+    
+      <footer class="post-footer">
+        <div class="post-eof"></div>
+      </footer>
+  </article>
+  
+  
+  
+
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/09/14/redis-cluster%E5%8E%9F%E7%90%86%E5%8F%8A%E5%85%B6%E9%83%A8%E7%BD%B2%E6%B5%8B%E8%AF%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          
+            <a href="/blog/2019/09/14/redis-cluster%E5%8E%9F%E7%90%86%E5%8F%8A%E5%85%B6%E9%83%A8%E7%BD%B2%E6%B5%8B%E8%AF%95/" class="post-title-link" itemprop="url">redis-cluster原理及其部署测试</a>
+        </h2>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-09-14 14:27:37" itemprop="dateCreated datePublished" datetime="2019-09-14T14:27:37+08:00">2019-09-14</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 20:20:46" itemprop="dateModified" datetime="2020-02-03T20:20:46+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Redis/" itemprop="url" rel="index"><span itemprop="name">Redis</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>11k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>10 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+          <h3 id="1、Part-I"><a href="#1、Part-I" class="headerlink" title="1、Part I"></a>1、Part I</h3><p>这里主要讨论redis集群数据分片的内容</p>
+<h4 id="1-1-为何使用redis-cluster模式？"><a href="#1-1-为何使用redis-cluster模式？" class="headerlink" title="1.1 为何使用redis-cluster模式？"></a>1.1 为何使用redis-cluster模式？</h4><p>1）首先避免单点故障，本人项目中用了主从模式，但因并发量不高，而且在redis不可用条件下，可以直接去数据库拿数据，所以还未部署集群模式。</p>
+<p>2）redis官方给出单服务最高可以达到每秒执行10万条命令的性能，其实这对于绝大部分项目都够用了，这里给出集群模式的讨论，一为了深入了解redis，二是如果有一种需求需要百万/s的操作，显然redis单服务无法满足需求</p>
+<p>3）内存吃满，redis首先将数据写在内存中，同时不定时异步持久化存在硬盘，一般服务器32G、64G、128G内存，若redis接收的数据量高达1T，128G内存的高性能服务器也会崩溃，故需要做</p>
+<p>数据分片（sharding），分别存储在多个redis服务器中，这就需要redis集群模式支持了，这不就是经典的分布式数据库思想吗！</p>
+          <!--noindex-->
+            <div class="post-button">
+              <a class="btn" href="/blog/2019/09/14/redis-cluster%E5%8E%9F%E7%90%86%E5%8F%8A%E5%85%B6%E9%83%A8%E7%BD%B2%E6%B5%8B%E8%AF%95/#more" rel="contents">
+                阅读全文 &raquo;
+              </a>
+            </div>
+          <!--/noindex-->
+        
+      
+    </div>
+
+    
+    
+    
+      <footer class="post-footer">
+        <div class="post-eof"></div>
+      </footer>
+  </article>
+  
+  
+  
+
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
     <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/09/11/%E5%9F%BA%E4%BA%8EZookeeper%E7%9A%84%E4%B8%B4%E6%97%B6%E9%A1%BA%E5%BA%8F%E8%8A%82%E7%82%B9%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -545,6 +739,7 @@
 <h3 id="1、部署docker和docker-compose"><a href="#1、部署docker和docker-compose" class="headerlink" title="1、部署docker和docker-compose"></a>1、部署docker和docker-compose</h3><p>参考本博客文章：<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/100547816">链接</a></p>
 <h3 id="2、部署zookeeper集群"><a href="#2、部署zookeeper集群" class="headerlink" title="2、部署zookeeper集群"></a>2、部署zookeeper集群</h3><p>&#8195;&#8195;拉取zk镜像，可以dockerhub上面看下目前的zk官方镜像的tag有什么版本，默认是latest，接着是3.5.5以及3.4.14，这里用的stable版本3.4.14</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 opt]# docker pull zookeeper:3.4.14</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
 <p>在宿主机上新建一个存放docker集群zk服务器目录（仅为了方便管理），并在该目录下新建一个compose配置文件</p>
           <!--noindex-->
             <div class="post-button">
@@ -641,7 +836,8 @@
 
       
           <p>&#8195;&#8195;在测试机上搭建docker以及docker-compose环境目的还是为了快速构成开发环境，无需在裸机上为项目配置各种繁琐部署。</p>
-<h4 id="1、安装docker"><a href="#1、安装docker" class="headerlink" title="1、安装docker"></a>1、安装docker</h4><p>查看centos版本以及内核版本，docker仅支持3.10以上的内核<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 ~]# cat /etc/redhat-release</span><br><span class="line">CentOS Linux release 7.6.1810 (Core) </span><br><span class="line">[root@dn2 ~]# uname -r</span><br><span class="line">3.10.0-957.27.2.el7.x86_64</span><br></pre></td></tr></table></figure></p>
+<h4 id="1、安装docker"><a href="#1、安装docker" class="headerlink" title="1、安装docker"></a>1、安装docker</h4><p>查看centos版本以及内核版本，docker仅支持3.10以上的内核</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 ~]# cat /etc/redhat-release</span><br><span class="line">CentOS Linux release 7.6.1810 (Core) </span><br><span class="line">[root@dn2 ~]# uname -r</span><br><span class="line">3.10.0-957.27.2.el7.x86_64</span><br></pre></td></tr></table></figure>
           <!--noindex-->
             <div class="post-button">
               <a class="btn" href="/blog/2019/09/04/Centos7%E9%85%8D%E7%BD%AEdocker%E5%92%8Cdocker-compose%E7%8E%AF%E5%A2%83/#more" rel="contents">
@@ -949,201 +1145,6 @@
   
   
 
-      
-  
-  
-  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/06/30/centos%E5%AD%98%E5%82%A8%E6%89%A9%E5%AE%B9%E9%85%8D%E7%BD%AE%EF%BC%88%E5%9F%BA%E4%BA%8ELVM%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
-      <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="yield-bytes">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          
-            <a href="/blog/2019/06/30/centos%E5%AD%98%E5%82%A8%E6%89%A9%E5%AE%B9%E9%85%8D%E7%BD%AE%EF%BC%88%E5%9F%BA%E4%BA%8ELVM%EF%BC%89/" class="post-title-link" itemprop="url">centos存储扩容配置（基于LVM）</a>
-        </h2>
-
-        <div class="post-meta">
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-calendar"></i>
-              </span>
-              <span class="post-meta-item-text">发表于</span>
-
-              <time title="创建时间：2019-06-30 20:56:19" itemprop="dateCreated datePublished" datetime="2019-06-30T20:56:19+08:00">2019-06-30</time>
-            </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-02-04 12:24:26" itemprop="dateModified" datetime="2020-02-04T12:24:26+08:00">2020-02-04</time>
-              </span>
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-folder"></i>
-              </span>
-              <span class="post-meta-item-text">分类于</span>
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/blog/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
-                </span>
-            </span>
-
-          <br>
-            <span class="post-meta-item" title="本文字数">
-              <span class="post-meta-item-icon">
-                <i class="far fa-file-word"></i>
-              </span>
-                <span class="post-meta-item-text">本文字数：</span>
-              <span>4.9k</span>
-            </span>
-            <span class="post-meta-item" title="阅读时长">
-              <span class="post-meta-item-icon">
-                <i class="far fa-clock"></i>
-              </span>
-                <span class="post-meta-item-text">阅读时长 &asymp;</span>
-              <span>4 分钟</span>
-            </span>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
-          <p>&#8195;&#8195;在全栈开发项目中，当项目已经部署到服务器（虚拟机、物理机或者云主机）后，有些分区若空间分配不合理，数据库以及相关日志文件将很快占满磁盘空间，因此需在后期手动为项目所在服务器空间进行扩容。</p>
-          <!--noindex-->
-            <div class="post-button">
-              <a class="btn" href="/blog/2019/06/30/centos%E5%AD%98%E5%82%A8%E6%89%A9%E5%AE%B9%E9%85%8D%E7%BD%AE%EF%BC%88%E5%9F%BA%E4%BA%8ELVM%EF%BC%89/#more" rel="contents">
-                阅读全文 &raquo;
-              </a>
-            </div>
-          <!--/noindex-->
-        
-      
-    </div>
-
-    
-    
-    
-      <footer class="post-footer">
-        <div class="post-eof"></div>
-      </footer>
-  </article>
-  
-  
-  
-
-      
-  
-  
-  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
-      <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="yield-bytes">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          
-            <a href="/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/" class="post-title-link" itemprop="url">基于Keepalived实现双机主备</a>
-        </h2>
-
-        <div class="post-meta">
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-calendar"></i>
-              </span>
-              <span class="post-meta-item-text">发表于</span>
-
-              <time title="创建时间：2019-06-30 20:56:19" itemprop="dateCreated datePublished" datetime="2019-06-30T20:56:19+08:00">2019-06-30</time>
-            </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2020-02-04 12:32:08" itemprop="dateModified" datetime="2020-02-04T12:32:08+08:00">2020-02-04</time>
-              </span>
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-folder"></i>
-              </span>
-              <span class="post-meta-item-text">分类于</span>
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/blog/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
-                </span>
-            </span>
-
-          <br>
-            <span class="post-meta-item" title="本文字数">
-              <span class="post-meta-item-icon">
-                <i class="far fa-file-word"></i>
-              </span>
-                <span class="post-meta-item-text">本文字数：</span>
-              <span>6.6k</span>
-            </span>
-            <span class="post-meta-item" title="阅读时长">
-              <span class="post-meta-item-icon">
-                <i class="far fa-clock"></i>
-              </span>
-                <span class="post-meta-item-text">阅读时长 &asymp;</span>
-              <span>6 分钟</span>
-            </span>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
-          <p>&#8195;&#8195;本文使用keepalived快速配置实现双机主备模式，该模式为keepalived入门使用，生产使用需要谨慎，当然可用于帮助理解keepalived</p>
-<p>步骤：</p>
-<p>1）主备server安装keepalived</p>
-<p>2）主备server配置keepalived.conf</p>
-<p>3）主备server安装httpd web服务（用于测试）</p>
-<p>4）主备启动keepalived，并测试master、backup各自中断服务后，访问情况</p>
-          <!--noindex-->
-            <div class="post-button">
-              <a class="btn" href="/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/#more" rel="contents">
-                阅读全文 &raquo;
-              </a>
-            </div>
-          <!--/noindex-->
-        
-      
-    </div>
-
-    
-    
-    
-      <footer class="post-footer">
-        <div class="post-eof"></div>
-      </footer>
-  </article>
-  
-  
-  
-
 
   
   <nav class="pagination">
@@ -1215,14 +1216,14 @@
       <div class="site-state-item site-state-posts">
           <a href="/blog/archives/">
         
-          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/blog/categories/">
           
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -1268,12 +1269,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">554k</span>
+    <span title="站点总字数">575k</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:23</span>
+    <span title="站点阅读时长">8:43</span>
 </div>
 
         

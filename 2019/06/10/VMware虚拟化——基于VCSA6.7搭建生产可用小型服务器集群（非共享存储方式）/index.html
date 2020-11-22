@@ -270,6 +270,7 @@
 <p>架构图如下：</p>
 <p><img src="https://img-blog.csdnimg.cn/20190711221651975.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="img">非共享存储服务器集群虚拟化后的大致架构图</p>
 <a id="more"></a>
+
 <p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
 <h5 id="1、服务器物理位置"><a href="#1、服务器物理位置" class="headerlink" title="1、服务器物理位置"></a>1、服务器物理位置</h5><p>&#8195;&#8195;机框1放置主服务器，机框2放置备服务器，两台构成主备虚拟化物理华三交换机可放置与机框1底下，或者放置到旁边位置（位置放太远不方便服务器网线连接交换机），参考第二点图：</p>
 <h5 id="2、物理链路连接"><a href="#2、物理链路连接" class="headerlink" title="2、物理链路连接"></a>2、物理链路连接</h5><p><img src="https://img-blog.csdnimg.cn/20190711214645479.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="拓扑图">拓扑图</p>
@@ -285,6 +286,7 @@
 <p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
 <p>配置过程：</p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"> <span class="comment"># 设置主交换机成员号1</span></span><br><span class="line">（1）irf member 1 renumber 1 </span><br><span class="line"></span><br><span class="line"> <span class="comment"># 设置本交换机优先级，值大优先级越高，越有可能成为master</span></span><br><span class="line"> (2) irf member 1 priority 20</span><br><span class="line"> (3) shutdown需要irf的物理端口23/24口</span><br><span class="line"></span><br><span class="line"> <span class="comment">#创建虚拟化逻辑端口 1/1表示 member=1/portID=1 并把23和24口加入（绑定）该逻辑端口</span></span><br><span class="line"> (4) irf-port 1/1</span><br><span class="line">    port group interface 23</span><br><span class="line">    port group interface 24</span><br><span class="line">“”“</span><br><span class="line">这里需要注意：主sw使用irf-port 1/1，那么在备sw必须使用irf-port 2/2，也即portID必须互为不     同，否则irf报错，提示portID冲突，无法建立irf环境，</span><br><span class="line">主sw的irf-port 1/1对应备sw的irf-port 2/2 </span><br><span class="line">或主sw的irf-port 1/2 对应备sw的irf-port 2/1,</span><br><span class="line">不能Irf-port 1/1 搭配Irf-port 2/1 或者Irf-port 1/2 搭配Irf-port 2/2</span><br><span class="line">”“”</span><br><span class="line"> (5)开启irf的23、24物理端口，并save保存配置</span><br><span class="line"></span><br><span class="line"> <span class="comment">#激活irf配置，并重启</span></span><br><span class="line"> (6) irf-port-configuration active </span><br><span class="line"></span><br><span class="line"><span class="comment"># 备sw的配置过程同上，不同的地方</span></span><br><span class="line"> (1) 成员号配置为2，备sw交换机的端口前缀从默认的1/0/~变为2/0/~（若有第三台，配置为3，端口前缀变为3/0/~，这个成员号配置是sw堆叠后，方便区别端口是属于哪台sw）</span><br><span class="line"> (2) sw的优先级配为10，比主sw的低</span><br><span class="line"> (2) 因主sw的逻辑端口配为irf-port 1/1，故备sw需配置为irf-port 2/2</span><br><span class="line"></span><br><span class="line"><span class="comment"># 最后优化irf配置</span></span><br><span class="line"> undo irf mac-address persistent</span><br><span class="line"> irf auto-update <span class="built_in">enable</span></span><br><span class="line"> undo irf link-delay</span><br><span class="line"></span><br><span class="line">查看irf状态 dis irf</span><br><span class="line">MemberID    Role    Priority  CPU-Mac         Description</span><br><span class="line"> *+1        Master  20        00f0-a31p-6t02  ---</span><br><span class="line">   2        Standby 10        00f0-a31p-6t03  ---</span><br><span class="line"></span><br><span class="line">查看irf端口状态</span><br><span class="line">Member 1</span><br><span class="line"> IRF Port  Interface                             Status</span><br><span class="line"> 1         GigabitEthernet1/0/23                 UP    </span><br><span class="line">           GigabitEthernet1/0/24                 UP    </span><br><span class="line"> 2         <span class="built_in">disable</span>                               --    </span><br><span class="line">Member 2</span><br><span class="line"> IRF Port  Interface                             Status</span><br><span class="line"> 1         <span class="built_in">disable</span>                               --    </span><br><span class="line"> 2         GigabitEthernet2/0/23                 UP    </span><br><span class="line">           GigabitEthernet2/0/24                 UP  </span><br></pre></td></tr></table></figure>
+
 <p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
 <h5 id="4、每台物理服务器存储配置"><a href="#4、每台物理服务器存储配置" class="headerlink" title="4、每台物理服务器存储配置"></a>4、每台物理服务器存储配置</h5><p>&#8195;&#8195;生产数据安全需优先，对每台物理服务器存储（SAS硬盘）配置RAID1，牺牲了一部分读写速度，这里RAID1的配置有个注意的地方，如果server提供的是非多媒体图片、视频等业务，读写都是“小块数据类”，那么RAID1 initial化stride设为最小256kb，若server提供的为图片、视频等业务，读写都是“大块数据类”，那么RAID1 initial化stride设为最大1024kb，以优化RAID的读写速度。</p>
 <h5 id="5、业务网段和管理网段分开"><a href="#5、业务网段和管理网段分开" class="headerlink" title="5、业务网段和管理网段分开"></a>5、业务网段和管理网段分开</h5><p>&#8195;&#8195;在第二部分的物理链路拓扑图可以看到，数据链路和管理链路是分开的物理连接，实际使用场景中，一般会规划两个不同的网段使用，例如业务数据网段182.21.0.0/16，这个网段都是给vm虚拟机使用，网段大小可以自行根据vm数量规划，这里的掩码为16位，可以提供（<img src="https://private.codecogs.com/gif.latex?2%5E%7B16%7D-2" alt="2^{16}-2">）个VM使用，当然实际场景，很多企业不可能达到这么大的主机数，掩码可以设/24；另外一网段则用于ESXI主机管理口，例如182.22.10.0/24。一般企业来说，ESXI主机数量不会太多，可以设一个掩码8位的小网段，可以提供254个ESXI服务器使用。</p>
@@ -384,14 +386,14 @@
       <div class="site-state-item site-state-posts">
           <a href="/blog/archives/">
         
-          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/blog/categories/">
           
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -437,12 +439,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">554k</span>
+    <span title="站点总字数">575k</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:23</span>
+    <span title="站点阅读时长">8:43</span>
 </div>
 
         

@@ -259,6 +259,7 @@
       
         <p>&#8195;&#8195;在全栈开发项目中，当项目已经部署到服务器（虚拟机、物理机或者云主机）后，有些分区若空间分配不合理，数据库以及相关日志文件将很快占满磁盘空间，因此需在后期手动为项目所在服务器空间进行扩容。</p>
 <a id="more"></a>
+
 <h5 id="步骤"><a href="#步骤" class="headerlink" title="步骤"></a>步骤</h5><ol>
 <li>查看</li>
 <li>分区</li>
@@ -277,10 +278,9 @@
 <ul>
 <li>大致意思：原计算机界存储底层设计一个物理扇区对应512字节，里面包括数据和纠错冗余码，但现在需要存储大量数据，需要 ==<strong>提高每个物理扇区的字节容量，才能从整体上扩大硬盘容量，也让每个扇区放入更强大的纠错算法</strong>==，从而达到增加磁盘容量+提高可靠性两方面提升</li>
 <li>在以往计算机的软件产业链里面，都是基于512 字节扇区来设计和实现，例如在基本输入/输出系统（BIOS）、引导装载程序、操作系统内核、文件系统代码和磁盘工具等工具中，也就是“软件层”只认512标准，物理扇区却提供4096，如何处理这种矛盾？</li>
-<li>采用“中间件（内核驱动？）”软件层， ==<strong>将底层物理扇区划分为8个512字节的扇区，对于“软件层”来说，它们还是基于在512字节的扇区去操作数据</strong>==，西部数据是第一家生产这种磁盘的制造商，它用“ Advanced Format ”来代表带 4096 字节物理扇区且向 512 字节逻辑扇区转换的磁盘<br>既然涉及到数据写入4096字节物理扇区的的磁盘，中间需要分8个逻辑扇区去写入，那么这个过程是性能损耗的，具体说明如下：<br>最新的文件系统使用 4096 字节或更大尺寸的数据结构，因此，大部分磁盘 I/O 操作占用4k倍数的大小扇区，假设现在Linux系统要将一个文件写入到磁盘，<br>（1）当文件系统数据结构正好与底层物理分区4k大小一致，对 4k字节数据结构的读，就是直接对单一扇区的读写，因此硬盘的固件不需要做其他操作，不影响性能；<br>（2） 但当文件系统数据结构与底层物理扇区4k不完全一致时，例如文件为7k大小，读写操作必须使用两个物理扇区，对于读操作，因为读写头总是以大概率扫过连续两个扇区，不会消耗而外时间，==<strong>而对于写操作，磁盘的固件首先读取两个物理扇区，修改两个扇区的分区（分成2*8=16个逻辑扇区），然后入两个物理扇区。该操作所需时间比 4k占用一个扇区时所需时间多。因此，性能下降。</strong>==<br>（3）如何判断文件数据结构是否得到合理对齐（放置到扇区上）？ 大多数文件系统将其数据结构与包含其本身的分区开头对齐。因此，如果一个分区起始于以一个 4096 字节（或8 个扇区的分界）边界，例如下表所示，则表示它得到合理对齐</li>
+<li>采用“中间件（内核驱动？）”软件层， ==<strong>将底层物理扇区划分为8个512字节的扇区，对于“软件层”来说，它们还是基于在512字节的扇区去操作数据</strong>==，西部数据是第一家生产这种磁盘的制造商，它用“ Advanced Format ”来代表带 4096 字节物理扇区且向 512 字节逻辑扇区转换的磁盘<br>既然涉及到数据写入4096字节物理扇区的的磁盘，中间需要分8个逻辑扇区去写入，那么这个过程是性能损耗的，具体说明如下：<br>最新的文件系统使用 4096 字节或更大尺寸的数据结构，因此，大部分磁盘 I/O 操作占用4k倍数的大小扇区，假设现在Linux系统要将一个文件写入到磁盘，<br>（1）当文件系统数据结构正好与底层物理分区4k大小一致，对 4k字节数据结构的读，就是直接对单一扇区的读写，因此硬盘的固件不需要做其他操作，不影响性能；<br>（2） 但当文件系统数据结构与底层物理扇区4k不完全一致时，例如文件为7k大小，读写操作必须使用两个物理扇区，对于读操作，因为读写头总是以大概率扫过连续两个扇区，不会消耗而外时间，==*<em>而对于写操作，磁盘的固件首先读取两个物理扇区，修改两个扇区的分区（分成2</em>8=16个逻辑扇区），然后入两个物理扇区。该操作所需时间比 4k占用一个扇区时所需时间多。因此，性能下降。**==<br>（3）如何判断文件数据结构是否得到合理对齐（放置到扇区上）？ 大多数文件系统将其数据结构与包含其本身的分区开头对齐。因此，如果一个分区起始于以一个 4096 字节（或8 个扇区的分界）边界，例如下表所示，则表示它得到合理对齐</li>
 </ul>
 </blockquote>
-<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -289,8 +289,7 @@
 <th>end</th>
 </tr>
 </thead>
-<tbody>
-<tr>
+<tbody><tr>
 <td>sda1</td>
 <td>2048</td>
 <td>4096</td>
@@ -305,21 +304,27 @@
 <td>8192</td>
 <td>(8192+4096*10000)</td>
 </tr>
-</tbody>
-</table>
-</div>
+</tbody></table>
 <ul>
 <li><h4 id="分区"><a href="#分区" class="headerlink" title="分区"></a>分区</h4>在使用fdisk /dev/sdb 进行分区时，由于centos已经默认第一个分区的边界时从2048开始，而是不是从0，128等小值开始，以下是以4096作为分区的起始值，为何要以一个大值作为第一个扇区边界值：==<strong>为 MBR 与第一个分区之间的未分配空间中的装载引导程序代码留出空间</strong>==<br>Partition number (1-4, default 1):<br>First sector  ==(2048-10485759, default 2048)== 4096<br>Last sector, +sectors or +size{K,M,G} (4096-10485759, default 10485759):<br>Using default value 10485759<br>Partition 1 of type Linux and of size 5 GiB is set<br>==要设为LVM分区，t命令更改==<br>Command (m for help): t<br>Selected partition 1<br>Hex code (type L to list all codes): 8e<br>Changed type of partition ‘Linux’ to ‘Linux LVM’</li>
 </ul>
-<p>Command (m for help): w<br>The partition table has been altered!<br>查看最新分区<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">   Device Boot      Start         End      Blocks   Id  System</span><br><span class="line">/dev/sdb1            2048    10485759     5241856   8e  Linux LVM</span><br></pre></td></tr></table></figure><br>5G硬盘已经被分区sdb1，LVM类型</p>
+<p>Command (m for help): w<br>The partition table has been altered!<br>查看最新分区</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">   Device Boot      Start         End      Blocks   Id  System</span><br><span class="line">/dev/sdb1            2048    10485759     5241856   8e  Linux LVM</span><br></pre></td></tr></table></figure>
+<p>5G硬盘已经被分区sdb1，LVM类型</p>
 <ul>
 <li><h3 id="格式化"><a href="#格式化" class="headerlink" title="格式化"></a>格式化</h3>格式化为一定格式的文件系统，与目标挂载目录的文件系统一致<br>通过命令查看<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 ~]# df -Th</span><br><span class="line">Filesystem              Type      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/mapper/centos-root xfs       2G  1.9G  1  80% /</span><br><span class="line">devtmpfs                devtmpfs  482M     0  482M   0% /dev</span><br><span class="line">tmpfs                   tmpfs     494M     0  494M   0% /dev/shm</span><br><span class="line">tmpfs                   tmpfs     494M  7.0M  487M   2% /run</span><br><span class="line">tmpfs                   tmpfs     494M     0  494M   0% /sys/fs/cgroup</span><br><span class="line">/dev/sda1               xfs      1014M  162M  853M  16% /boot</span><br><span class="line">tmpfs                   tmpfs      99M     0   99M   0% /run/user/0  </span><br><span class="line">....</span><br></pre></td></tr></table></figure>
 以上可以看到根目录/ 文件系统格式为 xfs<br>故将sdb1格式为xfs<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> 可以看到mkfs有常见的文件系统格式</span></span><br><span class="line">[root@nn ~]# mkfs</span><br><span class="line">mkfs         mkfs.btrfs   mkfs.cramfs  mkfs.ext2    mkfs.ext3    mkfs.ext4    mkfs.minix   mkfs.xfs </span><br><span class="line"><span class="meta">#</span><span class="bash"> 将新分区格式为xfs</span></span><br><span class="line">[root@nn ~]# mkfs.xfs /dev/sdb1</span><br></pre></td></tr></table></figure></li>
 <li>调整目标LVM大小<br>（1）查看现有Volume Group名称</li>
 </ul>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# vgdisplay </span><br><span class="line">  --- Volume group ---</span><br><span class="line">  VG Name               centos</span><br><span class="line">  System ID             </span><br><span class="line">  Format                lvm2</span><br><span class="line">  .....</span><br></pre></td></tr></table></figure>
-<p>这里vg名称为默认值：centos<br>（2）对新分区sdb1创建对应的物理卷<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pvcreate /dev/sdb1</span><br></pre></td></tr></table></figure><br> (3) 用以上物理卷扩展VG：centos<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">vgextend centos /dev/sdb1</span><br><span class="line"><span class="meta">#</span><span class="bash"> No physical volume label <span class="built_in">read</span> from /dev/sdb1 Writing physical volume</span> </span><br><span class="line"><span class="meta">#</span><span class="bash">data to disk <span class="string">&quot;/dev/sdb1&quot;</span></span> </span><br><span class="line"><span class="meta">#</span><span class="bash">Physical volume <span class="string">&quot;/dev/sdb1&quot;</span> successfully created</span> </span><br><span class="line"><span class="meta">#</span><span class="bash">Volume group <span class="string">&quot;centos&quot;</span> successfully extended</span></span><br></pre></td></tr></table></figure><br> (4) 扩展 LVM 的逻辑卷 centos-root<br> 查看有哪些LVM逻辑卷<br> <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# lvdisplay </span><br><span class="line">  --- Logical volume ---</span><br><span class="line">  LV Path                /dev/centos/swap</span><br><span class="line">  LV Name                swap</span><br><span class="line">  VG Name                centos</span><br><span class="line">  LV Size                412.00 MiB</span><br><span class="line">  --- Logical volume ---</span><br><span class="line">  LV Path                /dev/centos/root</span><br><span class="line">  LV Name                root</span><br><span class="line">  VG Name                centos</span><br><span class="line">  LV Size                2.59 GiB</span><br></pre></td></tr></table></figure><br> 截取关键行，以上显示有两个逻辑卷，swap和root，都归属于VG：centos<br> 现在要用sdb1增加的容量来扩展的root 逻辑卷，对于的LV path：/dev/centos/root<br> ==扩展==<br> ==<code>lvextend  /dev/centos/root    /dev/sdb1</code>==<br> ==调整大小==<br>==<code>xfs_growfs  /dev/centos/root</code>==</p>
-<p>(5) 查看扩展效果<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# lvscan </span><br><span class="line">  ACTIVE            &#x27;/dev/centos/swap&#x27; [412.00 MiB] inherit</span><br><span class="line">  ACTIVE            &#x27;/dev/centos/root&#x27; [&lt;7.59 GiB] inherit</span><br></pre></td></tr></table></figure></p>
+<p>这里vg名称为默认值：centos<br>（2）对新分区sdb1创建对应的物理卷</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pvcreate /dev/sdb1</span><br></pre></td></tr></table></figure>
+<p> (3) 用以上物理卷扩展VG：centos</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">vgextend centos /dev/sdb1</span><br><span class="line"><span class="meta">#</span><span class="bash"> No physical volume label <span class="built_in">read</span> from /dev/sdb1 Writing physical volume</span> </span><br><span class="line"><span class="meta">#</span><span class="bash">data to disk <span class="string">&quot;/dev/sdb1&quot;</span></span> </span><br><span class="line"><span class="meta">#</span><span class="bash">Physical volume <span class="string">&quot;/dev/sdb1&quot;</span> successfully created</span> </span><br><span class="line"><span class="meta">#</span><span class="bash">Volume group <span class="string">&quot;centos&quot;</span> successfully extended</span></span><br></pre></td></tr></table></figure>
+<p> (4) 扩展 LVM 的逻辑卷 centos-root<br> 查看有哪些LVM逻辑卷<br> <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# lvdisplay </span><br><span class="line">  --- Logical volume ---</span><br><span class="line">  LV Path                /dev/centos/swap</span><br><span class="line">  LV Name                swap</span><br><span class="line">  VG Name                centos</span><br><span class="line">  LV Size                412.00 MiB</span><br><span class="line">  --- Logical volume ---</span><br><span class="line">  LV Path                /dev/centos/root</span><br><span class="line">  LV Name                root</span><br><span class="line">  VG Name                centos</span><br><span class="line">  LV Size                2.59 GiB</span><br></pre></td></tr></table></figure><br> 截取关键行，以上显示有两个逻辑卷，swap和root，都归属于VG：centos<br> 现在要用sdb1增加的容量来扩展的root 逻辑卷，对于的LV path：/dev/centos/root<br> ==扩展==<br> ==<code>lvextend  /dev/centos/root    /dev/sdb1</code>==<br> ==调整大小==<br>==<code>xfs_growfs  /dev/centos/root</code>==</p>
+<p>(5) 查看扩展效果</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# lvscan </span><br><span class="line">  ACTIVE            &#x27;/dev/centos/swap&#x27; [412.00 MiB] inherit</span><br><span class="line">  ACTIVE            &#x27;/dev/centos/root&#x27; [&lt;7.59 GiB] inherit</span><br></pre></td></tr></table></figure>
+
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# df -Th</span><br><span class="line">Filesystem              Type      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/mapper/centos-root xfs       7.6G  2.9G  4.8G  38% /</span><br><span class="line">devtmpfs                devtmpfs  482M     0  482M   0% /dev</span><br><span class="line">tmpfs                   tmpfs     494M     0  494M   0% /dev/shm</span><br><span class="line">tmpfs                   tmpfs     494M  7.0M  487M   2% /run</span><br><span class="line">tmpfs                   tmpfs     494M     0  494M   0% /sys/fs/cgroup</span><br><span class="line">/dev/sda1               xfs      1014M  162M  853M  16% /boot</span><br><span class="line">tmpfs                   tmpfs      99M     0   99M   0% /run/user/0</span><br></pre></td></tr></table></figure>
 <p>以上都说明逻辑卷root对于根目录，容量从2.6G，扩展到7.6G</p>
 
@@ -421,14 +426,14 @@
       <div class="site-state-item site-state-posts">
           <a href="/blog/archives/">
         
-          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/blog/categories/">
           
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -474,12 +479,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">554k</span>
+    <span title="站点总字数">575k</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:23</span>
+    <span title="站点阅读时长">8:43</span>
 </div>
 
         
