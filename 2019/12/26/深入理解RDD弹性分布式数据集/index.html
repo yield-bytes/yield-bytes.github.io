@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在前面的博客《深入理解Spark》 深入探讨了Spark架构原理内容，该文提到Stage的划分，为什么要做Stage划分？是为了得到更小的Task计算单元，分发给Executor的线程运行，将规模庞大、多流程的计算任务划分为有序的小颗粒的计算单元，实现更高效的计算。那么Stage划分怎么实现？需依赖RDD(Resilient Distributed Datasets，弹">
+<meta property="og:type" content="article">
+<meta property="og:title" content="深入理解RDD弹性分布式数据集">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/12/26/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3RDD%E5%BC%B9%E6%80%A7%E5%88%86%E5%B8%83%E5%BC%8F%E6%95%B0%E6%8D%AE%E9%9B%86/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在前面的博客《深入理解Spark》 深入探讨了Spark架构原理内容，该文提到Stage的划分，为什么要做Stage划分？是为了得到更小的Task计算单元，分发给Executor的线程运行，将规模庞大、多流程的计算任务划分为有序的小颗粒的计算单元，实现更高效的计算。那么Stage划分怎么实现？需依赖RDD(Resilient Distributed Datasets，弹">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191222202637659.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191224193522623.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-12-26T11:37:19.000Z">
+<meta property="article:modified_time" content="2020-02-03T07:03:38.000Z">
+<meta property="article:tag" content="RDD">
+<meta property="article:tag" content="Spark">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191222202637659.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/12/26/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3RDD%E5%BC%B9%E6%80%A7%E5%88%86%E5%B8%83%E5%BC%8F%E6%95%B0%E6%8D%AE%E9%9B%86/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>深入理解RDD弹性分布式数据集 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/12/26/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3RDD%E5%BC%B9%E6%80%A7%E5%88%86%E5%B8%83%E5%BC%8F%E6%95%B0%E6%8D%AE%E9%9B%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          深入理解RDD弹性分布式数据集
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-12-26 19:37:19" itemprop="dateCreated datePublished" datetime="2019-12-26T19:37:19+08:00">2019-12-26</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 15:03:38" itemprop="dateModified" datetime="2020-02-03T15:03:38+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Spark/" itemprop="url" rel="index"><span itemprop="name">Spark</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>6.6k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>6 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在前面的博客<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103641824">《深入理解Spark》 </a>深入探讨了Spark架构原理内容，该文提到Stage的划分，为什么要做Stage划分？是为了得到更小的Task计算单元，分发给Executor的线程运行，将规模庞大、多流程的计算任务划分为有序的小颗粒的计算单元，实现更高效的计算。那么Stage划分怎么实现？需依赖RDD(Resilient Distributed Datasets，弹性分布式数据集)，可以说，RDD是Spark最为核心的概念。本文内容部分参考了<a target="_blank" rel="noopener" href="https://github.com/heibaiying/BigData-Notes/blob/master/notes/Spark_RDD.md">《弹性式数据集RDDs》</a>以及<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/rdd-programming-guide.html">《Spark官方文档》</a></p>
+<a id="more"></a>
+<h4 id="1、RDD简介"><a href="#1、RDD简介" class="headerlink" title="1、RDD简介"></a>1、RDD简介</h4><p>&#8195;&#8195;RDD 是分布式的、可容错的、只读的、分区记录的弹性数据集合（在开发角度来看，它是一种数据结构，并是绑定了多个方法和属性的一种object），支持并行操作，可以由外部数据集或其他 RDD 转换而来，细读Resilient Distributed  Dataset这三个单词，更深层的含义如下：</p>
+<ul>
+<li>Resilient: 弹性的，RDD如何体现出弹性呢？通过使用RDD血缘关系图——DAG，在丢失节点上重新计算上，弹性容错。</li>
+<li>Distributed:分布式的，RDD的数据集驻留在多个节点的内存中或者磁盘上（一分多）。</li>
+<li>Dataset: 在物理文件存储的数据</li>
+</ul>
+<p>更具体的说明：</p>
+<ul>
+<li>一个 RDD 由一个或者多个分区（Partitions）组成。对于 RDD 来说，每个分区会被一个计算任务所处理，用户可以在创建 RDD 时指定其分区个数，如果没有指定，则默认采用程序所分配到的 CPU 的核心数。<br>（这一特点体现出RDD的分布式，RDD的分区是在多个节点上指定的，注意不是指把master分区拷贝到其他节点上，spark强调的是”移动数据不如移动计算“，避免跨节点拷贝分区数据。做这样假设：RDD如果不设计为多个分区，那么一个RDD就是代表一个超大数据集，而且只能在单机行运行，这跟Pandas的DataFrame区别就不大了。）</li>
+<li>Spark一个计算程序，往往会产生多个RDD，这些RDD会保存彼此间的依赖关系，RDD 的每次转换都会生成一个新的依赖关系，这种 RDD 之间的依赖关系就像流水线一样。在部分分区数据丢失后，可以通过这种依赖关系重新计算丢失的分区数据，而不是对 RDD 的所有分区进行重新计算。<br>（这个特点就体现了RDD可恢复性，）</li>
+<li><p>Key-Value 型的 RDD 还拥有 Partitioner(分区器)，用于决定数据被存储在哪个分区中，目前 Spark 中支持 HashPartitioner(按照哈希分区) 和 RangeParationer(按照范围进行分区)。<br>（其实很多中间件或者组件只要涉及到Partition，必然少不了使用Partitioner(分区器)，例如kafka的partition，Producer可通过对消息key取余将消息写入到不同副本分区上，例如redis的key在slot上分配，也是通过对key取余。）</p>
+</li>
+<li><p>一个优先位置列表 (可选)，用于存储每个分区的优先位置 (prefered location)。对于一个 HDFS 文件来说，这个列表保存的就是每个分区所在的块的位置，按照“移动数据不如移动计算“的理念，Spark 在进行任务调度的时候，会尽可能的将计算任务分配到其所要处理数据块的存储位置。</p>
+</li>
+</ul>
+<h4 id="2、创建RDD"><a href="#2、创建RDD" class="headerlink" title="2、创建RDD"></a>2、创建RDD</h4><ul>
+<li><p>由一个已经存在的Scala 数组创建或者Python列表创建。<br>val rdd0 = sc.parallelize(Array(1,2,3,4,5,6,7,8)) # Scala<br>val rdd0 = sc.parallelize([1,2,3,4,5,6,7,8]) # Python</p>
+</li>
+<li><p>由外部存储系统的文件创建。包括本地的文件系统，还有所有Hadoop支持的数据集，比如HDFS、HBase等，其他流式数据：Socket流等。<br>val rdd2 = sc.textFile(“hdfs://nn:9000/data_files”)<br>sc是spark-shell内置创建的sparkcontext</p>
+</li>
+<li><p>已有的RDD经过算子转换生成新的RDD<br><code>val rdd1=rdd0.flatMap(_.split(&quot; &quot;))</code><br><code>val rdd2=rdd1.map((_, 1))</code></p>
+</li>
+</ul>
+<h4 id="3、宽依赖和窄依赖"><a href="#3、宽依赖和窄依赖" class="headerlink" title="3、宽依赖和窄依赖"></a>3、宽依赖和窄依赖</h4><p>&#8195;&#8195;在<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103641824">《深入理解Spark》 </a>的第6章节”理解Spark Stage的划分“内容，正是RDD 与它的父 RDD(s) 之间的依赖关系，才有Stage划分的基础，主要为以下两种不同的依赖关系：</p>
+<ul>
+<li>窄依赖 (narrow dependency)：父 RDDs 的一个分区最多被子 RDDs 一个分区所依赖，一对一关系。例如Map、Filter、Union等算子。（你可以这样形象理解Spark为什么要用narrow这个词：从下图中例如Map算子，一个父rdd到一个子rdd的依赖关系，一条线直连关系，用窄形容恰当）</li>
+<li>宽依赖 (wide dependency)：父 RDDs 的一个分区可以被子 RDD 的多个分区所依赖，一对多关系。例如 groupByKey、reduceByKey、sortByKey等操作会产生宽依赖，会产生shuffling。（你可以这样形象理解Spark为什么要用wide这个词：从下图中例如groupByKey算子，一个父RDD有多条线连接到不同子RDD，用宽形容恰当）</li>
+<li></li>
+<li>Lineage（血统）<br>例如RDD0转换为下一个RDD1，RDD1转换为下一个RDD2，RDD2转换为下一个RDD3，…，这一系列的转换过程叫做血统，可以构成DAG图（执行计划）<br>有何作用？当RDD3丢失，只需要使用Lineage关系图和重新计算RDD2，即可恢复出RDD3数据集。而无需从头RDD0重新计算，省时省力。<br>对于下图，每一个方框表示一个 RDD，带有颜色的矩形表示分区：<br><img src="https://img-blog.csdnimg.cn/20191222202637659.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">对于map、filter、union这些算子可以很直观看到它们所计算的rdd依赖关系是窄依赖<br>注意：对于join算子，如果是协同划分的话，两个父RDD之间， 父RDD与子RDD之间能形成一致的分区安排，即同一个Key保证被映射到同一个分区，这种join是窄依赖。（协同划分就是指定分区器以产生前后一致的分区安排）<br>如果不是协同划分，就会形成宽依赖。</li>
+</ul>
+<p>这两种依赖关系除了可以把一个Job划分多个Stage，还有以下最为重要的两点作用：<br>&#8195;&#8195;第一：窄依赖可实现在当前节点上（数据无需夸节点传输）以流水线的方式（pipeline管道方式）对父分区数据进行流水线计算，例如先执行 Map算子，接着执行Filter算子，这两个操作一气呵成。而宽依赖则需要先计算好所有父分区的数据，接着将数据通过跨节点传递后执行shuffling（不跨节点，又怎么能把不同节点但key相同的项归并到同一分区上呢？所以宽依赖必然要进行磁盘IO和Socket跨节点传数据），这一过程与 MapReduce 类似。<br>&#8195;&#8195;第二：窄依赖能够更有效地进行数据恢复，根据上面”Lineage（血统）“所提的逻辑，只需重新对丢失子rdd的父rdd进行计算，且不同节点之间可以并行计算；而对于宽依赖而言，如果数据丢失，则需要对所有父分区数据重新计算并再次 shuffling，效率低而且耗时。</p>
+<h4 id="4、通过RDD的依赖关系构建DAG计算图"><a href="#4、通过RDD的依赖关系构建DAG计算图" class="headerlink" title="4、通过RDD的依赖关系构建DAG计算图"></a>4、通过RDD的依赖关系构建DAG计算图</h4><p>&#8195;&#8195;上面提到的多个RDD之间的两种依赖关系组成了 DAG，DAG 定义了这些 RDD之间的 Lineage链，通过血统关系（就像你手上拿了一张关系图谱），如果一个 RDD 的部分或者全部计算结果丢失了，也可以根据”这张关系图谱“重新进行计算出结果。Spark根据RDD依赖关系的不同将 DAG 划分为不同的执行阶段 (Stage)：</p>
+<ul>
+<li>对于窄依赖，由于分区的依赖关系是确定的，分区在当前节点上（数据无需夸节点传输）进行转换操作，也就是说可在同一个线程执行当前阶段计算任务，而且多个分区可以直接并行运行（因此分区数就决定并发计算的粒度，可用于Spark计算性能调优）。因此窄依赖的RDD可以划分到同一个执行阶段Stage；</li>
+<li>对于宽依赖，由于 Shuffle 的存在，只能等多个父 RDD被 Shuffle 处理完成后（不同父分区的Shuffle导致数据需夸节点传输），才能开始对子RDD计算，因此遇到宽依赖就需要重新划分阶段。</li>
+</ul>
+<p><img src="https://img-blog.csdnimg.cn/20191224193522623.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>正是有了以上对Stage的划分设计，Spark在执行作业时， 生成一个完整的、最优的执行计划，从而比MapReduce”更加聪明地利用资源地“完成计算作业。</p>
+<h4 id="5、RDD-持久化"><a href="#5、RDD-持久化" class="headerlink" title="5、RDD 持久化"></a>5、RDD 持久化</h4><p>&#8195;&#8195;这一章节内容直接翻译spark：<br>&#8195;&#8195;RDD最重要的特点是可将数据集缓存在内存（或者磁盘上），这也是Spark之所以快的原因。使用RDD persist时，每个节点都会存储当前RDD计算的dataset，以便被其他RDD直接在内存加载使用，这种效果将使得之后的action算子至少提高10倍上计算速度。<br>&#8195;&#8195;通过调用persist()或者cache()方法即可触发RDD persist，而且持久化另外一个作用：Spark’s cache is fault-tolerant – if any partition of an RDD is lost, it will automatically be recomputed using the transformations that originally created it.（可根据已有的算子重新计算丢失的RDD）<br>&#8195;&#8195;Spark 在持久化 RDDs 的时候提供了 3 种storage level：存在内存中的非序列化的 java 对象、存在内存中的序列化的数据以及存储在磁盘中。第一种选择的性能是最好的，因为 JVM 可以很快的访问 RDD 的每一个元素。第二种选择是在内存有限的情况下，使的用户可以以很低的性能代价而选择的比 java 对象图更加高效的内存存储的方式。如果内存完全不够存储的下很大的 RDDs，而且计算这个 RDD 又很费时的，那么选择第三种方式。</p>
+<p>The full set of storage levels is:</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th>Storage Level</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MEMORY_ONLY</td>
+<td>Store RDD as deserialized Java objects in the JVM. If the RDD does not fit in memory, some partitions will    not be cached and will be recomputed on the fly each time they’re needed. This is the default level.</td>
+</tr>
+<tr>
+<td>MEMORY_AND_DISK</td>
+<td>Store RDD as deserialized Java objects in the JVM. If the RDD does not fit in memory, store the    partitions that don’t fit on disk, and read them from there when they’re needed.</td>
+</tr>
+<tr>
+<td>MEMORY_ONLY_SER   (Java and Scala)</td>
+<td>Store RDD as <em>serialized</em> Java objects (one byte array per partition).    This is generally more space-efficient than deserialized objects, especially when using a    <a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/tuning.html">fast serializer</a>, but more CPU-intensive to read.</td>
+</tr>
+<tr>
+<td>MEMORY_AND_DISK_SER   (Java and Scala)</td>
+<td>Similar to MEMORY_ONLY_SER, but spill partitions that don’t fit in memory to disk instead of    recomputing them on the fly each time they’re needed.</td>
+</tr>
+<tr>
+<td>DISK_ONLY</td>
+<td>Store the RDD partitions only on disk.</td>
+</tr>
+<tr>
+<td>MEMORY_ONLY_2, MEMORY_AND_DISK_2, etc.</td>
+<td>Same as the levels above, but replicate each partition on two cluster nodes.</td>
+</tr>
+<tr>
+<td>OFF_HEAP (experimental)</td>
+<td>Similar to MEMORY_ONLY_SER, but store the data in    <a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/configuration.html#memory-management">off-heap memory</a>. This requires off-heap memory to be enabled.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Note: In Python, stored objects will always be serialized with the Pickle library, so it does not matter whether you choose a serialized level. The available storage levels in Python include MEMORY_ONLY, MEMORY_ONLY_2, MEMORY_AND_DISK, MEMORY_AND_DISK_2, DISK_ONLY, and DISK_ONLY_2.<br>注意对使用Python来开发spark的话，它存储的对象都是由Pickle库实现序列化，因此对于python，除了OFF_HEAP这个level，其他level都适用。<br>Spark also automatically persists some intermediate data in shuffle operations (e.g. reduceByKey), even without users calling persist. This is done to avoid recomputing the entire input if a node fails during the shuffle. We still recommend users call persist on the resulting RDD if they plan to reuse it.<br>此外Spark在shuffle操作例如reduceByKey这类操作时会自动对RDD做持久化，以防止某些节点再做shuffle过程中挂了导致需要重新计算父RDD。Spark建议使用者在RDD需要重新使用的场景下可先持久化RDD。</p>
+<h4 id="6、RDD的checkpointing机制"><a href="#6、RDD的checkpointing机制" class="headerlink" title="6、RDD的checkpointing机制"></a>6、RDD的checkpointing机制</h4><p>&#8195;&#8195;前面提到对于要恢复某些丢失的RDD，可根据父 RDDs 的血缘关系recomputed，但是如果这个血缘关系链很长的话（例如业务逻辑里面有10来个transmissions以及有多个actions），则recomputed需要耗费很长时间，因此在这种场景下，将一些 RDDs 的数据持久化到稳定存储系统中是有必要的。<br>&#8195;&#8195;checkpointing 对具有很长的血缘关系链且包含了宽依赖的 RDDs 是非常有用的，比如spark给出的PageRank 例子，在这些场景下，集群中的某个节点的失败会导致每一个父亲 RDD 的一些数据的丢失，最惨的是这些父RDD都是宽依赖以及很长的窄依赖链关系，显然需要重新所有的计算。<br>&#8195;&#8195;对于普通的窄依赖的 RDDs（spark给出例子中线性回归例子中的 points 和 PageRank 中的 link 列表数据），checkpointing 可能一点用都没有。如果一个节点失败了，spark照应可以很快在其他的节点中并行的重新计算出丢失了数据的分区，这个成本只是备份整个 RDD 的成本的一点点而已。</p>
+<p>&#8195;&#8195;Spark 目前提供了一个 checkpointing 的 api（persist 中的标识为 REPLICATE，还有 checkpoint()），用户自行选择在一些最佳的 RDDs 来进行 checkpointing，以达到最小化恢复时间。（这就像你玩过关类游戏，总共20关，这个游戏本身没有自动保存检查点，必须用户自己触发，在第19关是最难的关卡耗费一周时间拿下，而你确忘记存档，能不崩溃吗）</p>
+<h4 id="7、Spark分区与RDD分区（待更新）"><a href="#7、Spark分区与RDD分区（待更新）" class="headerlink" title="7、Spark分区与RDD分区（待更新）"></a>7、Spark分区与RDD分区（待更新）</h4><p>这部分内容难度较大，但确实能真正理解Spark和RDD并行计算的底层逻辑，相关知识点需回顾hadoop文件分区。这部分内容待更新</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/RDD/" rel="tag"># RDD</a>
+              <a href="/blog/tags/Spark/" rel="tag"># Spark</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/12/22/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Spark/" rel="prev" title="深入理解Spark">
+      <i class="fa fa-chevron-left"></i> 深入理解Spark
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/12/28/gevent%E4%B8%8E%E5%8D%8F%E7%A8%8B/" rel="next" title="gevent与协程">
+      gevent与协程 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81RDD%E7%AE%80%E4%BB%8B"><span class="nav-number">1.</span> <span class="nav-text">1、RDD简介</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81%E5%88%9B%E5%BB%BARDD"><span class="nav-number">2.</span> <span class="nav-text">2、创建RDD</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E5%AE%BD%E4%BE%9D%E8%B5%96%E5%92%8C%E7%AA%84%E4%BE%9D%E8%B5%96"><span class="nav-number">3.</span> <span class="nav-text">3、宽依赖和窄依赖</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81%E9%80%9A%E8%BF%87RDD%E7%9A%84%E4%BE%9D%E8%B5%96%E5%85%B3%E7%B3%BB%E6%9E%84%E5%BB%BADAG%E8%AE%A1%E7%AE%97%E5%9B%BE"><span class="nav-number">4.</span> <span class="nav-text">4、通过RDD的依赖关系构建DAG计算图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5%E3%80%81RDD-%E6%8C%81%E4%B9%85%E5%8C%96"><span class="nav-number">5.</span> <span class="nav-text">5、RDD 持久化</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#6%E3%80%81RDD%E7%9A%84checkpointing%E6%9C%BA%E5%88%B6"><span class="nav-number">6.</span> <span class="nav-text">6、RDD的checkpointing机制</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#7%E3%80%81Spark%E5%88%86%E5%8C%BA%E4%B8%8ERDD%E5%88%86%E5%8C%BA%EF%BC%88%E5%BE%85%E6%9B%B4%E6%96%B0%EF%BC%89"><span class="nav-number">7.</span> <span class="nav-text">7、Spark分区与RDD分区（待更新）</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

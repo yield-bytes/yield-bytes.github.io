@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;以往项目中也有引入Pandas，用于有关数据处理和分析的环节，结合Python的Web开发，很容易开发出一款轻量BI系统。Pandas、Numpy、Scipy、matplotlib、scikit-learn和Jupyter Notebook结合使用，完全可以组成非常出色的数据分析与挖掘的生产环境工具，数据方面的应用，比matlab强不少，以至于本人也不断强化这方面的积累">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Pandas数据预处理的常用函数">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/11/17/Pandas%E6%95%B0%E6%8D%AE%E9%A2%84%E5%A4%84%E7%90%86%E7%9A%84%E5%B8%B8%E7%94%A8%E5%87%BD%E6%95%B0/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;以往项目中也有引入Pandas，用于有关数据处理和分析的环节，结合Python的Web开发，很容易开发出一款轻量BI系统。Pandas、Numpy、Scipy、matplotlib、scikit-learn和Jupyter Notebook结合使用，完全可以组成非常出色的数据分析与挖掘的生产环境工具，数据方面的应用，比matlab强不少，以至于本人也不断强化这方面的积累">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-11-17T15:30:19.000Z">
+<meta property="article:modified_time" content="2020-11-21T17:01:08.749Z">
+<meta property="article:tag" content="pandas">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/11/17/Pandas%E6%95%B0%E6%8D%AE%E9%A2%84%E5%A4%84%E7%90%86%E7%9A%84%E5%B8%B8%E7%94%A8%E5%87%BD%E6%95%B0/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Pandas数据预处理的常用函数 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/11/17/Pandas%E6%95%B0%E6%8D%AE%E9%A2%84%E5%A4%84%E7%90%86%E7%9A%84%E5%B8%B8%E7%94%A8%E5%87%BD%E6%95%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Pandas数据预处理的常用函数
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-11-17 23:30:19" itemprop="dateCreated datePublished" datetime="2019-11-17T23:30:19+08:00">2019-11-17</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-11-22 01:01:08" itemprop="dateModified" datetime="2020-11-22T01:01:08+08:00">2020-11-22</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/%E6%95%B0%E6%8D%AE%E5%88%86%E6%9E%90%E4%B8%8E%E6%8C%96%E6%8E%98/" itemprop="url" rel="index"><span itemprop="name">数据分析与挖掘</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>13k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>12 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;以往项目中也有引入Pandas，用于有关数据处理和分析的环节，结合Python的Web开发，很容易开发出一款轻量BI系统。Pandas、Numpy、Scipy、matplotlib、scikit-learn和Jupyter Notebook结合使用，完全可以组成非常出色的数据分析与挖掘的生产环境工具，数据方面的应用，比matlab强不少，以至于本人也不断强化这方面的积累。单独拿出这方面技能，即可完成数据分析师的相关工作（又称提数工程师）。本文主要归档一些高频使用的预处理方面的函数，注意本文不涉及Pandas数据挖掘和数理统计方面的知识点（会在另外blog给出）。</p>
+<a id="more"></a>
+<h3 id="1、读取数据文件"><a href="#1、读取数据文件" class="headerlink" title="1、读取数据文件"></a>1、读取数据文件</h3><p>&#8195;&#8195;读取数据的相关接口使用在pandas官网的document有非常详细的说明:在<a target="_blank" rel="noopener" href="https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html">IO tools部分</a>。pandas 不仅能读取基本常用的Excel、csv、文本，还可以读取hadoop文件，或者直接读取数据库等</p>
+<h4 id="1-1-读取excel数据文件"><a href="#1-1-读取excel数据文件" class="headerlink" title="1.1  读取excel数据文件"></a>1.1  读取excel数据文件</h4><ul>
+<li><p>加载Excel表，使用skiprows=1跳过首行<br>并指定加载的列，注意数据文件的编码，默认utf-8，常用还有gb2312，根据自身数据而定。</p>
+  <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">%%timeit</span><br><span class="line">raw_pd = pd.read_excel(data_file,,skiprows=<span class="number">1</span>,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],encoding=<span class="string">&#x27;gb2312&#x27;</span>)</span><br><span class="line"><span class="number">181</span> ms ± <span class="number">1.32</span> ms per loop (mean ± std. dev. of <span class="number">7</span> runs, <span class="number">1</span> loop each)</span><br></pre></td></tr></table></figure>
+<p>  这里可以为每个执行单元之前加入<code>%%timeit</code>，观察其耗时情况。</p>
+</li>
+<li><p>加载Excel表，使用header=0跳过有列标题的首行<br>除了使用skiprows=1可跳过首行，header=0也可以实现同样效果</p>
+  <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd = pd.read_excel(data_file,header=<span class="number">0</span>,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],encoding=<span class="string">&#x27;gb2312&#x27;</span>)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>加载Excel表，首行为数据，不是列标题<br>若该表第一行不是列标题行而是数据行，则需要指定header=None，否则读取后，第一行数据会被作为column name</p>
+  <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_excel(data_file,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],header=<span class="literal">None</span>,encoding=<span class="string">&#x27;utf-8&#x27;</span>)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>加载Excel表，读取前n行数据<br>若数据文件大小为几个G，显然若直接全量读取，内存会挤爆，因此可以先读取前n看看。使用nrows=500，表示只读取前500行。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_excel(data_file,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],header=<span class="literal">None</span>, nrows=<span class="number">500</span>,encoding=<span class="string">&#x27;utf-8&#x27;</span>)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>加载Excel表，跳过所有空白行<br>若有些表出现了不定数量的空白行，可以使用skip_blank_lines=True处理</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_excel(data_file,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],header=<span class="literal">None</span>,skip_blank_lines = <span class="literal">True</span>, nrows=<span class="number">500</span>,encoding=<span class="string">&#x27;utf-8&#x27;</span>)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>加载Excel表，通过自定规则，跳过满足规则的行<br>例如跳过有值为单数的行，定义更复杂的函数，用于跳过满足复杂规则的行。不过，除非这些行很多，否则可以在读取后，直接用正则drop掉来得更有效。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pd.read_csv(data_file, skiprows=<span class="keyword">lambda</span> x: x % <span class="number">2</span> != <span class="number">0</span>)</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<h4 id="1-2-读取csv文件"><a href="#1-2-读取csv文件" class="headerlink" title="1.2 读取csv文件"></a>1.2 读取csv文件</h4><p>&#8195;&#8195;读取csv文件跟读取Excel文件区别不大，这里简单给出示例</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_csv(data_file,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],header=<span class="literal">None</span>,nrows=<span class="number">500</span>,encoding=<span class="string">&#x27;gb2312&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p>读取文件，需要注意的地方一般是选择编码，数据文件的编码决定读取数据后，是否正常显示。</p>
+<h4 id="1-3-读取数据时，跳过尾行"><a href="#1-3-读取数据时，跳过尾行" class="headerlink" title="1.3 读取数据时，跳过尾行"></a>1.3 读取数据时，跳过尾行</h4><p>有些报表一般会在表（例如财务系统导出）的后几行写上制表人、制表日期<br>这里要注意，若使用c engine，则无法使用从尾部跳过数据的功能：</p>
+<blockquote>
+<p>skipfooter : int, default <code>0</code></p>
+<p>Number of lines at bottom of file to skip (unsupported with engine=’c’).</p>
+</blockquote>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_csv(data_file,usecols=[<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>],name=[<span class="string">&#x27;item_id&#x27;</span>,<span class="string">&#x27;item_name&#x27;</span>,<span class="string">&#x27;price&#x27;</span>],header=<span class="literal">None</span>, skipfooter=<span class="number">5</span>,encoding=<span class="string">&#x27;gb2312&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<h4 id="1-4-读取特定分割符的数据文件"><a href="#1-4-读取特定分割符的数据文件" class="headerlink" title="1.4 读取特定分割符的数据文件"></a>1.4 读取特定分割符的数据文件</h4><p>read_csv也可以读取任意文本文件，只需要指定列分割符。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd=pd.read_csv(<span class="string">&#x27;data_file.txt&#x27;</span>,sep=<span class="string">&#x27;||&#x27;</span>,encoding=<span class="string">&#x27;utf-8&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<h4 id="1-5-使用c或者python作为读取文件的引擎"><a href="#1-5-使用c或者python作为读取文件的引擎" class="headerlink" title="1.5 使用c或者python作为读取文件的引擎"></a>1.5 使用c或者python作为读取文件的引擎</h4><p>pd.read_<em>*</em> 方法默认使用python解释器作为读取文件engine，若数据文件大，可选择c engine</p>
+<blockquote>
+<p>engine : {<code>&#39;c&#39;</code>, <code>&#39;python&#39;</code>}</p>
+<p>Parser engine to use. The C engine is faster while the Python engine is currently more feature-complete.</p>
+</blockquote>
+<h4 id="1-6-使用迭代器读取超大文件"><a href="#1-6-使用迭代器读取超大文件" class="headerlink" title="1.6 使用迭代器读取超大文件"></a>1.6 使用迭代器读取超大文件</h4><p>参考官网文档给出的示例，使用<code>iterator=True</code>， 或者chunksize=4读取超大文件，返回的是TextFileReader，是一个文件迭代器</p>
+<p>chunksize方式：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">187</span>]: reader = pd.read_csv(<span class="string">&#x27;tmp.sv&#x27;</span>, sep=<span class="string">&#x27;|&#x27;</span>, chunksize=<span class="number">4</span>)</span><br><span class="line"></span><br><span class="line">In [<span class="number">188</span>]: reader</span><br><span class="line">Out[<span class="number">188</span>]: &lt;pandas.io.parsers.TextFileReader at <span class="number">0x7f2b428c17f0</span>&gt;</span><br><span class="line"></span><br><span class="line">In [<span class="number">189</span>]: <span class="keyword">for</span> chunk <span class="keyword">in</span> reader:</span><br><span class="line">   .....:     print(chunk)</span><br></pre></td></tr></table></figure>
+<p>iterator=True方式：<br>使用iterator=True方式，值读取前面5行，放回的也是df对象</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">190</span>]: reader = pd.read_csv(<span class="string">&#x27;tmp.sv&#x27;</span>, sep=<span class="string">&#x27;|&#x27;</span>, iterator=<span class="literal">True</span>)</span><br><span class="line"></span><br><span class="line">In [<span class="number">191</span>]: chunk_pd=reader.get_chunk(<span class="number">5</span>)</span><br><span class="line">chunk_pd.head()</span><br></pre></td></tr></table></figure>
+<p>当然最佳的方式是两者结合使用：返回迭代器方式，并指定分块读取，例如分64k读取</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">iter_df=pd.read_csv(large_file,iterator=<span class="literal">True</span>，chunksize=<span class="number">64</span>*<span class="number">1024</span>)</span><br></pre></td></tr></table></figure>
+<h3 id="2、查看数据的基本信息"><a href="#2、查看数据的基本信息" class="headerlink" title="2、查看数据的基本信息"></a>2、查看数据的基本信息</h3><p>读入数据后，一般需要对数据进行基本的观察</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">raw_pd.head(<span class="number">5</span>) <span class="comment"># 查看数据基本信息（前5行）</span></span><br><span class="line">raw_pd.tail(<span class="number">5</span>) <span class="comment"># 查看末尾5行</span></span><br><span class="line">raw_pd.sample(<span class="number">5</span>) <span class="comment"># 随机抽取5行查看</span></span><br><span class="line">raw_pd.dtypes <span class="comment"># 查看每列数据类型</span></span><br><span class="line">raw_pd.columns    <span class="comment">#查看列名</span></span><br><span class="line">raw_pd.info()     <span class="comment">#查看各字段的信息</span></span><br><span class="line">raw_pd.shape      <span class="comment">#查看数据集行列分布，几行几列</span></span><br><span class="line">raw_pd.describe() <span class="comment"># 快速查看数据的基本统计信息</span></span><br></pre></td></tr></table></figure>
+<h3 id="3、有关空值处理"><a href="#3、有关空值处理" class="headerlink" title="3、有关空值处理"></a>3、有关空值处理</h3><p>空值：在pandas中的空值是””<br>缺失值：在dataframe中为NaN或者NaT（缺失时间），在series中为none或者nan<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 测试数据</span></span><br><span class="line">raw_pd = pd.DataFrame(&#123;<span class="string">&quot;name&quot;</span>: [<span class="string">&#x27;aoo&#x27;</span>, <span class="string">&#x27;boo&#x27;</span>, <span class="string">&#x27;coo&#x27;</span>],</span><br><span class="line">                <span class="string">&quot;college&quot;</span>: [np.nan, <span class="string">&#x27;SACT&#x27;</span>, <span class="string">&#x27;AACT&#x27;</span>],</span><br><span class="line">                  <span class="string">&quot;birth_date&quot;</span>: [pd.NaT, pd.Timestamp(<span class="string">&quot;2000-10-01&quot;</span>),pd.NaT]&#125;)</span><br></pre></td></tr></table></figure></p>
+<h4 id="3-1-行的空值处理"><a href="#3-1-行的空值处理" class="headerlink" title="3.1 行的空值处理"></a>3.1 行的空值处理</h4><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">axis：0或者&#x27;index&#x27;代表行操作（默认）  1或者&#x27;column&#x27;：列操作</span></span><br><span class="line"><span class="string">how：any-只要有空值就删除（默认），all-全部为空值才删除</span></span><br><span class="line"><span class="string">inplace：False-返回新的数据集（默认），True-在愿数据集上操作</span></span><br><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 使用频率高：查看name列中，有多少行为空值行,value_counts其实是一个统计方法</span></span><br><span class="line">raw_pd[<span class="string">&#x27;name&#x27;</span>].isnull().value_counts()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 使用频率高：any表示行的任意一列有空值，则删除该行；all表示该行全部为空，则删除</span></span><br><span class="line">raw_pd.dropna(axis=<span class="number">0</span>, how=<span class="string">&#x27;any&#x27;</span>, inplace=<span class="literal">True</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># 行的任意一列有空值,且出现2个空值才删除这些行。例如该行有3列，其中2列都是为空，那么可以删掉该行。</span></span><br><span class="line">使用频率低：raw_pd.dropna(axis=<span class="number">0</span>, how=<span class="string">&#x27;any&#x27;</span>,thresh=<span class="number">2</span>, inplace=<span class="literal">True</span>)</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<h4 id="3-2-列的空值处理"><a href="#3-2-列的空值处理" class="headerlink" title="3.2 列的空值处理"></a>3.2 列的空值处理</h4><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 使用频率高：指定某几列，若这些列中出现了空值，则直接删除所在行</span></span><br><span class="line">raw_pd.dropna(subset=[<span class="string">&#x27;name&#x27;</span>, <span class="string">&#x27;birth_date&#x27;</span>],inplace=<span class="literal">True</span>)</span><br></pre></td></tr></table></figure>
+<h4 id="3-3-空值的填充"><a href="#3-3-空值的填充" class="headerlink" title="3.3 空值的填充"></a>3.3 空值的填充</h4><p>最简单的用法，对全部数据记录里面的空值填充指定值</p>
+<p>df.fillna(value=’bar’)</p>
+<p>频繁使用：对指定列的空值进行填充</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd[<span class="string">&#x27;name&#x27;</span>]=raw_pd[<span class="string">&#x27;name&#x27;</span>].fillna(value=<span class="string">&#x27;bar&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p><strong>高级填充方式</strong><br>使用与空值单元相邻近的值来填充。该用法一般用在大量数据统计分析的场景或者图像的像素值填充、实验室的实验数据。相邻是指可以使用上下左右四个方向的值实现前向或者后向填充<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">DataFrame.fillna(value=<span class="literal">None</span>, method=<span class="literal">None</span>, axis=<span class="literal">None</span>, inplace=<span class="literal">False</span>, limit=<span class="literal">None</span>, downcast=<span class="literal">None</span>, **kwargs)</span><br><span class="line"></span><br><span class="line">method : &#123;‘backfill’, ‘bfill’, ‘pad’, ‘ffill’, <span class="literal">None</span>&#125;, default <span class="literal">None</span></span><br><span class="line"></span><br><span class="line">Method to use <span class="keyword">for</span> filling holes <span class="keyword">in</span> reindexed Series pad / ffill: </span><br><span class="line">propagate last valid observation forward to <span class="built_in">next</span> valid backfill / bfill: use NEXT valid observation to fill gap</span><br><span class="line"></span><br><span class="line">axis : &#123;<span class="number">0</span> <span class="keyword">or</span> ‘index’, <span class="number">1</span> <span class="keyword">or</span> ‘columns’&#125;</span><br><span class="line">limit:限制填充的个数</span><br></pre></td></tr></table></figure><br>这里使用比较频繁的是纵向填充，因为纵向代表的是列，从相邻样本的同一特征中填值，对每列的空值实施前项或者后项填充。</p>
+<p><code>df.fillna(method=&#39;ffill&#39;)</code> or df.fillna(method=’bfill’)</p>
+<h4 id="3-4-空值使用所在列或者所在行的均值、中位数来填补"><a href="#3-4-空值使用所在列或者所在行的均值、中位数来填补" class="headerlink" title="3.4  空值使用所在列或者所在行的均值、中位数来填补"></a>3.4  空值使用所在列或者所在行的均值、中位数来填补</h4><p>这里以均值填充为例，当然也可以用该列的预测值填充<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mean_value = df[<span class="string">&#x27;age&#x27;</span>].mean()</span><br><span class="line">df[<span class="string">&#x27;age&#x27;</span>].fillna(mean_value, inplace=<span class="literal">True</span>)</span><br></pre></td></tr></table></figure></p>
+<h3 id="4、dataframe-取（定位）数据的操作"><a href="#4、dataframe-取（定位）数据的操作" class="headerlink" title="4、dataframe 取（定位）数据的操作"></a>4、dataframe 取（定位）数据的操作</h3><h4 id="4-1-按给定列名取数，类似字典操作：df-‘列名’"><a href="#4-1-按给定列名取数，类似字典操作：df-‘列名’" class="headerlink" title="4.1 按给定列名取数，类似字典操作：df[‘列名’]"></a>4.1 按给定列名取数，类似字典操作：df[‘列名’]</h4><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd= raw_pd[<span class="string">&#x27;name&#x27;</span>]</span><br></pre></td></tr></table></figure>
+<p>取出多列数据，入参为包含多个字段的list：[‘name’,’college’]</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">raw_pd[[<span class="string">&#x27;name&#x27;</span>,<span class="string">&#x27;college&#x27;</span>]]</span><br></pre></td></tr></table></figure>
+<h4 id="4-2-按行默认的行索引号选取数据：df-loc"><a href="#4-2-按行默认的行索引号选取数据：df-loc" class="headerlink" title="4.2  按行默认的行索引号选取数据：df.loc"></a>4.2  按行默认的行索引号选取数据：df.loc</h4><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">df = pd.DataFrame(&#123;<span class="string">&quot;name&quot;</span>: [<span class="string">&#x27;aoo&#x27;</span>, <span class="string">&#x27;boo&#x27;</span>, <span class="string">&#x27;coo&#x27;</span>],</span><br><span class="line">                <span class="string">&quot;college&quot;</span>: [np.nan, <span class="string">&#x27;SACT&#x27;</span>, <span class="string">&#x27;AACT&#x27;</span>],</span><br><span class="line">                  <span class="string">&quot;birth_date&quot;</span>: [pd.NaT, pd.Timestamp(<span class="string">&quot;2000-10-01&quot;</span>),pd.NaT]&#125;)</span><br><span class="line"><span class="comment"># 查看该df的行索引</span></span><br><span class="line">df.index</span><br><span class="line">RangeIndex(start=<span class="number">0</span>, stop=<span class="number">3</span>, step=<span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打印                  </span></span><br><span class="line">	birth_date 	college 	name</span><br><span class="line"><span class="number">0</span> 	NaT 	NaN 	aoo</span><br><span class="line"><span class="number">1</span> 	<span class="number">2000</span>-<span class="number">10</span>-01 	SACT 	boo</span><br><span class="line"><span class="number">2</span> 	NaT 	AACT 	coo </span><br><span class="line"></span><br><span class="line"><span class="comment"># 这里的0,1,2就是pandas默认给加载的数据提供的行索引号</span></span><br></pre></td></tr></table></figure>
+<p>按索引取数据，跟列表使用slice切片获取数据的用法一致<br>df.loc[1] 获取行索引1的行数据，df.loc[1:2]获取1到2行数据</p>
+<p>若行索引号不是int，例如将以上数据的默认index序列，改成字符索引序列</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">df.index=[<span class="string">&#x27;a&#x27;</span>,<span class="string">&#x27;b&#x27;</span>,<span class="string">&#x27;c&#x27;</span>]</span><br><span class="line"><span class="comment"># 打印</span></span><br><span class="line"> 	birth_date 	college 	name</span><br><span class="line">a 	NaT 	NaN 	aoo</span><br><span class="line">b 	<span class="number">2000</span>-<span class="number">10</span>-01 	SACT 	boo</span><br><span class="line">c 	NaT 	AACT 	coo</span><br></pre></td></tr></table></figure>
+<p>获取索引为b的数据：df.loc[‘b’]<br>或者索引为b、c的数据：df.loc[[‘b’,’c’]]</p>
+<h4 id="4-3-按给定列名以及行索引取出数据"><a href="#4-3-按给定列名以及行索引取出数据" class="headerlink" title="4.3 按给定列名以及行索引取出数据"></a>4.3 按给定列名以及行索引取出数据</h4><p>例如取出college列的b、c行数据</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.loc[[<span class="string">&#x27;b&#x27;</span>,<span class="string">&#x27;c&#x27;</span>],<span class="string">&#x27;college&#x27;</span>]</span><br></pre></td></tr></table></figure>
+<p>例如取出college列、birth_date列的b、c行数据</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">df.loc[[<span class="string">&#x27;b&#x27;</span>,<span class="string">&#x27;c&#x27;</span>],[<span class="string">&#x27;college&#x27;</span>,<span class="string">&#x27;birth_date&#x27;</span>]]</span><br><span class="line"><span class="comment"># 打印</span></span><br><span class="line">	college 	birth_date</span><br><span class="line">b 	SACT 	<span class="number">2000</span>-<span class="number">10</span>-01</span><br><span class="line">c 	AACT 	NaT</span><br></pre></td></tr></table></figure>
+<h4 id="4-4-df-iloc利用index获取行数据或者列数据"><a href="#4-4-df-iloc利用index获取行数据或者列数据" class="headerlink" title="4.4  df.iloc利用index获取行数据或者列数据"></a>4.4  df.iloc利用index获取行数据或者列数据</h4><p>df.iloc只能使用整型切片获取数据:例如df.iloc[0:10]<br>而df.loc可以使用字符型索引等来取数</p>
+<h3 id="5、通过复杂规则取数"><a href="#5、通过复杂规则取数" class="headerlink" title="5、通过复杂规则取数"></a>5、通过复杂规则取数</h3><p>在sql中经常会在where子句使用筛选条件：<br>select * from emp e  where e.age&gt;20 and e.dep_name=’dev’ and e.city&lt;&gt;’foo’<br>在pandas里面则使用方式如下：<br>单个筛选条件<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">df[df[<span class="string">&#x27;age&#x27;</span>] &gt; <span class="number">20</span>]</span><br><span class="line">或者</span><br><span class="line">df.loc[df[<span class="string">&#x27;age&#x27;</span>]&gt;<span class="number">20</span>]</span><br></pre></td></tr></table></figure></p>
+<p>多个筛选条件<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[(df[<span class="string">&#x27;age&#x27;</span>] &gt; <span class="number">20</span>)&amp;(df[<span class="string">&#x27;dep_name&#x27;</span>]==<span class="string">&#x27;dev&#x27;</span>)&amp;~(df[<span class="string">&#x27;city&#x27;</span>]==<span class="string">&#x27;foo&#x27;</span>)]</span><br></pre></td></tr></table></figure></p>
+<p>使用isin方法</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[df[<span class="string">&#x27;city&#x27;</span>].isin([<span class="string">&#x27;foo&#x27;</span>,<span class="string">&#x27;bar&#x27;</span>])]</span><br></pre></td></tr></table></figure>
+<p>根据时间范围取值<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 从Excel加载的日期，如果格式不对，有可能是object类型，需将其转为datetime64[ns]类型，否则无法进行日期筛选比较</span></span><br><span class="line">df[<span class="string">&#x27;date_col&#x27;</span>]= df.to_datetime(df[<span class="string">&#x27;date_col&#x27;</span>])</span><br><span class="line">start_time=datetime.datetime(<span class="number">2017</span>,<span class="number">2</span>,<span class="number">1</span>) <span class="comment">#或者pd.Timestamp(&#x27;2017-02-01&#x27;)</span></span><br><span class="line">end_time=datetime.datetime(<span class="number">2017</span>,<span class="number">2</span>,<span class="number">14</span>) <span class="comment">#或者pd.Timestamp(&#x27;2017-02-14&#x27;)</span></span><br><span class="line"><span class="comment"># 注意以上的实际范围其实是 2017-02-01 00:00:00 ~2017-02-14 00:00:00</span></span><br><span class="line"><span class="comment"># 或者截止到当天最后一秒</span></span><br><span class="line">end_time=datetime.datetime(<span class="number">2017</span>,<span class="number">2</span>,<span class="number">14</span>,<span class="number">23</span>,<span class="number">59</span>,<span class="number">59</span>) </span><br><span class="line"></span><br><span class="line"><span class="comment"># 查找指定时间范围内的数据行</span></span><br><span class="line">filter_df=df[(df[<span class="string">&#x27;start_time&#x27;</span>]&gt;=start_time) &amp; (df[<span class="string">&#x27;end_time&#x27;</span>]&lt;=end_time)]</span><br></pre></td></tr></table></figure><br>还有另外这一种方式是选择一个时间列，变将其设为当前df的时间索引，</p>
+<p>常用：根据某个字段，取出获取删除其值出现频率排在前n的数据行</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#  对name字段进行group_by</span></span><br><span class="line">groupby_df=df.groupby(<span class="string">&#x27;name&#x27;</span>)</span><br><span class="line"><span class="comment"># groupby_df:&lt;pandas.core.groupby.DataFrameGroupBy object at 0x0000000010190C18&gt;</span></span><br><span class="line"></span><br><span class="line">resl_df=groupby_df[<span class="string">&#x27;name&#x27;</span>].count()</span><br><span class="line"><span class="comment"># resl_df 就像透视表的数据形式</span></span><br><span class="line">name</span><br><span class="line">foo    <span class="number">10</span></span><br><span class="line">bar    <span class="number">5</span></span><br><span class="line">coo    <span class="number">4</span></span><br><span class="line">dee    <span class="number">2</span></span><br><span class="line">Name: bar, dtype: int64</span><br><span class="line"></span><br><span class="line"><span class="comment"># 找name字段里，字符出现频率排在前2位，例如上述的例子：foo，bar。按降序返回一个python的列表</span></span><br><span class="line">top_2_list=resl_df.sort_values(ascending=<span class="literal">False</span>).head(<span class="number">2</span>)</span><br><span class="line">print(top_2_list)</span><br><span class="line">[<span class="string">&#x27;foo&#x27;</span>,<span class="string">&#x27;bar&#x27;</span>]</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将出现频率排在前2的内容拼接成用于正则匹配的字符串</span></span><br><span class="line">pattern_str=<span class="string">&#x27;|&#x27;</span>.join(top_2_list)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 使用pandas提供的正则方法，剔除name字段中出现频率排在前2的数据行</span></span><br><span class="line">filtered_df= df[~df[<span class="string">&#x27;name&#x27;</span>].<span class="built_in">str</span>.contains(pattern_str, case=<span class="literal">False</span>, na=<span class="literal">False</span>,regex=<span class="literal">True</span>)]</span><br></pre></td></tr></table></figure>
+<p>==使用时间索引选取数据行==<br>个人认为，这种方式是时间选取数据场景最高效的手段<br>例如有数据df，其中create_date是该df唯一的日期字段，通常做法:<br>新增一列命名为back_up_date，用于备份create_date<br><code>df[&#39;back_up_date&#39;]=df[&#39;create_date&#39;]</code><br>将crete_date置为该df的时间索引<br><code>df=df.set_index(&#39;create_date&#39;)</code><br>当时间索引设置后，那么根据时间筛选数据将变得异常简单<br>取2000年的数据行<br><code>df[&#39;2000&#39;]</code><br>取2000年到2019年的数据行<br><code>df[&#39;2000&#39;:&#39;2019&#39;]</code><br>某天具体时间到某天具体时间的数据行<br><code>df[&#39;2015-03-15 11:11:10&#39;:&#39;2015-05-15 10:30:00&#39;]</code><br>有关pandas时间的专题，官方文档给出了非常详细的用法示例，这里不再赘述，<a target="_blank" rel="noopener" href="https://pandas.pydata.org/pandas-docs/version/0.25/user_guide/timeseries.html">timeseries链接</a></p>
+<h3 id="6、调整列位置、列的增、删"><a href="#6、调整列位置、列的增、删" class="headerlink" title="6、调整列位置、列的增、删"></a>6、调整列位置、列的增、删</h3><p>交换birth_date和college列的位置</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[[<span class="string">&#x27;birth_date&#x27;</span>,<span class="string">&#x27;college&#x27;</span>]]=df[[<span class="string">&#x27;college&#x27;</span>,<span class="string">&#x27;birth_date&#x27;</span>]]</span><br></pre></td></tr></table></figure>
+<p>删除指定列<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.drop(columns=[<span class="string">&#x27;B&#x27;</span>, <span class="string">&#x27;C&#x27;</span>])</span><br></pre></td></tr></table></figure><br>删除指定行，使用行索引</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.drop([<span class="number">0</span>, <span class="number">1</span>])</span><br></pre></td></tr></table></figure>
+<p>删除重复行:df.drop_duplicates</p>
+<p>直接删除重复行：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.drop_duplicates()</span><br></pre></td></tr></table></figure>
+<p>删除name列、age列存在重复的行</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.drop_duplicates([<span class="string">&#x27;name&#x27;</span>,<span class="string">&#x27;age&#x27;</span>],keep=<span class="string">&#x27;first&#x27;</span>,inplace=<span class="literal">True</span>)</span><br></pre></td></tr></table></figure>
+<p>请注意：以上删除行的操作，会破坏df原有的0到n的连续索引，例如原行索引为：0，1，2，3…n，其中索引1，2为空行，删除空行后，df的索引变为0，3…n，显然不连续，因此需要重置索引：df.reset_index(drop=True)，重置后，索引变为0，1，2，3…n</p>
+<h3 id="7、单元格的字符相关处理"><a href="#7、单元格的字符相关处理" class="headerlink" title="7、单元格的字符相关处理"></a>7、单元格的字符相关处理</h3><p>例如有字段app_id，有部分值字符串为数字：‘12331’，需转成int64<br>有部分值为字符加数字：‘TD12331’，去掉字符TD并转成int64<br>有些值为非id例如：‘ # llsd’，需对此类值用固定数值填充。因此需要对其统一处理成整型id<br>使用replace方法去掉值里面的TD字符串<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[<span class="string">&#x27;app_id&#x27;</span>].replace(<span class="string">&#x27;TD&#x27;</span>,<span class="string">&#x27;&#x27;</span>,regex=<span class="literal">True</span>,inplace=<span class="literal">True</span>)</span><br></pre></td></tr></table></figure></p>
+<p>使用apply方法通过定义简单的lambda去掉值里面的TD字符串</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[<span class="string">&#x27;app_id&#x27;</span>]=df[<span class="string">&#x27;app_id&#x27;</span>].apply(<span class="keyword">lambda</span>:item:item.replace(<span class="string">&#x27;TD&#x27;</span>,<span class="string">&#x27;&#x27;</span>))</span><br></pre></td></tr></table></figure>
+<p>其实apply才是终极方法，适用各种自定义的数据行或者列的处理，例如对同一列的值有多种判断需要处理，则可以在外部定义要处理的函数，再用apply广播到该列的每个cell中。例如上面的例子：如果单元格数值含有TD则去掉TD字符保留其数值部分，如果单元格出现非数值，则将其设为NaN空值</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">filter_id</span>(<span class="params">cell</span>):</span></span><br><span class="line">    <span class="keyword">if</span> re.match(<span class="string">&#x27;\d&#123;3&#125;&#x27;</span>,cell):</span><br><span class="line">        <span class="keyword">return</span> cell</span><br><span class="line">    <span class="keyword">elif</span> re.match(<span class="string">&#x27;TD&#x27;</span>,cell):</span><br><span class="line">        <span class="keyword">return</span> re.sub(<span class="string">&#x27;TD&#x27;</span>,<span class="string">&#x27;&#x27;</span>,cell)</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        <span class="keyword">return</span> np.nan</span><br><span class="line">        </span><br><span class="line">df[<span class="string">&#x27;app_id&#x27;</span>]=df[<span class="string">&#x27;app_id&#x27;</span>].apply(filter_id)</span><br></pre></td></tr></table></figure>
+<p>apply方法另外一种常用的方式:对数值进行分级，例如10&lt;item&lt;30为D，30&lt;=item&lt;60为C，60&lt;=item&lt;90为B。此外，货币进行转化、时间转换也是常用的场景</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">level</span>(<span class="params">item</span>):</span></span><br><span class="line">    <span class="keyword">if</span> <span class="number">10</span>&lt;=item&lt;<span class="number">30</span>:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&#x27;D&#x27;</span></span><br><span class="line">    <span class="keyword">elif</span> <span class="number">30</span>&lt;=item&lt;<span class="number">60</span>:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&#x27;C&#x27;</span></span><br><span class="line">    <span class="keyword">elif</span> <span class="number">60</span>&lt;=item&lt;<span class="number">90</span>:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&#x27;B&#x27;</span></span><br><span class="line">    <span class="keyword">else</span>: </span><br><span class="line">        <span class="keyword">return</span> <span class="string">&#x27;A&#x27;</span></span><br><span class="line">    </span><br><span class="line">df[<span class="string">&#x27;level&#x27;</span>]=df[<span class="string">&#x27;level&#x27;</span>].apply(level)    </span><br></pre></td></tr></table></figure>
+<p>使用astype转成整型id号，具体其他数据类型不再列出。astype要求整列数据是完整的同一数据类型</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df[<span class="string">&#x27;app_id&#x27;</span>]=df[<span class="string">&#x27;app_id&#x27;</span>].astype(<span class="string">&#x27;int64&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p>使用频繁：使用pandas.Series.str.contains方法处理列的值</p>
+<blockquote>
+<p>Series.str.contains(pat, case=True, flags=0, na=nan, regex=True)<br>pat : str<br>    Character sequence or regular expression.<br>case : bool, default True<br>    If True, case sensitive.<br>flags : int, default 0 (no flags)<br>    Flags to pass through to the re module, e.g. re.IGNORECASE.<br>na : default NaN<br>    Fill value for missing values.<br>regex : bool, default True<br>    If True, assumes the pat is a regular expression.<br>    If False, treats the pat as a literal string.</p>
+</blockquote>
+<p>删除name列中含有foo字符串的行，默认使用正则匹配<br>df=df[~df[‘name’].str.contains(‘foo’, case=false, flags=re.IGNORECASE, na=False)]</p>
+<p>或者使用正则匹配<br>df=df[~df[‘name’].str.contains(‘^foo’, case=false, flags=re.IGNORECASE, na=False)]</p>
+<h3 id="8、有关遍历行的处理"><a href="#8、有关遍历行的处理" class="headerlink" title="8、有关遍历行的处理"></a>8、有关遍历行的处理</h3><p>单表处理，请勿使用循环！！ 效率很低！有apply方法足以，底层是矩阵操作。</p>
+<p>遍历行，一般用在两个表之间，表A字段’date’与表B字段’date‘的比较<br>使用iterrows遍历行<br>iterate over DataFrame rows as (index, Series) pairs.<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 这种方式可以把索引和行数据遍历出，其中row的数据结构为nametuple</span></span><br><span class="line"><span class="keyword">for</span> index,row <span class="keyword">in</span> df.iterrows():</span><br><span class="line">    print(index,row)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 这种方式其实就是itertuples(index=False)的遍历</span></span><br><span class="line"><span class="keyword">for</span> _,row <span class="keyword">in</span> df.iterrows():</span><br><span class="line">    print(row.A,row.B)</span><br></pre></td></tr></table></figure></p>
+<p>使用itertuples遍历行<br>Iterate over DataFrame rows as namedtuples of the values.<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">s = pd.Series(pd.date_range(<span class="string">&#x27;2012-1-1&#x27;</span>, periods=<span class="number">10</span>, freq=<span class="string">&#x27;D&#x27;</span>))</span><br><span class="line">td = pd.Series([pd.Timedelta(days=i) <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">10</span>)])</span><br><span class="line">df = pd.DataFrame(&#123;<span class="string">&#x27;A&#x27;</span>: s, <span class="string">&#x27;B&#x27;</span>: td&#125;)</span><br><span class="line"><span class="comment">#这种方式，取出的每行为nametuple</span></span><br><span class="line"><span class="keyword">for</span> row <span class="keyword">in</span> df.itertuples(index=<span class="literal">False</span>):</span><br><span class="line">    print(row.A,row.B)</span><br></pre></td></tr></table></figure></p>
+<p>使用iteritems遍历列<br>这种方式以横向遍历列数据，每次返回该列名和该列Series</p>
+<h3 id="9、DataFrame和DataFrame合并、关联查询等"><a href="#9、DataFrame和DataFrame合并、关联查询等" class="headerlink" title="9、DataFrame和DataFrame合并、关联查询等"></a>9、DataFrame和DataFrame合并、关联查询等</h3><h4 id="9-1-DataFrame和DataFrame合并"><a href="#9-1-DataFrame和DataFrame合并" class="headerlink" title="9.1 DataFrame和DataFrame合并"></a>9.1 DataFrame和DataFrame合并</h4><p>合并具有相同结构的df<br>将多个DataFrame按垂直方向或者水平方向合并：这种场合使用批量处理具有相同字段结构的多份报表或数据源</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 默认是按垂直方向合并三个子df</span></span><br><span class="line">frames = [df1, df2, df3]</span><br><span class="line">result = pd.concat(frames)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 在合并后，还可以为每个子df设定相应key</span></span><br><span class="line">result = pd.concat(frames, keys=[<span class="string">&#x27;foo&#x27;</span>, <span class="string">&#x27;bar&#x27;</span>, <span class="string">&#x27;cee&#x27;</span>])</span><br><span class="line"></span><br><span class="line"><span class="comment"># 利用上面key，可以一次性取回合并前的df1</span></span><br><span class="line">df1=result.loc[<span class="string">&#x27;foo&#x27;</span>]</span><br></pre></td></tr></table></figure>
+<p>合并字段不同的df</p>
+<h4 id="9-2-DataFrame和DataFrame之间的关联查询"><a href="#9-2-DataFrame和DataFrame之间的关联查询" class="headerlink" title="9.2 DataFrame和DataFrame之间的关联查询"></a>9.2 DataFrame和DataFrame之间的关联查询</h4><p>因为关联查询基本是数据分析里面重要的、使用频繁的需求，例如实现报表1和报表的用vlookup关联查询、sql中多个表的关联查询（内连接、左连接、右连接、全连接）。pandas的doc官方文档在这部分的内容已经非常详细，并且有相应的关联前后的图文说明，本文不再一一赘述，仅给出简单的关联用法。<br>以内连接为例：<br>实现类似sql使用两表的多个外键关联：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">select t1.*,t2.* from t1,t2 where t1.a&#x3D;t2.a</span><br><span class="line">and t1.b&#x3D;t2.b</span><br><span class="line">and t1.c&#x3D;t2.c</span><br></pre></td></tr></table></figure><br>pandas的方式<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df1.merge(df2, on=[ key1 ,  key2 ,  key ])</span><br></pre></td></tr></table></figure><br>使用单个字段(外键)关联两表<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df1.merge(df2, on=<span class="string">&#x27;dept_id&#x27;</span>)</span><br></pre></td></tr></table></figure></p>
+<h3 id="10、groupby基本用法"><a href="#10、groupby基本用法" class="headerlink" title="10、groupby基本用法"></a>10、groupby基本用法</h3><p>groupby可以说面对不同的数据需求，有不同用法，对sql熟悉的人应该无需多说。这里仅给出一些简单用法。</p>
+<p>按季度分组，提取每个分组前n个数据行<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">top_n</span>(<span class="params">df,n=<span class="number">3</span></span>):</span></span><br><span class="line">    <span class="keyword">return</span> df[<span class="number">0</span>:n]</span><br><span class="line"><span class="comment"># 这里的n是top_n自定义的关键字参数n，不是apply的参数    </span></span><br><span class="line">df.groupby(<span class="string">&#x27;quarter&#x27;</span>).apply(top_n,n=<span class="number">3</span>)</span><br></pre></td></tr></table></figure></p>
+<p>按产品种类分组，提取每个分组里最大值和最小值之差<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 每个产品种类的数值跨度范围，也即最大值减去最小值</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">max_min</span>(<span class="params">item</span>):</span></span><br><span class="line">    <span class="keyword">return</span> item.<span class="built_in">max</span>() - item.<span class="built_in">min</span>()</span><br><span class="line">df.groupby(<span class="string">&#x27;prod&#x27;</span>).agg(max_min)</span><br></pre></td></tr></table></figure></p>
+<p>按产品种类分组，一次性取出每组的最值、均值、数值跨度范围，这里需要注意agg的入参为方法的列表，内置方法使用其字符名，自定义方使用其函数名<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df.groupby(<span class="string">&#x27;prod&#x27;</span>).agg([<span class="string">&#x27;mean&#x27;</span>,<span class="string">&#x27;max&#x27;</span>,<span class="string">&#x27;min&#x27;</span>,max_min])</span><br></pre></td></tr></table></figure></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/pandas/" rel="tag"># pandas</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/11/17/%E6%B7%B1%E5%85%A5functools.wraps%E3%80%81partial/" rel="prev" title="深入functools.wraps、partial">
+      <i class="fa fa-chevron-left"></i> 深入functools.wraps、partial
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/11/18/Python%E5%BC%80%E5%8F%91%E5%B8%B8%E7%94%A8%E7%9A%84%E8%99%9A%E6%8B%9F%E7%8E%AF%E5%A2%83%E7%AE%A1%E7%90%86%E9%85%8D%E7%BD%AE/" rel="next" title="Python开发常用的虚拟环境管理配置">
+      Python开发常用的虚拟环境管理配置 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#1%E3%80%81%E8%AF%BB%E5%8F%96%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6"><span class="nav-number">1.</span> <span class="nav-text">1、读取数据文件</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#1-1-%E8%AF%BB%E5%8F%96excel%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6"><span class="nav-number">1.1.</span> <span class="nav-text">1.1  读取excel数据文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-2-%E8%AF%BB%E5%8F%96csv%E6%96%87%E4%BB%B6"><span class="nav-number">1.2.</span> <span class="nav-text">1.2 读取csv文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-3-%E8%AF%BB%E5%8F%96%E6%95%B0%E6%8D%AE%E6%97%B6%EF%BC%8C%E8%B7%B3%E8%BF%87%E5%B0%BE%E8%A1%8C"><span class="nav-number">1.3.</span> <span class="nav-text">1.3 读取数据时，跳过尾行</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-4-%E8%AF%BB%E5%8F%96%E7%89%B9%E5%AE%9A%E5%88%86%E5%89%B2%E7%AC%A6%E7%9A%84%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6"><span class="nav-number">1.4.</span> <span class="nav-text">1.4 读取特定分割符的数据文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-5-%E4%BD%BF%E7%94%A8c%E6%88%96%E8%80%85python%E4%BD%9C%E4%B8%BA%E8%AF%BB%E5%8F%96%E6%96%87%E4%BB%B6%E7%9A%84%E5%BC%95%E6%93%8E"><span class="nav-number">1.5.</span> <span class="nav-text">1.5 使用c或者python作为读取文件的引擎</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1-6-%E4%BD%BF%E7%94%A8%E8%BF%AD%E4%BB%A3%E5%99%A8%E8%AF%BB%E5%8F%96%E8%B6%85%E5%A4%A7%E6%96%87%E4%BB%B6"><span class="nav-number">1.6.</span> <span class="nav-text">1.6 使用迭代器读取超大文件</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2%E3%80%81%E6%9F%A5%E7%9C%8B%E6%95%B0%E6%8D%AE%E7%9A%84%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF"><span class="nav-number">2.</span> <span class="nav-text">2、查看数据的基本信息</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3%E3%80%81%E6%9C%89%E5%85%B3%E7%A9%BA%E5%80%BC%E5%A4%84%E7%90%86"><span class="nav-number">3.</span> <span class="nav-text">3、有关空值处理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-1-%E8%A1%8C%E7%9A%84%E7%A9%BA%E5%80%BC%E5%A4%84%E7%90%86"><span class="nav-number">3.1.</span> <span class="nav-text">3.1 行的空值处理</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-2-%E5%88%97%E7%9A%84%E7%A9%BA%E5%80%BC%E5%A4%84%E7%90%86"><span class="nav-number">3.2.</span> <span class="nav-text">3.2 列的空值处理</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-3-%E7%A9%BA%E5%80%BC%E7%9A%84%E5%A1%AB%E5%85%85"><span class="nav-number">3.3.</span> <span class="nav-text">3.3 空值的填充</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-4-%E7%A9%BA%E5%80%BC%E4%BD%BF%E7%94%A8%E6%89%80%E5%9C%A8%E5%88%97%E6%88%96%E8%80%85%E6%89%80%E5%9C%A8%E8%A1%8C%E7%9A%84%E5%9D%87%E5%80%BC%E3%80%81%E4%B8%AD%E4%BD%8D%E6%95%B0%E6%9D%A5%E5%A1%AB%E8%A1%A5"><span class="nav-number">3.4.</span> <span class="nav-text">3.4  空值使用所在列或者所在行的均值、中位数来填补</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4%E3%80%81dataframe-%E5%8F%96%EF%BC%88%E5%AE%9A%E4%BD%8D%EF%BC%89%E6%95%B0%E6%8D%AE%E7%9A%84%E6%93%8D%E4%BD%9C"><span class="nav-number">4.</span> <span class="nav-text">4、dataframe 取（定位）数据的操作</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#4-1-%E6%8C%89%E7%BB%99%E5%AE%9A%E5%88%97%E5%90%8D%E5%8F%96%E6%95%B0%EF%BC%8C%E7%B1%BB%E4%BC%BC%E5%AD%97%E5%85%B8%E6%93%8D%E4%BD%9C%EF%BC%9Adf-%E2%80%98%E5%88%97%E5%90%8D%E2%80%99"><span class="nav-number">4.1.</span> <span class="nav-text">4.1 按给定列名取数，类似字典操作：df[‘列名’]</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-2-%E6%8C%89%E8%A1%8C%E9%BB%98%E8%AE%A4%E7%9A%84%E8%A1%8C%E7%B4%A2%E5%BC%95%E5%8F%B7%E9%80%89%E5%8F%96%E6%95%B0%E6%8D%AE%EF%BC%9Adf-loc"><span class="nav-number">4.2.</span> <span class="nav-text">4.2  按行默认的行索引号选取数据：df.loc</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-3-%E6%8C%89%E7%BB%99%E5%AE%9A%E5%88%97%E5%90%8D%E4%BB%A5%E5%8F%8A%E8%A1%8C%E7%B4%A2%E5%BC%95%E5%8F%96%E5%87%BA%E6%95%B0%E6%8D%AE"><span class="nav-number">4.3.</span> <span class="nav-text">4.3 按给定列名以及行索引取出数据</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-4-df-iloc%E5%88%A9%E7%94%A8index%E8%8E%B7%E5%8F%96%E8%A1%8C%E6%95%B0%E6%8D%AE%E6%88%96%E8%80%85%E5%88%97%E6%95%B0%E6%8D%AE"><span class="nav-number">4.4.</span> <span class="nav-text">4.4  df.iloc利用index获取行数据或者列数据</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5%E3%80%81%E9%80%9A%E8%BF%87%E5%A4%8D%E6%9D%82%E8%A7%84%E5%88%99%E5%8F%96%E6%95%B0"><span class="nav-number">5.</span> <span class="nav-text">5、通过复杂规则取数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6%E3%80%81%E8%B0%83%E6%95%B4%E5%88%97%E4%BD%8D%E7%BD%AE%E3%80%81%E5%88%97%E7%9A%84%E5%A2%9E%E3%80%81%E5%88%A0"><span class="nav-number">6.</span> <span class="nav-text">6、调整列位置、列的增、删</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7%E3%80%81%E5%8D%95%E5%85%83%E6%A0%BC%E7%9A%84%E5%AD%97%E7%AC%A6%E7%9B%B8%E5%85%B3%E5%A4%84%E7%90%86"><span class="nav-number">7.</span> <span class="nav-text">7、单元格的字符相关处理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8%E3%80%81%E6%9C%89%E5%85%B3%E9%81%8D%E5%8E%86%E8%A1%8C%E7%9A%84%E5%A4%84%E7%90%86"><span class="nav-number">8.</span> <span class="nav-text">8、有关遍历行的处理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9%E3%80%81DataFrame%E5%92%8CDataFrame%E5%90%88%E5%B9%B6%E3%80%81%E5%85%B3%E8%81%94%E6%9F%A5%E8%AF%A2%E7%AD%89"><span class="nav-number">9.</span> <span class="nav-text">9、DataFrame和DataFrame合并、关联查询等</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#9-1-DataFrame%E5%92%8CDataFrame%E5%90%88%E5%B9%B6"><span class="nav-number">9.1.</span> <span class="nav-text">9.1 DataFrame和DataFrame合并</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#9-2-DataFrame%E5%92%8CDataFrame%E4%B9%8B%E9%97%B4%E7%9A%84%E5%85%B3%E8%81%94%E6%9F%A5%E8%AF%A2"><span class="nav-number">9.2.</span> <span class="nav-text">9.2 DataFrame和DataFrame之间的关联查询</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10%E3%80%81groupby%E5%9F%BA%E6%9C%AC%E7%94%A8%E6%B3%95"><span class="nav-number">10.</span> <span class="nav-text">10、groupby基本用法</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="1、MR基本定义&amp;#8195;&amp;#8195;参考百度百科定义，简要概括如下：MapReduce是分布式的计算框架或者解决方案，大致有基本内容：  1）首先MapReduce重点是工作在集群的节点上，而非在单台服务器上做计算、做统计等 2）MapReduce把用户提交的任务以分布式放在多个节点上执行，自动划分计算数据和计算任务等，这些并行计算涉及到的系统底层的复杂细节交由MR框架负责处理。换句话：数">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MapReduce设计原理">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/10/27/MapReduce%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="1、MR基本定义&amp;#8195;&amp;#8195;参考百度百科定义，简要概括如下：MapReduce是分布式的计算框架或者解决方案，大致有基本内容：  1）首先MapReduce重点是工作在集群的节点上，而非在单台服务器上做计算、做统计等 2）MapReduce把用户提交的任务以分布式放在多个节点上执行，自动划分计算数据和计算任务等，这些并行计算涉及到的系统底层的复杂细节交由MR框架负责处理。换句话：数">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191016230840663.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2019101721123387.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191027104923213.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191017231015820.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-10-27T03:37:02.000Z">
+<meta property="article:modified_time" content="2020-02-03T10:10:48.000Z">
+<meta property="article:tag" content="MapReduce">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191016230840663.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/10/27/MapReduce%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>MapReduce设计原理 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/10/27/MapReduce%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          MapReduce设计原理
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-10-27 11:37:02" itemprop="dateCreated datePublished" datetime="2019-10-27T11:37:02+08:00">2019-10-27</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 18:10:48" itemprop="dateModified" datetime="2020-02-03T18:10:48+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Hadoop/" itemprop="url" rel="index"><span itemprop="name">Hadoop</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>6.1k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>6 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h4 id="1、MR基本定义"><a href="#1、MR基本定义" class="headerlink" title="1、MR基本定义"></a>1、MR基本定义</h4><p>&#8195;&#8195;参考百度百科定义，简要概括如下：<br>MapReduce是分布式的计算框架或者解决方案，大致有基本内容：</p>
+<ul>
+<li>1）首先MapReduce重点是工作在集群的节点上，而非在单台服务器上做计算、做统计等</li>
+<li>2）MapReduce把用户提交的任务以分布式放在多个节点上执行，自动划分计算数据和计算任务等，这些并行计算涉及到的系统底层的复杂细节交由MR框架负责处理。换句话：数据开发人员只需要定义“我要统计词频”的“任务”后，提交给MR框架即可，坐等计算结果，至于MR是如何从多台服务上找数据文件、计算统计、缓存中间计算结果、存储最终技术结果、CPU、内存、IO网络资源使用等，数据开发人员都无需关注，MR自己会处理。</li>
+</ul>
+<a id="more"></a>
+<h4 id="2、HDFS和MR的关系"><a href="#2、HDFS和MR的关系" class="headerlink" title="2、HDFS和MR的关系"></a>2、HDFS和MR的关系</h4><p>&#8195;&#8195;HDFS和MR共同组成Hadoop分布式系统体系结构的核心。HDFS在集群上实现了分布式文件系统，MR在集群上实现了分布式计算和任务处理。HDFS在MR任务处理过程中提供了文件操作和存储等支持，MR在HDFS的基础上实现了任务的分发、计算、跟踪等工作，并收集结果，二者相互作用，完成分布式集群的主要任务。</p>
+<h4 id="3、MR组件架构"><a href="#3、MR组件架构" class="headerlink" title="3、MR组件架构"></a>3、MR组件架构</h4><p><img src="https://img-blog.csdnimg.cn/20191016230840663.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;MapReduce框架设计为4部分：Client、JobTracker、TaskTracker以及Map Task &amp; Reduce Task。具体内容如下：</p>
+<p>1）Client 客户端<br>Hadoop中，把用户提交的MapReduce程序成为“Job”（作业），每一个 Job 都会在用户端通过 Client 类将应用程序以及配置参数 Configuration 打包成 jar文件存储在 HDFS，也就是这个MR程序 jar包在集群中每个节点都存放在一份，而且是存放在hdfs文件系统上，并把jar包路径告诉 JobTracker ，由它创建每一个 Task（即 Map Task 和 Reduce Task） 将它们分发到各个 TaskTracker 服务中去执行。</p>
+<p>2）JobTracker</p>
+<p>JobTracke负责资源监控和作业调度。JobTracker 监控所有TaskTracker 与job的健康状况，当然TaskTracker也会主动上报自己的情况，若JobTracker一旦发现某个TaskTracker失败，就将相应的任务转移到其他健康TaskTracker节点继续干活；同时，JobTracker 会跟踪任务的执行进度、资源使用量等信息，并将这些信息告诉任务调度器Task Scheduler，而调度器会在TaskTracker所在节点资源出现空闲时，选择合适的任务工作交由这些空闲的TaskTracker来干活。这里说的调度器，就是我们后面要讨论的YARN，在hadoop 1，MR框架还需要运行资源调度和管理服务，在hadoop 2中，这个资源调度功能在MR框架中剥离出来，交由更专业的YARN框架统一处理。</p>
+<p>3）TaskTracker</p>
+<p>TaskTracker 会周期性地通过Heartbeat 将本节点上资源的使用情况和任务的运行进度汇报给JobTracker，同时接收JobTracker 发送过来的命令并执行相应的操作（如启动新任务、杀死任务等）。TaskTracker 使用“slot”等量划分本节点上的资源量。“slot”代表计算资源（CPU、内存等）。一个Task 获取到一个slot 后才有机会运行，而Hadoop 调度器的作用就是将各个TaskTracker 上的空闲slot 分配给Task 使用。slot 分为Map slot 和Reduce slot 两种，分别供Map Task 和Reduce Task 使用。TaskTracker 通过slot 数目（可配置参数）限定Task 的并发度。</p>
+<p>4）Map Task &amp; Reduce Task<br>Map Task、Reduce Task由Datanode节点上的TaskTracker 启动，HDFS 以固定大小的block 为基本单位存储数据，而对于MapReduce的处理单位是：split。split 是一个逻辑概念，它只包含一些元数据信息，比如数据起始位置、数据长度、数据所在节点等。正因为屏蔽了物理文件层，在逻辑层，数据文件划分方法完全由数据开发者自行决定，这就是为何MR通过再次封装使用split来组织数据块的原因。这就像Linux LVM逻辑，多个物理卷PV组成一个大的卷组VG（或者物理卷池），逻辑卷LV在VG的上面，因为物理卷被逻辑化，因此可以由用户自行划分区或或者调整分区大小。<br>split 的多少决定了Map Task 的数目，每个split 只会交给一个Map Task 处理。<br>Split 和 Block的关系如下图所示：<br><img src="https://img-blog.csdnimg.cn/2019101721123387.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<h4 id="4、MR运行流程"><a href="#4、MR运行流程" class="headerlink" title="4、MR运行流程"></a>4、MR运行流程</h4><p>4.1 分区原理</p>
+<ul>
+<li><p>1）、首先我们需要了解MR的分区partition原理，它是参考了一致性hash算法的概念：<br>Hash算法是为了保证数据均匀的分布，例如：有3个目录，编号分别为：0、1、2；现在有12个文件，如何把12个文件平均存放到3个目录下呢？按Hash算法的做法是，将12个文件从0开始编号，得到这样的一个数组：<br>[0，1，2，3，4，5，6，7，8，9，10，11]，每个文件所存放目录号=文件序号 mod 3，任何数字对3取模，最终得到的结果都是0，1，2。<br>最后将取模结果为0的文件放入0号目录下，结果为1的文件放入1号目录下，结果为2的文件放入2号目录，12个文件最终均匀的分布到3个目录下：<br>0、3、6、9、12号的文件存放在0号目录下<br>1、4、7、10号的文件存放在1号目录下<br>2、5、8、11号的文件存放在2号目录下<br>MR的分区partition就是这样的过程，partition_num=hash（key）mod N</p>
+</li>
+<li><p>2）MR为何做partition？<br>在进行MapReduce计算时，经常的需求是把最终的输出数据分到不同的文件中，例如：<br>按照年度（季度、月等）划分的话，需要把同一年份的数据放到一个文件中，因此不同年份对应不同的文件；<br>按性别业务划分，需要把同一性别的数据放到一个文件中，因此不同性别的数据放在不同的文件上。<br>从逆向来看：这些最终的输出是我们需要的数据，是由Reducer任务产生，而如果要得到最终输出的多个数据文件，意味着有同样数量的Reducer任务在跑；Reducer任务的数据来自于Mapper任务，也就说Mapper任务要划分数据，对于不同的Map阶段的数据分配给不同的Reducer任务运行。Mapper任务划分数据的过程就称作Partition，负责实现划分数据的类称作Partitioner。</p>
+</li>
+</ul>
+<p>4.2 MapReduce统计词频的MapReduce流程<br><img src="https://img-blog.csdnimg.cn/20191027104923213.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">该图统计词频流程主要分为以下几步。<br>第1步：假设一个文件有三行英文句子作为 MapReduce 的Input（输入），这里经过 Splitting 过程把文件分割为3块。分割后的3块数据就可以并行处理，每一块交给一个 map 线程处理，对应3个map task。</p>
+<p>第2步：每个 map 线程中，以每个单词为key，以1作为词频数value，并建结果写到磁盘上，而非内存中（spark计算框架则会把此计算结果放在内存中，减少IO加速计算）。</p>
+<p>第3步：每个 map 的输出要经过 shuffling（混洗），将相同的单词key放在同一分区，然后交给 reduce task处理。</p>
+<p>第4步：reduce 接受到 shuffling 后的数据（reduce去读相应的map计算结果文件）， 会将相同的单词进行合并，得到每个单词的词频数，最后将统计好的每个单词的词频数作为输出结果。</p>
+<p><strong>Map Reduce具体实现</strong><br>==Map阶段==<br>Map 阶段是由一定数量的 Map Task 组成。这些 Map Task 可以同时运行，每个Task所使用的计算资源由slot决定，每个 Map Task又是由以下三个部分组成。</p>
+<ul>
+<li><p>1）、对输入数据格式进行解析的一个组件：InputFormat。因为不同的数据可能存储的数据格式不一样，这就需要有一个 InputFormat 组件来解析这些数据的存放格式。默认情况下，它提供了一个 TextInputFormat 来读取输入数据格式（就像在Pandas中，使用read_csv()方法读取csv格式数据，用read_excel()读取Excel格式的数据）。TextInputFormat 会将文件的每一行解释成(key,value)，key代表每行偏移量，value代表每行数据内容。 通常不需要自定义 InputFormat，因为 MapReduce 提供了很多种InputFormat的实现，可直接引用。</p>
+</li>
+<li><p>2）、对输入数据进一步处理：Mapper——这个 Mapper 计算指具体业务逻辑，因为不同的业务对数据有不同的处理。</p>
+</li>
+<li><p>3)、数据分组：Partitioner。Mapper 数据处理之后输出导reduce之前，输出key会经过 Partitioner 分组选择不同的reduce。默认的情况下，Partitioner 会对 map 输出的key进行hash取模，比如有3个Reduce Task，它就是模（mod）3，如果key的hash值为0对应第0个 Reduce Task，hash值1对应第1个Reduce Task，hash值2对应第2个Reduce Task。如上图第一组map的bear和第二组map的bear hash值一样，因此被shuffling到同一组，然后交给第一个 reduce 来处理。</p>
+</li>
+</ul>
+<p>==Reduce 阶段==<br>Reduce 阶段由一定数量的 Reduce Task 组成。这些 Reduce Task 可以同时运行，每个 Reduce Task又是由以下四个部分组成。</p>
+<ul>
+<li><p>1）、数据远程（http方式）或本地拷贝。Reduce Task 通过http拷贝每个 map 处理的结果，从每个 map 中读取一部分结果。每个 Reduce Task 拷贝哪些数据，是由上面 Partitioner 决定的(具体由reducer向ApplicationMaster请求拷贝数据的安排信息)。（这里要求服务器直接的网卡连接至少是Gb级别以上的光纤链路，提供拷贝数据的传输吞吐量）</p>
+</li>
+<li><p>2）、数据按照key排序。Reduce Task 读取完数据后，要按照key进行排序。按照key排序后，相同的key被分到一组，交给同一个 Reduce Task 处理。</p>
+</li>
+<li><p>3）、数据处理：Reducer。以WordCount为例，相同的单词key分到一组，交个同一个Reducer处理，这样就实现了对每个单词的词频统计。</p>
+</li>
+<li><p>4）、数据输出格式：OutputFormat。Reducer 统计的结果，将按照 OutputFormat 格式输出。默认情况下的输出格式为 TextOutputFormat，以WordCount为例，这里的key为单词，value为词频数。</p>
+</li>
+</ul>
+<p>InputFormat、Mapper、Partitioner、Reducer和OutputFormat 都可以数据开发者自行实现，通常情况下，只需要实现 Mapper和Reducer。（数据开发者主要任务：集合数据业务需求，专注编写mapper和reducer二十年，该工作性质类似在关系型数据库中，数据分析岗根据市场运营提的数据报表需求写sql）</p>
+<p>4.3  Shuffle（混洗）与reducer拉取数据细节<br>　　从4.2节内容可知，在map到reduce的过程，有一个环节为shuffling，那么shuffle是如何运作的呢？reducer又是如何从mapper节点去拷贝中间数据呢？按以下图示说明：<br>　<img src="https://img-blog.csdnimg.cn/20191017231015820.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>当map任务将数据output时，不仅仅是将结果输出到磁盘，它是将其写入内存缓冲区域，并进行一些预分类。</p>
+<p>1）、Map阶段</p>
+<p>首先map任务的output过程是一个环状的内存缓冲区，缓冲区的大小默认为100MB（可通过修改配置项mpareduce.task.io.sort.mb进行修改），当写入内存的大小到达一定比例，默认为80%（可通过mapreduce.map.sort.spill.percent配置项修改），便开始将这些缓存数据spill溢出写入磁盘。</p>
+<p>在写入磁盘之前，线程将会指定数据写入与reduce相应的patitions中，最终传送给reduce。在每个partition中，后台线程将会在内存中进行Key的排序，（如果代码中有combiner方法，则会在output时就进行sort排序，这里，如果只有少于3个写入磁盘的文件，combiner将会在outputfile前启动，如果只有一个或两个，那么将不会调用）</p>
+<p>这里将map输出的结果进行压缩会大大减少磁盘IO与网络传输的开销（配置参数mapreduce.map .output.compress 设置为true，如果使用第三方压缩jar，可通过mapreduce.map.output.compress.codec进行设置)</p>
+<p>随后这些paritions输出文件将会通过HTTP发送至reducers，传送的最大启动线程通过mapreduce.shuffle.max.threads进行配置，如果mapper跟reducer同在一台服务器上，则reducer无需通过网络，直接读取本地文件，效率更高。</p>
+<p>2）、The Reduce Side</p>
+<p>首先上面每个节点的map都将结果写入了本地磁盘中，现在reduce需要将map的结果通过集群拉取过来，这里要注意的是，需要等到所有map任务结束后，reduce才会对map的结果进行拷贝，由于reduce函数有少数几个复制线程，以至于它可以同时拉取多个map的输出结果。默认的为5个线程（可通过修改配置mapreduce.reduce.shuffle.parallelcopies来修改其个数）</p>
+<p>这里有个问题，那么reducers怎么知道从哪些机器拉取数据呢？ 当所有map的任务结束后，applicationMaster通过心跳机制（heartbeat mechanism)，由它负责mapping的输出结果与机器host的信息。所以reducer会定时的通过一个线程访问ApplicationMaster请求map的输出结果。</p>
+<p>Map的结果将会被拷贝到reduce task的JVM的内存中（内存大小可在mapreduce.reduce.shuffle.input.buffer.percent中设置）如果不够用，则会写入磁盘。当内存缓冲区的大小到达一定比例时（可通过mapreduce.reduce.shuffle.merge.percent设置)或map的输出结果文件过多时（可通过配置mapreduce.reduce.merge.inmen.threshold)，将会触发合并(merged)随之写入磁盘。</p>
+<p>这时要注意，所有的map结果这时都是被压缩过的，需要先在内存中进行解压缩，以便后续合并它们。（合并最终文件的数量可通过mapreduce.task.io.sort.factor进行配置） 最终reduce进行运算进行输出。<br>以上内容参考博文：<a target="_blank" rel="noopener" href="https://blog.csdn.net/qq_36864672/article/details/78561375">shuffle和reducer拷贝mapper数据的细节</a></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/MapReduce/" rel="tag"># MapReduce</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/15/%E7%90%86%E8%A7%A3HDFS%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E5%92%8C%E5%8E%9F%E7%90%86/" rel="prev" title="理解HDFS文件系统架构和原理">
+      <i class="fa fa-chevron-left"></i> 理解HDFS文件系统架构和原理
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/28/%E5%9F%BA%E4%BA%8EHadoop%20HA%E9%9B%86%E7%BE%A4%E9%83%A8%E7%BD%B2HBase%20HA%E9%9B%86%E7%BE%A4%EF%BC%88%E8%AF%A6%E7%BB%86%E7%89%88%EF%BC%89/" rel="next" title="基于Hadoop HA集群部署HBase HA集群（详细版）">
+      基于Hadoop HA集群部署HBase HA集群（详细版） <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81MR%E5%9F%BA%E6%9C%AC%E5%AE%9A%E4%B9%89"><span class="nav-number">1.</span> <span class="nav-text">1、MR基本定义</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81HDFS%E5%92%8CMR%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="nav-number">2.</span> <span class="nav-text">2、HDFS和MR的关系</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81MR%E7%BB%84%E4%BB%B6%E6%9E%B6%E6%9E%84"><span class="nav-number">3.</span> <span class="nav-text">3、MR组件架构</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81MR%E8%BF%90%E8%A1%8C%E6%B5%81%E7%A8%8B"><span class="nav-number">4.</span> <span class="nav-text">4、MR运行流程</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

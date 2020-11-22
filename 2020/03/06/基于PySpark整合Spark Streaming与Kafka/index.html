@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;本文内容主要给出基于PySpark程序，整合Spark Streaming和Kafka，实现实时消费和处理topic消息，为PySpark开发大数据实时计算项目提供基本参考。 1 程序环境准备：&amp;#8195;&amp;#8195;这里不再使用Spark的集群环境，因涉及的计算资源测试环境受限，目前两台虚拟机：1个vcore+2G内存，其中一台虚拟机启动Spark Streami">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于PySpark整合Spark Streaming与Kafka">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2020/03/06/%E5%9F%BA%E4%BA%8EPySpark%E6%95%B4%E5%90%88Spark%20Streaming%E4%B8%8EKafka/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;本文内容主要给出基于PySpark程序，整合Spark Streaming和Kafka，实现实时消费和处理topic消息，为PySpark开发大数据实时计算项目提供基本参考。 1 程序环境准备：&amp;#8195;&amp;#8195;这里不再使用Spark的集群环境，因涉及的计算资源测试环境受限，目前两台虚拟机：1个vcore+2G内存，其中一台虚拟机启动Spark Streami">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200205144614446.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200303193251128.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200305173531689.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2020-03-05T16:00:00.000Z">
+<meta property="article:modified_time" content="2020-11-21T16:40:30.686Z">
+<meta property="article:tag" content="Spark Streaming">
+<meta property="article:tag" content="Kafka">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20200205144614446.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2020/03/06/%E5%9F%BA%E4%BA%8EPySpark%E6%95%B4%E5%90%88Spark%20Streaming%E4%B8%8EKafka/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于PySpark整合Spark Streaming与Kafka | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2020/03/06/%E5%9F%BA%E4%BA%8EPySpark%E6%95%B4%E5%90%88Spark%20Streaming%E4%B8%8EKafka/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于PySpark整合Spark Streaming与Kafka
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-03-06 00:00:00" itemprop="dateCreated datePublished" datetime="2020-03-06T00:00:00+08:00">2020-03-06</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-11-22 00:40:30" itemprop="dateModified" datetime="2020-11-22T00:40:30+08:00">2020-11-22</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Spark/" itemprop="url" rel="index"><span itemprop="name">Spark</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>11k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>10 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;本文内容主要给出基于PySpark程序，整合Spark Streaming和Kafka，实现实时消费和处理topic消息，为PySpark开发大数据实时计算项目提供基本参考。</p>
+<h4 id="1-程序环境准备："><a href="#1-程序环境准备：" class="headerlink" title="1 程序环境准备："></a>1 程序环境准备：</h4><p>&#8195;&#8195;这里不再使用Spark的集群环境，因涉及的计算资源测试环境受限，目前两台虚拟机：1个vcore+2G内存，其中一台虚拟机启动Spark Streaming服务进程，另外一台虚拟机启动kafka进程。</p>
+<ul>
+<li>虚拟机A：启动单实例kafka服务</li>
+<li>虚拟机B：运行PySpark程序</li>
+</ul>
+<p>&#8195;&#8195;在VM A，程序环境要求安装jdk1.8以上以及与kafka匹配版本的scala版本<br>版本兼容说明：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">kafka：kafka_2.11-2.4.0</span><br><span class="line">java：java version &quot;1.8.0_11&quot;</span><br><span class="line">scala： Scala 2.12.0</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;这里需要注意：如果使用kafka_2.12版本以上，需要使用jdk1.8.0_212以上；kafka_2.12与jdk1.8.0_11有不兼容地方，kafka启动报错提示<code>java.lang.VerifyError: Uninitialized object exists on backward branch 209</code>。</p>
+<a id="more"></a>
+<h5 id="1-1-基本配置"><a href="#1-1-基本配置" class="headerlink" title="1.1 基本配置"></a>1.1 基本配置</h5><p>（1）配置单机zk这里无需依赖ZooKeeper集群，只需使用kafka自带的zk服务即可<br>vim /opt/kafka_2.11-2.4.0/config/zookeeper.properties<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">dataDir&#x3D;&#x2F;opt&#x2F;zookeeper # zk的snapshot数据存储路径</span><br><span class="line">clientPort&#x3D;2181 # 按默认端口</span><br></pre></td></tr></table></figure></p>
+<p>（2）配置kafka的，路径<code>/opt/kafka_2.11-2.4.0/config/ server.properties</code><br><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">log.dirs=/opt/kafka-logs # 存放kafka数据目录</span><br><span class="line">zookeeper.connect=127.0.0.1:2181 # 按默认连接本机zk即可</span><br></pre></td></tr></table></figure></p>
+<h5 id="1-2-启动zk和kafka"><a href="#1-2-启动zk和kafka" class="headerlink" title="1.2 启动zk和kafka"></a>1.2 启动zk和kafka</h5><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# pwd</span><br><span class="line">/opt/kafka_2.12-2.4.0</span><br><span class="line"></span><br><span class="line">[root@nn kafka_2.11-2.4.0]#  nohup ./bin/zookeeper-server-start.sh config/zookeeper.properties 2&gt;&amp;1 &amp;</span><br></pre></td></tr></table></figure>
+<p>kafka server后台启动：<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# nohup bin/kafka-server-start.sh config/server.properties 2&gt;&amp;1 &amp;</span><br></pre></td></tr></table></figure></p>
+<h5 id="1-3-测试单实例Kafka"><a href="#1-3-测试单实例Kafka" class="headerlink" title="1.3 测试单实例Kafka"></a>1.3 测试单实例Kafka</h5><p>&#8195;&#8195;对于kafka单节点而言，这里只能使用1个分区且1个replication-factor，topic名称为sparkapp<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# ./bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic sparkapp</span><br><span class="line">Created topic sparkapp.</span><br></pre></td></tr></table></figure></p>
+<p>打开一个新的shell,用于启动producer<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# bin/kafka-console-producer.sh --broker-list localhost:9092 --topic sparkapp</span><br></pre></td></tr></table></figure></p>
+<p>再打开一个新的shell,用于启动consumer<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# bin/kafka-console-consumer.sh --bootstrap-server localhost:9092  --topic sparkapp</span><br></pre></td></tr></table></figure></p>
+<p>&#8195;&#8195;在producer shell输入字符串，consumer端可以看到相应输出，说明单机的kafka可以正常运行，下面将使用Spark Streaming实时读取kafka的输入流</p>
+<h4 id="2-整合streaming和kafka"><a href="#2-整合streaming和kafka" class="headerlink" title="2  整合streaming和kafka"></a>2  整合streaming和kafka</h4><h5 id="2-1-配置依赖包"><a href="#2-1-配置依赖包" class="headerlink" title="2.1 配置依赖包"></a>2.1 配置依赖包</h5><p>&#8195;&#8195;具体说明<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/2.4.4/streaming-kafka-integration.html">参考官方文档</a>spark streaming连接kafka需要依赖两个jar包（注意版本号）：<br>spark-streaming-kafka-0-8-assembly_2.11-2.4.3.jar： <a target="_blank" rel="noopener" href="http://archiva-maven-storage-prod.oss-cn-beijing.aliyuncs.com/repository/central/org/apache/spark/spark-streaming-kafka-0-8-assembly_2.11/2.4.3/spark-streaming-kafka-0-8-assembly_2.11-2.4.3.jar?Expires=1579170671&amp;OSSAccessKeyId=LTAIfU51SusnnfCC&amp;Signature=Yh6l7ZwWEfW0QPkwKlrDAdXrGxs%3D">下载链接</a><br>spark-streaming-kafka-0-8_2.11-2.4.4.jar：  <a target="_blank" rel="noopener" href="https://repo1.maven.org/maven2/org/apache/spark/spark-streaming-kafka-0-8_2.11/2.4.4/spark-streaming-kafka-0-8_2.11-2.4.4.jar">下载链接</a><br>&#8195;&#8195;将这两个jar包放在spark 的jars目录下，需要注意的是：这两个jar包缺一不可，如果是在Spark集群上做测试，那么每个Spark节点都需要放置这两个jars包：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@nn jars]# pwd</span><br><span class="line">/opt/spark-2.4.4-bin-hadoop2.7/jars</span><br><span class="line"></span><br><span class="line">[root@nn jars]# ls spark-streaming-kafka-0-8</span><br><span class="line">spark-streaming-kafka-0-8_2.11-2.4.4.jar</span><br><span class="line">spark-streaming-kafka-0-8-assembly_2.11-2.4.3.jar</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;(关于spark-streaming-kafka的jar包依赖说明：就像python连接kafka，需要使用pip 安装kafka这个库）</p>
+<h5 id="2-2-Spark-Streaming实时消费Kafka消息"><a href="#2-2-Spark-Streaming实时消费Kafka消息" class="headerlink" title="2.2 Spark Streaming实时消费Kafka消息"></a>2.2 Spark Streaming实时消费Kafka消息</h5><p>&#8195;&#8195;使用spark自带的直连kafka，实现实时计算wordcount，可以看到写普通的PySpark逻辑相对简单：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> __future__ <span class="keyword">import</span> print_function</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> sys</span><br><span class="line"></span><br><span class="line"><span class="keyword">from</span> pyspark <span class="keyword">import</span> SparkContext</span><br><span class="line"><span class="keyword">from</span> pyspark.streaming <span class="keyword">import</span> StreamingContext</span><br><span class="line"><span class="keyword">from</span> pyspark.streaming.kafka <span class="keyword">import</span> KafkaUtils</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:</span><br><span class="line"></span><br><span class="line">    sc = SparkContext(appName=<span class="string">&quot;streamingkafka&quot;</span>)</span><br><span class="line">    sc.setLogLevel(<span class="string">&quot;WARN&quot;</span>) <span class="comment"># 减少shell打印日志</span></span><br><span class="line">    ssc = StreamingContext(sc, <span class="number">5</span>) <span class="comment"># 5秒的计算窗口</span></span><br><span class="line">    brokers=<span class="string">&#x27;127.0.0.1:9092&#x27;</span></span><br><span class="line">    topic = <span class="string">&#x27;sparkapp&#x27;</span></span><br><span class="line">    <span class="comment"># 使用streaming使用直连模式消费kafka </span></span><br><span class="line">    kafka_streaming_rdd = KafkaUtils.createDirectStream(ssc, [topic], &#123;<span class="string">&quot;metadata.broker.list&quot;</span>: brokers&#125;)</span><br><span class="line">    lines_rdd = kafka_streaming_rdd.<span class="built_in">map</span>(<span class="keyword">lambda</span> x: x[<span class="number">1</span>])</span><br><span class="line">    counts = lines_rdd.flatMap(<span class="keyword">lambda</span> line: line.split(<span class="string">&quot; &quot;</span>)) \</span><br><span class="line">        .<span class="built_in">map</span>(<span class="keyword">lambda</span> word: (word, <span class="number">1</span>)) \</span><br><span class="line">        .reduceByKey(<span class="keyword">lambda</span> a, b: a+b)</span><br><span class="line">    <span class="comment"># 将workcount结果打印到当前shell    </span></span><br><span class="line">    counts.pprint()</span><br><span class="line">    ssc.start()</span><br><span class="line">    ssc.awaitTermination()</span><br></pre></td></tr></table></figure>
+<p>spark streaming流默认接收的是utf-8编码的字符串</p>
+<p>KafkaUtils接口<code>createDirectStream</code>说明：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">Parameters:	</span><br><span class="line">    ssc – StreamingContext object.</span><br><span class="line">    topics – list of topic_name to consume.</span><br><span class="line">    kafkaParams – Additional params for Kafka.</span><br><span class="line">    fromOffsets – Per-topic/partition Kafka offsets defining the (inclusive) starting point of the stream.</span><br><span class="line">    keyDecoder – A function used to decode key (default is utf8_decoder).</span><br><span class="line">    valueDecoder – A function used to decode value (default is utf8_decoder).</span><br><span class="line">    messageHandler – A function used to convert KafkaMessageAndMetadata. You can assess meta using messageHandler (default is None).</span><br><span class="line"></span><br><span class="line">Returns:	</span><br><span class="line">A DStream object</span><br></pre></td></tr></table></figure>
+<p>spark streaming 从 kafka 接收数据，有两种方式<br>（1）使用Direct API，这是更底层的kafka API<br>（2）使用receivers方式，这是更为高层次的API</p>
+<p>&#8195;&#8195;在本博客后面讨论streaming的原理同时也给出Direct模式的相关详细的解析。当前测试使用为Direct模式，在虚拟机B的Spark目录下，启动application，启动命令需要带上指定的jars包。<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bin/spark-submit --jars spark-streaming-kafka-0-8_2.11-2.4.4.jar direct_stream.py </span><br></pre></td></tr></table></figure><br>&#8195;&#8195;在虚拟机A的producer shell端，输入字符串句子<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka_2.11-2.4.0]# bin/kafka-console-producer.sh --broker-list localhost:9 --topic sparkapp</span><br><span class="line"><span class="meta">&gt;</span><span class="bash">welcome to pyspark kafka</span></span><br><span class="line"><span class="meta">&gt;</span><span class="bash">从这里开始  将开发一个 由sparkstreaming 完成的 实时计算的 大数据项目</span></span><br></pre></td></tr></table></figure><br>&#8195;&#8195;在spark-submit窗口，可以看到spark streaming消费并处理kafka生成的实时流字符串结果：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">-------------------------------------------</span><br><span class="line">Time: *** 09:34:28</span><br><span class="line">-------------------------------------------</span><br><span class="line">(&#x27;welcome&#x27;, 1)</span><br><span class="line">(&#x27;to&#x27;, 1)</span><br><span class="line">(&#x27;pyspark&#x27;, 1)</span><br><span class="line">(&#x27;kafka&#x27;, 1)</span><br><span class="line"></span><br><span class="line">-------------------------------------------</span><br><span class="line">Time: *** 09:34:30</span><br><span class="line">-------------------------------------------</span><br><span class="line">-------------------------------------------</span><br><span class="line">Time: *** 09:34:34</span><br><span class="line">-------------------------------------------</span><br><span class="line">(&#x27;从这里开始&#x27;, 1)</span><br><span class="line">(&#x27;&#x27;, 1)</span><br><span class="line">(&#x27;将开发一个&#x27;, 1)</span><br><span class="line">(&#x27;由sparkstreaming&#x27;, 1)</span><br><span class="line">(&#x27;完成的&#x27;, 1)</span><br><span class="line">(&#x27;实时计算的&#x27;, 1)</span><br><span class="line">(&#x27;大数据项目&#x27;, 1)</span><br><span class="line"></span><br><span class="line">-------------------------------------------</span><br><span class="line">Time: *** 09:34:36</span><br><span class="line">-------------------------------------------</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;以上完成基于PySpark整合Spark Streaming与Kafka的测试。</p>
+<h5 id="2-3-关于以上测试过程有关offset简单说明"><a href="#2-3-关于以上测试过程有关offset简单说明" class="headerlink" title="2.3 关于以上测试过程有关offset简单说明"></a>2.3 关于以上测试过程有关offset简单说明</h5><p>&#8195;&#8195;该测试并没有给出consumer自己管理消息的offset，在上面测试中，例如，producer连续生产5条消息，那么消息体可以看出以下简单构成：<br>| offset| msg |<br>|—|—|<br>|  0|123@qq.com|<br>|  1|124@qq.com  |<br>|  2|125@qq.com |<br>|  3|126@qq.com  |<br>|  5|127@qq.com  |<br>&#8195;&#8195;上面的测试中，streaming 以Direct模式连接kafka，每消费一条消息，streaming默认自动commit offset到kafka，以期实现当下一批streaming去kafka取消息时，是按顺延下一条来取，保证没有重复处理消息，也不会漏了消息，这是什么意思呢？<br>&#8195;&#8195;例如当前streaming 消费offset=1的消息后，自动将消费位置offset=1告诉kafka：你记住我已经把第1个位置消息处理了，如果我下次找你kafka消费，请你找出offset=2的消息给我，但如果你将offset=0的消息给我，说明你让我重复消费消息，如果将offset=4消息给我，说明你让我漏了处理offset=3的消息。<br>&#8195;&#8195;根据以上说明，例如producer已经生产了offset=9共10消息，即使将当前spark streaming进程再消费offset=1的消息后，被退出，之后重启，spark streaming从kafka消费的消息将是offset=2的消息，而不是offset=10的消息。虽然默认配置有一定合理性，但也有这种情况，导致无法实现“仅消费一次而且保证业务正常”，参考以下场景：<br>&#8195;&#8195;spark streaming当前进程消费了offset=1的消息后，在业务处理过程中程序出错导致没有将办理业务详情发送到用户<code>124@qq.com</code>，因为spark streaming默认自动提交offset的位置给到kafka，因此spark streaming在一批处理中将消费offset=2的消息。若你想倒回去重新处理offset=1的消息，以保证邮件正确送到给用户，那么只能自己用外部数据库存放成功完成业务的offset，也即是自行管理offset，而不是被动的自动提交到kafka保存消费的offset。<br>&#8195;&#8195;kafka的offset消费位置的管理详解将在之后的文章给出，只有将offset的消费位置交由客户端自行管理，才能灵活实现各种需求：重新消费、只消费一次等</p>
+<h4 id="3-Spark-Streaming与Kafka整合的两种方式"><a href="#3-Spark-Streaming与Kafka整合的两种方式" class="headerlink" title="3 Spark Streaming与Kafka整合的两种方式"></a>3 Spark Streaming与Kafka整合的两种方式</h4><p>&#8195;&#8195;在上面的整合测试里，用的streaming直连kafka进行消费消息。目前Spark Streaming 与 Kafka 的结合主要有两种方式：Receiver Dstream和Direct Dstream，目前企业实际项目主要采用 Direct Dstream 的模式，为何我这边可以断言企业主要使用Direct Dstream模式呢？因为在企业中，他们主力用Java和Scala，考虑企业需求方面，肯定使用spark-streaming-kafka-0-10版本的整合包，而这一版本不再支持Receiver模式。除非某些企业用了Pyspark作为spark应用开发，否则基本没人用Receiver模式。Spark官网也给出整合Kafka的指引<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/streaming-kafka-integration.html">链接</a><br><img src="https://img-blog.csdnimg.cn/20200205144614446.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;因为基于PySpark开发实时流计算程序，这里只能选择spark-streaming-kafka-0-8开发包，从官方提示可知，spark-streaming-kafka-0-10是stable版本而且支持ssl安全传输，支持offset commit（支持手动提交，这个非常重要，自行控制消息位置从哪条开始处理，保证准确消费）和dynamic topic subscription，这就是为何要用Scala语言开发面向高级需求的Spark程序或者streaming程序，亲儿子！<br>&#8195;&#8195;对于两种连接连接方式，有必要给出讨论和对比，以便加深streaming消费kafka topic更深理论知识。</p>
+<h5 id="3-1-基于Receiver消费消息方式"><a href="#3-1-基于Receiver消费消息方式" class="headerlink" title="3.1 基于Receiver消费消息方式"></a>3.1 基于Receiver消费消息方式</h5><p><strong>原理图（已启用WAL机制）</strong>：<br><img src="https://img-blog.csdnimg.cn/20200303193251128.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">   （原理图需要注意的地方：如果Receiver模式下，未开启WAL用于备份接收的消息，那么图中Save data to WAL是不存在的。）<br>&#8195;&#8195;早期版本的Spark Streaming与Kafka的整合方式为Receiver从Kafka消费消息，在提交Spark Streaming任务后，Spark会划出指定的Receiver来持续不断、异步读取kafka数据，这个Receiver其实是Executor（jvm进程）的一个常驻线程，跟task类似，为何它是常驻的？因为它需要不断监听Kafka的Producer生产的消息，从这点也可以看出，Receiver收到的消息是存放在Executor的内存中，换句话说，占用了Executor的内存。至于Receiver线程内部使用哪种数据结构存放接收的消息？对于先进先消费，后进后消费场景，显然使用queue最适合（通过队列实现多线程的生产-消费编程逻辑）。当Driver这边提交job后，Executors从Receiver拿到消息去交给task处理。在执行完之后，Receiver向Kafka的Zookeeper提交offset，告诉Kafka记主它当前已消费的位置。<br>&#8195;&#8195;早期的设计中，Spark Streaming为了零丢失地消费kafka消息，增加对接收到的消息进行预写日志处理（Write Ahead Log， WAL）这个WAL是放在hdfs的checkpoint 目录下，开启该功能后，Receiver除了将接收到消息存放到Executor内存中，还将其同步写入到hdfs上的WAL日志文件。因此，当一直运行的Spark Streaming任务突然挂了，后期启动时，Streaming也可以自动从hfds的checkpoint目录下的WAL日志找回丢失的消息。</p>
+<h6 id="Receiver连接方式的缺点"><a href="#Receiver连接方式的缺点" class="headerlink" title="Receiver连接方式的缺点"></a>Receiver连接方式的缺点</h6><p>&#8195;&#8195;从上面receiver工作原理可以总结其缺点出将出现在内存方面、wal日志影响吞吐量等方面存在设计上的缺点：<br><strong>（1）占用cpu+内存</strong>：每个receiver需要单独占用一个vcore以及相应内存，如果Receiver并发数量多，占用Executor更多cpu和内存资源，这些资源本应用来跑tasks做计算用的，这就出现浪费资源的情况。</p>
+<p><strong>（2）WAL拖累整体处理效率</strong>：为了不丢数据需要开启WAL，也即Receiver将接收到的数据写一份备份到文件系统上（hdfs的checkpoint目录），既然有落到磁盘自然会有IO，这降低了<code>kafka+streaming</code>这个组合实时处理消息的效率，换句话说：增加job的执行时间。此外，开启WAL，还有造成重复消费的可能。</p>
+<p><strong>（3）接收数量大于处理速率</strong>： 若Receiver并发数量设置不合理，接受消息速率大于streaming处理消息的速率，就会出现数据积压在队列中，最终可能会导致程序异常退出。这里也是面试常见的问题：例如提高Receiver的并发数量，就可以提高streaming处理能力吗？首先，Receiver异步接收kafka消息，不参与计算，真正执行计算的是streaming，如果streaming并发性没有调高，整个计算能力也没有提高。一定要记着：kafka跟streaming是需要两边同时调优，才能打得计算能力的整体提升，不能只调优一边，这一个组合！！</p>
+<p>（补充知识点：Receiver的并发数据量是怎么确定？<br>&#8195;&#8195;在KafkaUtils.createStream()中，可以指定topic的partition数量，该数量就是Receiver消费此topic的并发数（其实就是Executor 启动消费此topic的线程数量）但需要指出的是：Kafka中topic的partition与Spark中RDD的partition是两个不同的概念，两者没有关联关系。）</p>
+<h5 id="3-2-基于Direct消费消息方式"><a href="#3-2-基于Direct消费消息方式" class="headerlink" title="3.2 基于Direct消费消息方式"></a>3.2 基于Direct消费消息方式</h5><p>原理图：<br><img src="https://img-blog.csdnimg.cn/20200305173531689.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;当Receiver的工作原理及其缺点理解后，Direct模式将更容易理解。Driect模式下，Streaming定时主动查询Kafka，以获得指定topic的所有partition的最新offset，结合上一批次已保存的offset位置，Streaming就可以确定出每个批次拉取消息offset的范围，例如第1批次的消息（offset范围0-100）正在处理过程中，streaming指定特定的线程定时去Kafka查询第2批次最新的offset，发现最新值为300，那么如果streaming没有限制每批次的最大消费速率，在第2批次取消息时，会一次性取回offset=101到300的消息记录，这个就是所谓的offset ranges。当让如果streaming没有限制每批次的最大消费速率就是每批次100，那么即使最新的offset位置为300，第2批次消费的offset 访问只能是101~200共计100条消费记录。<br>&#8195;&#8195;当处理数据的job启动时，就会使用kafka的简单Consumer API来获取kafka中指定offset范围的数据。此外，Streaming已消费的offset不再交由Zookeeper来管理，而是手动采用外部存储数据库如mysql、redis等存放和管理已消费的offset。<br>以下为Scala代码演示从rdd拿到offset ranges属性的逻辑（rdd当然本身包含消息数据）<br>​```java<br>directKafkaStream.map {<br>           …<br> }.foreachRDD { batchRdd =&gt;<br>    // 获取当前rdd数据对应的offset<br>    val offsetRanges = batchRdd.asInstanceOf[HasOffsetRanges].offsetRanges<br>    // 运行计算任务<br>    doCompute(batchRdd)<br>    // 使用外部数据库自行保存和管理offsetRanges<br>    saveToRedis(offsetRanges)<br> }<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&amp;#8195;&amp;#8195;而Receiver方式下没有关于offset的处理逻辑，这是因为streaming在该模式下内部通过kafka consumer high level API 提交到zk保存。</span><br><span class="line">​&#96;&#96;&#96;java</span><br><span class="line">receiverkafkaStream.map &#123;</span><br><span class="line">           ...</span><br><span class="line"> &#125;.foreachRDD &#123; streamRdd &#x3D;&gt;</span><br><span class="line">    &#x2F;&#x2F; 运行计算任务</span><br><span class="line">    doCompute(rdd)</span><br><span class="line"> &#125;</span><br></pre></td></tr></table></figure></p>
+<h6 id="Direct连接方式的优点"><a href="#Direct连接方式的优点" class="headerlink" title="Direct连接方式的优点"></a>Direct连接方式的优点</h6><p><strong>（1）提高计算资源利率</strong>：不像Receiver那样还占用Executor的一部分内存和计算资源，Direct方式下的Executor的代码实现踢掉Receiver这块设计，因此可以实现计算和内存资源全部用在计算任务，因为streaming定时主动去kafka拉取batch 消息，拉过来直接计算，而不是像Receiver不断接收消息不断地存放在内存中。</p>
+<p><strong>（2）无需开启WAL</strong>：Receiver方式需要开启WAL机制以保证不丢失消息，这种方式加大了集群的计算延迟和效率，而Direct的方式，无需开启WAL机制，因为Kafka集群有partition做了高可用，只要streaming消费方自己存放和管理好已经消费过的offset，那么即使程序异常退出等，也可利用已存储的offset去Kafka消费丢失的消息。</p>
+<p><strong>（3）可保证exactly once的消费语义</strong>：基于Receiver的方式，使用kafka的高阶API来在Zookeeper中保存消费过的offset。这是消费kafka数据的传统方式。这种方式配合WAL机制，可以保证数据零丢失的高可靠性，但是却无法保证数据被处理一次且仅一次，可能会处理两次。因为Spark和Zookeeper之间可能是不同步的。基于Direct的方式，使用kafka的简单api，Spark Streaming自己就负责追踪消费的offset，并保存在checkpoint中。Spark自己一定是同步的，因此可以保证数据时消费一次且仅消费一次。</p>
+<p><strong>（4）计算程序更稳定</strong>：Receiver模式是通过异步持续不断的读取数据，当集群出现网络、计算负载跟不上等因素，导致streaming计算任务侧出现延迟和堆积，而Receiver却还在持续接收kafka消息，此种情况容易导致Executor内存溢出或者其他异常抛出，从而引起计算程序退出，换句话说，Receiver模式的streaming实时计算可靠性和稳定性欠缺。对于Direct模式，Driver在触发batch计算任务时，才会去kafka拉消息回来并计算，而且给streaming加入最大消费速率控制后，整个实时计算集群鲁棒性更强。</p>
+<p><strong>（5）Dstream 的rdd分区数与kafka分区一致</strong>：<br>&#8195;&#8195;Direct模式下，Spark Streaming创建的rdd分区数跟Kafka的partition数量一致，也就是说Kafka partitions和streaming rdd partitions之间有一对一的映射关系，这样的好处是明显和直观的：只要增加kafka topic partition数量，就可以直接增大spark streaming的计算的并发数。<br>&#8195;&#8195;当然，Direct模式不足的地方就是需要自行实现可靠的offset管理逻辑，但对于开发方向来说，这点很容易实现，我个人若对offset管理，将优先选用redis，而且是集群！<br>&#8195;&#8195;以上有关Spark Streaming 整合Kafka的方式和原理分析必须要理解，否则在后面的实时计算平台的代码开发上，有些逻辑你不一定能处理好。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/Spark-Streaming/" rel="tag"># Spark Streaming</a>
+              <a href="/blog/tags/Kafka/" rel="tag"># Kafka</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2020/01/21/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E5%BC%82%E6%AD%A5IO%E7%9A%84%E5%BA%95%E5%B1%82%E9%80%BB%E8%BE%91%E2%80%94%E2%80%94IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%EF%BC%88select%E3%80%81poll%E3%80%81epoll%EF%BC%89/" rel="prev" title="深入理解异步IO的底层逻辑——IO多路复用（select、poll、epoll）">
+      <i class="fa fa-chevron-left"></i> 深入理解异步IO的底层逻辑——IO多路复用（select、poll、epoll）
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1-%E7%A8%8B%E5%BA%8F%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87%EF%BC%9A"><span class="nav-number">1.</span> <span class="nav-text">1 程序环境准备：</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#1-1-%E5%9F%BA%E6%9C%AC%E9%85%8D%E7%BD%AE"><span class="nav-number">1.1.</span> <span class="nav-text">1.1 基本配置</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-2-%E5%90%AF%E5%8A%A8zk%E5%92%8Ckafka"><span class="nav-number">1.2.</span> <span class="nav-text">1.2 启动zk和kafka</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-3-%E6%B5%8B%E8%AF%95%E5%8D%95%E5%AE%9E%E4%BE%8BKafka"><span class="nav-number">1.3.</span> <span class="nav-text">1.3 测试单实例Kafka</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-%E6%95%B4%E5%90%88streaming%E5%92%8Ckafka"><span class="nav-number">2.</span> <span class="nav-text">2  整合streaming和kafka</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#2-1-%E9%85%8D%E7%BD%AE%E4%BE%9D%E8%B5%96%E5%8C%85"><span class="nav-number">2.1.</span> <span class="nav-text">2.1 配置依赖包</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-2-Spark-Streaming%E5%AE%9E%E6%97%B6%E6%B6%88%E8%B4%B9Kafka%E6%B6%88%E6%81%AF"><span class="nav-number">2.2.</span> <span class="nav-text">2.2 Spark Streaming实时消费Kafka消息</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-3-%E5%85%B3%E4%BA%8E%E4%BB%A5%E4%B8%8A%E6%B5%8B%E8%AF%95%E8%BF%87%E7%A8%8B%E6%9C%89%E5%85%B3offset%E7%AE%80%E5%8D%95%E8%AF%B4%E6%98%8E"><span class="nav-number">2.3.</span> <span class="nav-text">2.3 关于以上测试过程有关offset简单说明</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-Spark-Streaming%E4%B8%8EKafka%E6%95%B4%E5%90%88%E7%9A%84%E4%B8%A4%E7%A7%8D%E6%96%B9%E5%BC%8F"><span class="nav-number">3.</span> <span class="nav-text">3 Spark Streaming与Kafka整合的两种方式</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#3-1-%E5%9F%BA%E4%BA%8EReceiver%E6%B6%88%E8%B4%B9%E6%B6%88%E6%81%AF%E6%96%B9%E5%BC%8F"><span class="nav-number">3.1.</span> <span class="nav-text">3.1 基于Receiver消费消息方式</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#Receiver%E8%BF%9E%E6%8E%A5%E6%96%B9%E5%BC%8F%E7%9A%84%E7%BC%BA%E7%82%B9"><span class="nav-number">3.1.1.</span> <span class="nav-text">Receiver连接方式的缺点</span></a></li></ol></li><li class="nav-item nav-level-5"><a class="nav-link" href="#3-2-%E5%9F%BA%E4%BA%8EDirect%E6%B6%88%E8%B4%B9%E6%B6%88%E6%81%AF%E6%96%B9%E5%BC%8F"><span class="nav-number">3.2.</span> <span class="nav-text">3.2 基于Direct消费消息方式</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#Direct%E8%BF%9E%E6%8E%A5%E6%96%B9%E5%BC%8F%E7%9A%84%E4%BC%98%E7%82%B9"><span class="nav-number">3.2.1.</span> <span class="nav-text">Direct连接方式的优点</span></a></li></ol></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

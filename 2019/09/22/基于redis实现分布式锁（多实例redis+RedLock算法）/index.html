@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在前面的文章中，已经实现单实例redis分布式锁，但这种实现是基于单个redis服务，若redis服务不可用，显然所有客户端无法加锁，该实现还未到高可用的水平，因此需要进一步提升分布式的锁的逻辑，好在redis官方提供了相应的权威描述并称之为Redlock，具体参考文章：DLM，这个锁的算法实现了多redis实例（各个redis是相互独立的，没有主从、集群模式）的情况，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于redis实现分布式锁（多实例redis+RedLock算法）">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/09/22/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%A4%9A%E5%AE%9E%E4%BE%8Bredis+RedLock%E7%AE%97%E6%B3%95%EF%BC%89/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在前面的文章中，已经实现单实例redis分布式锁，但这种实现是基于单个redis服务，若redis服务不可用，显然所有客户端无法加锁，该实现还未到高可用的水平，因此需要进一步提升分布式的锁的逻辑，好在redis官方提供了相应的权威描述并称之为Redlock，具体参考文章：DLM，这个锁的算法实现了多redis实例（各个redis是相互独立的，没有主从、集群模式）的情况，">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20190922224528783.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-09-22T14:58:31.000Z">
+<meta property="article:modified_time" content="2020-02-03T12:12:10.000Z">
+<meta property="article:tag" content="redis分布式锁">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20190922224528783.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/09/22/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%A4%9A%E5%AE%9E%E4%BE%8Bredis+RedLock%E7%AE%97%E6%B3%95%EF%BC%89/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于redis实现分布式锁（多实例redis+RedLock算法） | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/09/22/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%A4%9A%E5%AE%9E%E4%BE%8Bredis+RedLock%E7%AE%97%E6%B3%95%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于redis实现分布式锁（多实例redis+RedLock算法）
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-09-22 22:58:31" itemprop="dateCreated datePublished" datetime="2019-09-22T22:58:31+08:00">2019-09-22</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 20:12:10" itemprop="dateModified" datetime="2020-02-03T20:12:10+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Redis/" itemprop="url" rel="index"><span itemprop="name">Redis</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>13k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>12 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在前面的文章中，已经实现单实例redis分布式锁，但这种实现是基于单个redis服务，若redis服务不可用，显然所有客户端无法加锁，该实现还未到高可用的水平，因此需要进一步提升分布式的锁的逻辑，好在redis官方提供了相应的权威描述并称之为Redlock，具体参考文章：<a target="_blank" rel="noopener" href="https://redis.io/topics/distlock">DLM</a>，这个锁的算法实现了多redis实例（各个redis是相互独立的，没有主从、集群模式）的情况，实现了真正高可用分布式锁。</p>
+<a id="more"></a>
+<h3 id="高可用的分布式锁要求："><a href="#高可用的分布式锁要求：" class="headerlink" title="高可用的分布式锁要求："></a>高可用的分布式锁要求：</h3><p>1）Mutual exclusion，互斥性，任何时刻只能有一个client获取锁</p>
+<p>2）Deadlock free，死锁也必须能释放，即使锁定资源的redis服务器崩溃或者分区，仍然能释放锁</p>
+<p>3）Fault tolerance；只要多数互相独立的redis节点，这里不是指主从模式两个节点或者集群模式，（一半以上）在使用，client才可以进行加锁，而且加锁成功的redis服务数量超过半数，且锁的有效时长还未过期，才认为加锁成功，否则加锁失败</p>
+<h3 id="Redlock算法说明"><a href="#Redlock算法说明" class="headerlink" title="Redlock算法说明"></a>Redlock算法说明</h3><p>&#8195;&#8195;首先需理解时钟漂移clock drift概念：服务器时钟偏离绝对参考时钟的差值，例如在分布式系统中，有5台服务器，所有服务器时钟在初始情况下都设置成相同的时间（服务器上没有设置ntp同步）例如都为2019-08-01 10:00:00，随着时间的流逝，例如经过1年后，再“观察”这5台服务器的时间，服务器之间的时间对比，将有可能出现一定的快慢差异：</p>
+<p>Server1显示一年后的时间：2020-08-01 10:00:01          </p>
+<p>Server2显示一年后的时间：2020-08-01 10:00:02         </p>
+<p>Server3显示一年后的时间：2020-08-01 10:00:02           </p>
+<p>Server4显示一年后的时间：2020-08-01 09:59:58          </p>
+<p>Server5显示一年后的时间：2020-08-01 10:00:01           </p>
+<p>那么由这5台服务器组成的分布式系统，在外侧观察，时钟漂移为=2020-08-01 10:00:02减去2020-08-01 09:59:58=4秒，当然这是累计一年的时钟漂移时长，于是可以计算每秒的时间漂移刻度=4/(3600*24*365)，该刻度时长极小完全可以忽略不计，这是redis官方提供这个概念，让分布式锁的redis实现看起来更高级。</p>
+<p>redlock加锁流程，假设客户端A按顺序分别在5个完全独立的redis实例作为加锁，如图所示：<br><img src="https://img-blog.csdnimg.cn/20190922224528783.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<p>1）客户端A在redis01加锁操作前，获取当前时间戳T1</p>
+<p>2）客户端A使用相同的key和uuid按顺序在5个redis上set key加锁和设定键的过期时长（有效时长），因为set key操作需要一定时间，因此在set过期时长时，需要set大于加锁所消耗的时长，否则客户端A还未在超过半数redis实例加锁成功前，前面redis set的key就已经先失效了，</p>
+<p>错误设置：TTL为1s，例如客户端A在redis01加锁耗时为0.1秒、在redis02加锁耗时为0.5秒，但在redis03加锁耗时为1秒，此时redis01、redis02的key已失效，导致客户端A没能在超过半数（3个）的redis实例上加锁成功</p>
+<p>正确设置：TTL为5s，例如客户端A在redis01加锁耗时为0.1秒、在redis02加锁耗时为0.5秒，redis03加锁耗时为1秒，此时redis01、redis02、redis03 key还未失效，客户端A成功在超过半数（3个）的redis实例上加锁，但此时客户端A还不能严格意义上成功获得了分布式锁，还需要进行第3步骤的判断</p>
+<p>3）客户端A完成在多个redis实例上加锁后，此刻，锁真正有效时间不是一开始设置TTL的10秒，而是由以下得出：</p>
+<p>在5个redis上加锁完后所消耗的时长：set_lock_cost=T5-T1=4s</p>
+<p>实际锁的最小有效时长：min_validity=TTL-set_lock_cost-时钟漂移耗时</p>
+<p>实际锁的最小有效时长=10s-4s-1s=5s，也就是说客户端A虽然在redis服务器设置有效时长为10s，但扣除一系列的加锁操作耗时后，“redis服务端”留给客户端A的实际有效时长为5秒。如果客户端A能在这5秒内完成任务，且按顺序释放锁，那么客户端A完成了一个完整流程的分布式锁条件的任务。</p>
+<p>4）如果客户端A超时等原因无法获得超过半数（3）个以上，则必须解锁所有redis实例，否则影响其他进程加锁</p>
+<h3 id="RedLock代码实现："><a href="#RedLock代码实现：" class="headerlink" title="RedLock代码实现："></a>RedLock代码实现：</h3><p>&#8195;&#8195;前一篇文章中已经实现的单服务的redis分布式锁，基于该基础上，实现redlock并不复杂，</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time,datetime</span><br><span class="line"><span class="keyword">import</span> uuid</span><br><span class="line"><span class="keyword">import</span> random</span><br><span class="line"><span class="keyword">import</span> redis</span><br><span class="line"><span class="keyword">import</span> threading</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">RedLockException</span>(<span class="params">Exception</span>):</span></span><br><span class="line">    <span class="keyword">pass</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">RedLock</span>(<span class="params"><span class="built_in">object</span></span>):</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span>(<span class="params">self, locker_key, connection_conf_list=<span class="literal">None</span>,</span></span></span><br><span class="line"><span class="function"><span class="params">                 retry_times=<span class="number">3</span>,</span></span></span><br><span class="line"><span class="function"><span class="params">                 retry_interval=<span class="number">200</span>,</span></span></span><br><span class="line"><span class="function"><span class="params">                 ttl=<span class="number">5000</span>,</span></span></span><br><span class="line"><span class="function"><span class="params">                 clock_drift=<span class="number">500</span></span>):</span></span><br><span class="line">        self.locker_key = locker_key</span><br><span class="line">        self.retry_times = retry_times</span><br><span class="line">        self.retry_interval = retry_interval</span><br><span class="line">        self.global_ttl = ttl</span><br><span class="line">        self.clock_drift = clock_drift</span><br><span class="line">        self.locker_id = <span class="literal">None</span></span><br><span class="line">        self.is_get_lock = <span class="literal">False</span></span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> connection_conf_list:</span><br><span class="line">            connection_conf_list = [&#123;</span><br><span class="line">                <span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>,</span><br><span class="line">                <span class="string">&#x27;port&#x27;</span>: <span class="number">6379</span>,</span><br><span class="line">                <span class="string">&#x27;db&#x27;</span>: <span class="number">0</span>,</span><br><span class="line">                <span class="string">&#x27;socket_connect_timeout&#x27;</span>:<span class="number">1</span></span><br><span class="line">            &#125;]</span><br><span class="line"></span><br><span class="line">        self.all_redis_nodes = [redis.StrictRedis(**each_conf) <span class="keyword">for</span> each_conf <span class="keyword">in</span> connection_conf_list]</span><br><span class="line">        self.majority_nodes = <span class="built_in">len</span>(self.all_redis_nodes) // <span class="number">2</span> + <span class="number">1</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">_release_single_lock</span>(<span class="params">self, node</span>):</span></span><br><span class="line">        <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        在redis服务端执行原生lua脚本，只能删除加锁者自己的id，而且是原子删除</span></span><br><span class="line"><span class="string">        :return:</span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        lua_script = <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        if redis.call(&quot;get&quot;,KEYS[1]) == ARGV[1] then</span></span><br><span class="line"><span class="string">            return redis.call(&quot;del&quot;,KEYS[1])</span></span><br><span class="line"><span class="string">        else</span></span><br><span class="line"><span class="string">            return 0</span></span><br><span class="line"><span class="string">        end</span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            lua_func = node.register_script(lua_script)</span><br><span class="line">            lua_func(keys=[self.locker_key], args=[self.locker_id])</span><br><span class="line">        <span class="keyword">except</span>(redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):</span><br><span class="line">            <span class="keyword">pass</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">_acquire_single_lock</span>(<span class="params">self, node</span>):</span></span><br><span class="line">        <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        在单个redis加锁</span></span><br><span class="line"><span class="string">        :param node:</span></span><br><span class="line"><span class="string">        :return:</span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            result = node.<span class="built_in">set</span>(self.locker_key, self.locker_id, nx=<span class="literal">True</span>, px=self.global_ttl)</span><br><span class="line">            <span class="keyword">return</span> result</span><br><span class="line">        <span class="keyword">except</span>(redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">False</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">_acquire</span>(<span class="params">self</span>):</span></span><br><span class="line"></span><br><span class="line">        self.locker_id = <span class="built_in">str</span>(uuid.uuid1())</span><br><span class="line">        loop = <span class="number">1</span></span><br><span class="line">        <span class="keyword">while</span> loop &lt;= self.retry_times:</span><br><span class="line">           <span class="comment"># 这里需要注意：多线程并发模拟过程中，需要在任务执行前加锁，否则线程不安全</span></span><br><span class="line">            ok_lock_count = <span class="number">0</span></span><br><span class="line">            start = time.monotonic()</span><br><span class="line">            <span class="comment"># 按顺序在每个redis上尝试set key 加锁</span></span><br><span class="line">            <span class="keyword">for</span> node <span class="keyword">in</span> self.all_redis_nodes:</span><br><span class="line">                <span class="keyword">if</span> self._acquire_single_lock(node):</span><br><span class="line">                    print(<span class="string">&#x27;&#123;&#125;：成功加锁&#x27;</span>.<span class="built_in">format</span>(node))</span><br><span class="line">                    ok_lock_count += <span class="number">1</span></span><br><span class="line"></span><br><span class="line">            end = time.monotonic()</span><br><span class="line"></span><br><span class="line">            <span class="comment"># 在多个redis实例上加锁所消耗的时长</span></span><br><span class="line">            set_lock_cost = (end - start)</span><br><span class="line">            <span class="comment"># 扣除相关操作耗时，得出实际锁的有效时长</span></span><br><span class="line">            real_ttl = self.global_ttl - set_lock_cost - self.clock_drift</span><br><span class="line">            print(<span class="string">&#x27;本次加锁耗时：&#123;0:,.4f&#125; ms 锁实际有效时长：&#123;1:,.4f&#125; ms&#x27;</span>.<span class="built_in">format</span>(set_lock_cost,real_ttl))</span><br><span class="line"></span><br><span class="line">            <span class="comment"># 如果加锁数量超过半数，且实际锁的有效时长大于0，则说明客户端本次成功获得分布式锁</span></span><br><span class="line">            <span class="keyword">if</span> ok_lock_count &gt;= self.majority_nodes <span class="keyword">and</span> real_ttl &gt; <span class="number">0</span>:</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">True</span>, real_ttl</span><br><span class="line">            <span class="keyword">else</span>:</span><br><span class="line">                <span class="comment"># 客户端本次未能获得分布式锁，需释放本次申请的所有锁</span></span><br><span class="line">                <span class="keyword">if</span> real_ttl &lt;= <span class="number">0</span>:</span><br><span class="line">                    print(<span class="string">&#x27;客户端加锁失败，因为锁的实际有效时间太短&#x27;</span>)</span><br><span class="line">                <span class="keyword">else</span>:</span><br><span class="line">                    print(<span class="string">&#x27;客户端加锁失败，因为成功加锁的redis实例少于总数的一半&#x27;</span>)</span><br><span class="line">                <span class="keyword">for</span> node <span class="keyword">in</span> self.all_redis_nodes:</span><br><span class="line">                    self._release_single_lock(node)</span><br><span class="line"></span><br><span class="line">            <span class="comment"># 随机休眠后，客户端继续下一轮加锁</span></span><br><span class="line">            loop += <span class="number">1</span></span><br><span class="line">            time.sleep(random.randint(<span class="number">0</span>, self.retry_interval) / <span class="number">1000</span>)</span><br><span class="line">        print(<span class="string">&#x27;超过&#123;&#125;次加锁失败&#x27;</span>.<span class="built_in">format</span>(self.retry_times))</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">False</span>,<span class="number">0</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">acquire</span>(<span class="params">self</span>):</span></span><br><span class="line">        is_lock, validity = self._acquire()</span><br><span class="line">        <span class="keyword">return</span> is_lock</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">acquire_with_validity</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        :return: 返回加锁是否成功和锁的有效期</span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        is_lock, validity = self._acquire()</span><br><span class="line">        <span class="keyword">return</span> is_lock, validity</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">release</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="keyword">for</span> node <span class="keyword">in</span> self.all_redis_nodes:</span><br><span class="line">            self._release_single_lock(node)</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__enter__</span>(<span class="params">self</span>):</span></span><br><span class="line">        is_lock, validity = self._acquire()</span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> is_lock:</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">False</span></span><br><span class="line">            <span class="comment"># raise RedLockException(&#x27;unable to acquire distributed lock&#x27;)</span></span><br><span class="line">        <span class="keyword">return</span> is_lock, validity</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__exit__</span>(<span class="params">self, exc_type, exc_val, exc_tb</span>):</span></span><br><span class="line">        <span class="keyword">return</span> self.release()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">doing_jobs</span>(<span class="params">r</span>):</span></span><br><span class="line">    <span class="keyword">with</span> RedLock(<span class="string">&#x27;locker_test&#x27;</span>):</span><br><span class="line">        thread_name = threading.currentThread().name</span><br><span class="line">        bonus = <span class="string">&#x27;money&#x27;</span></span><br><span class="line">        total = r.get(bonus)</span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> total:</span><br><span class="line">            print(<span class="string">&#x27;奖金池没设置&#x27;</span>)</span><br><span class="line">            <span class="keyword">return</span></span><br><span class="line">        <span class="keyword">if</span> <span class="built_in">int</span>(total) == <span class="number">0</span>:</span><br><span class="line">            print(<span class="string">&#x27;奖金已被抢完&#x27;</span>.<span class="built_in">format</span>(thread_name))</span><br><span class="line">            <span class="keyword">return</span>          </span><br><span class="line">        result = r.decr(bonus, <span class="number">1</span>)</span><br><span class="line">        print(<span class="string">&#x27;客户端:&#123;0&#125;抢到奖金，还剩&#123;1&#125;,时间:&#123;2&#125;&#x27;</span>.<span class="built_in">format</span>(thread_name, result,datetime.datetime.now()))</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__==<span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line"></span><br><span class="line">    start_time=time.monotonic()</span><br><span class="line">    thread_nums=<span class="number">100</span></span><br><span class="line">    pool_obj = redis.ConnectionPool(host=<span class="string">&#x27;192.168.100.5&#x27;</span>, port=<span class="number">8002</span>, socket_connect_timeout=<span class="number">5</span>)</span><br><span class="line">    r_conn = redis.Redis(connection_pool=pool_obj)</span><br><span class="line"></span><br><span class="line">    threads = []</span><br><span class="line">    <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(thread_nums):</span><br><span class="line">        t = threading.Thread(target=doing_jobs, args=(r_conn,))</span><br><span class="line">        threads.append(t)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.start()</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.join()</span><br><span class="line"></span><br><span class="line">    cost=time.monotonic()-start_time</span><br><span class="line">    print(<span class="string">&#x27;任务耗时:&#123;:,.2f&#125; ms&#x27;</span>.<span class="built_in">format</span>(cost))</span><br></pre></td></tr></table></figure>
+<h4 id="在单个redis下测试redlock"><a href="#在单个redis下测试redlock" class="headerlink" title="在单个redis下测试redlock"></a>在单个redis下测试redlock</h4><h4 id="1）单redis，100个并发请求"><a href="#1）单redis，100个并发请求" class="headerlink" title="1）单redis，100个并发请求"></a>1）单redis，100个并发请求</h4><p>手动在redis单服务set值，测试客户端发来的100个并发抢资源时，基于redlock的分布式锁是否逻辑正确，</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1:6379&gt; set money 300</span><br><span class="line">OK</span><br><span class="line"></span><br><span class="line"># 运行结果</span><br><span class="line">客户端:Thread-100抢到奖金，还剩299,时间:*** 22:14:40.358679</span><br><span class="line">客户端:Thread-9抢到奖金，还剩298,时间:*** 22:14:40.363933</span><br><span class="line">客户端:Thread-36抢到奖金，还剩297,时间:*** 22:14:40.371695</span><br><span class="line"></span><br><span class="line">客户端:Thread-16抢到奖金，还剩202,时间:*** 22:14:40.808868</span><br><span class="line">客户端:Thread-34抢到奖金，还剩201,时间:*** 22:14:40.811364</span><br><span class="line">客户端:Thread-52抢到奖金，还剩200,时间:*** 22:14:40.817055</span><br></pre></td></tr></table></figure>
+<p>可以看到，在同一秒内，100个线程都有序的抢到锁和资源</p>
+<h4 id="2）5个redis实例，1个并发请求"><a href="#2）5个redis实例，1个并发请求" class="headerlink" title="2）5个redis实例，1个并发请求"></a>2）5个redis实例，1个并发请求</h4><p>在5个独立redis实例下验证redlock分布式锁有效性(这里的5个实例是在同一服务器下开启，模拟5台redis服务)</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 redis-5.0.5]# pwd</span><br><span class="line">/opt/redis/redis-5.0.5</span><br><span class="line"><span class="meta">#</span><span class="bash"> 在redis目录下直接拷贝redis.conf，重命名，且只需修改里面的端口项即可，这里端口为8000~8004</span></span><br><span class="line">redis8001.conf  redis8002.conf  redis8003.conf  redis8004.conf  </span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 逐个启动redis实例</span></span><br><span class="line">[root@dn2 redis-5.0.5]# redis-server redis8001.conf </span><br><span class="line"></span><br><span class="line">[root@dn2 redis-5.0.5]# ps -ef|grep redis           </span><br><span class="line">root     30321     1  0 20:58 ?        00:00:00 redis-server *:8000</span><br><span class="line">root     30326     1  0 20:58 ?        00:00:00 redis-server *:8001</span><br><span class="line">root     30372     1  0 21:02 ?        00:00:00 redis-server *:8002</span><br><span class="line">root     30381     1  0 21:03 ?        00:00:00 redis-server *:8003</span><br><span class="line">root     30386     1  0 21:03 ?        00:00:00 redis-server *:8004</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 登录其中一个实例<span class="built_in">set</span> key</span></span><br><span class="line">[root@dn2 redis-5.0.5]# redis-cli -p 8002</span><br><span class="line">127.0.0.1:8002&gt; set foo 1</span><br><span class="line">OK</span><br><span class="line">127.0.0.1:8002&gt; get foo</span><br><span class="line">&quot;1&quot;</span><br></pre></td></tr></table></figure>
+<p>只有一个并发的条件下，客户端在5个实例加锁情况，在8002实例上加入资源：</p>
+<p>以上代码小改：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 加入5个redis实例连接配置</span></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">doing_jobs</span>(<span class="params">r</span>):</span></span><br><span class="line">    redis_nodes_conf=[</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>:<span class="string">&#x27;192.168.100.5&#x27;</span>,<span class="string">&#x27;port&#x27;</span>:<span class="number">8000</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8001</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8002</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8003</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8004</span>&#125;,</span><br><span class="line">    ]</span><br><span class="line">    <span class="keyword">with</span> RedLock(locker_key=<span class="string">&#x27;Redlock&#x27;</span>,connection_conf_list=redis_nodes_conf):</span><br><span class="line">        thread_name = threading.currentThread().name</span><br><span class="line">        bonus = <span class="string">&#x27;money&#x27;</span></span><br><span class="line">        total = r.get(bonus)</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> total:</span><br><span class="line">            print(<span class="string">&#x27;奖金池没设置&#x27;</span>)</span><br><span class="line">            <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> <span class="built_in">int</span>(total) == <span class="number">0</span>:</span><br><span class="line">            print(<span class="string">&#x27;奖金已被抢完&#x27;</span>.<span class="built_in">format</span>(thread_name))</span><br><span class="line">            <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">        result = r.decr(bonus, <span class="number">1</span>)</span><br><span class="line">        print(<span class="string">&#x27;客户端:&#123;0&#125;抢到奖金，还剩&#123;1&#125;,时间:&#123;2&#125;&#x27;</span>.<span class="built_in">format</span>(thread_name, result,datetime.datetime.now()))</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p> 在其中一个redis实例加入资源</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 redis-5.0.5]# redis-cli -p 8002</span><br><span class="line">127.0.0.1:8002&gt; set money 10</span><br><span class="line">OK</span><br></pre></td></tr></table></figure>
+<p>可以看到，客户端首先在五个实例上按顺序加锁，执行任务，获得1个资源完成任务后，接着再顺序释放锁，其中加锁耗时0.01ms，锁实际有效时长：4,499.99 ms，任务耗时0.02ms，说明锁的实际有效时长足够大，以至于可以保证任务执行过程中，保持锁不失效。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8000,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8001,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8002,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">本次加锁耗时：0.01 ms 锁实际有效时长：4,499.99 ms</span><br><span class="line">客户端:Thread-1抢到奖金，还剩9,时间:*** 22:10:46.490385</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8000,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8001,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8002,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">任务耗时:0.02 ms</span><br></pre></td></tr></table></figure>
+<h4 id="3）redis实例工作数量小于半数，1个并发请求"><a href="#3）redis实例工作数量小于半数，1个并发请求" class="headerlink" title="3）redis实例工作数量小于半数，1个并发请求"></a>3）redis实例工作数量小于半数，1个并发请求</h4><p>只有一个并发的条件下，客户端在小于3个实例加锁情况，只需把8000、8001、8002端口改掉，模拟只有两个redis实例正常服务。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">本次加锁耗时：0.0670 ms 锁实际有效时长：4,499.9330 ms</span><br><span class="line">客户端加锁失败，因为成功加锁的redis实例少于总数的一半</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">本次加锁耗时：0.0728 ms 锁实际有效时长：4,499.9272 ms</span><br><span class="line">客户端加锁失败，因为成功加锁的redis实例少于总数的一半</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功加锁</span><br><span class="line">本次加锁耗时：0.0548 ms 锁实际有效时长：4,499.9452 ms</span><br><span class="line">客户端加锁失败，因为成功加锁的redis实例少于总数的一半</span><br><span class="line">超过3次加锁失败</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=80000,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=80001,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=80002,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8003,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">Redis&lt;ConnectionPool&lt;Connection&lt;host=192.168.100.5,port=8004,db=0&gt;&gt;&gt;：成功释放锁</span><br><span class="line">任务耗时:0.53 ms</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;可以看到，客户端尝试3次加锁，在给定的5个redis实例里仅能成功加锁2个，少于半数，故本次分布式加锁失败。当然也可以模拟把锁的ttl设置小值，例如500ms，那么将出现即使加完锁，因为锁的有实效时长太短，导致无法最终得到分布式锁，这里不在模拟。</p>
+<h3 id="支持多线程的redlock算法"><a href="#支持多线程的redlock算法" class="headerlink" title="支持多线程的redlock算法"></a>支持多线程的redlock算法</h3><p>&#8195;&#8195;以上未模拟1个线程并发，但其实现不支持多线程，如果要模拟多个并发例如：100个并发，因为在同一进程里，涉及到对多个线程同一时刻更改ok_lock_count的值，因此，在执行任务前，就需要出传入线程锁，保证同一时刻，仅有一个线程更新这个ok_lock_count（本线程在多个redis实例上成功set key 的计数）</p>
+<p>任务执行代码小改：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">doing_jobs</span>(<span class="params">r,thread_lock</span>):</span></span><br><span class="line">    redis_nodes_conf=[</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>:<span class="string">&#x27;192.168.100.5&#x27;</span>,<span class="string">&#x27;port&#x27;</span>:<span class="number">8000</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8001</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8002</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8003</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>, <span class="string">&#x27;port&#x27;</span>: <span class="number">8004</span>&#125;,</span><br><span class="line">    ]</span><br><span class="line">    <span class="comment"># 这里的多线程锁是为了处理&quot;模拟并发情况下&quot;，对ok_lock_count变量进行更新时，保证同一时间只能有一个线程来操作</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">with</span> thread_lock:</span><br><span class="line">        <span class="keyword">with</span> RedLock(locker_key=<span class="string">&#x27;Redlock&#x27;</span>,connection_conf_list=redis_nodes_conf) <span class="keyword">as</span> (is_lock,validity):</span><br><span class="line">            <span class="keyword">if</span> <span class="keyword">not</span> is_lock:</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line">            thread_name = threading.currentThread().name</span><br><span class="line">            bonus = <span class="string">&#x27;money&#x27;</span></span><br><span class="line">            total = r.get(bonus)</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> <span class="keyword">not</span> total:</span><br><span class="line">                print(<span class="string">&#x27;奖金池没设置&#x27;</span>)</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> <span class="built_in">int</span>(total) == <span class="number">0</span>:</span><br><span class="line">                print(<span class="string">&#x27;奖金已被抢完&#x27;</span>.<span class="built_in">format</span>(thread_name))</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">            result = r.decr(bonus, <span class="number">1</span>)</span><br><span class="line">            print(<span class="string">&#x27;客户端:&#123;0&#125;抢到奖金，还剩&#123;1&#125;,时间:&#123;2&#125;&#x27;</span>.<span class="built_in">format</span>(thread_name, result,datetime.datetime.now()))</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__==<span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line">    start_time=time.monotonic()</span><br><span class="line">    thread_nums=<span class="number">100</span></span><br><span class="line">    pool_obj = redis.ConnectionPool(host=<span class="string">&#x27;192.168.100.5&#x27;</span>, port=<span class="number">8002</span>, socket_connect_timeout=<span class="number">5</span>)</span><br><span class="line">    r_conn = redis.Redis(connection_pool=pool_obj)</span><br><span class="line">    thread_lock=threading.RLock()</span><br><span class="line">    threads = []</span><br><span class="line">    <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(thread_nums):</span><br><span class="line">        t = threading.Thread(target=doing_jobs, args=(r_conn,thread_lock))</span><br><span class="line">        threads.append(t)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.start()</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.join()</span><br><span class="line"></span><br><span class="line">    cost=time.monotonic()-start_time</span><br><span class="line">    print(<span class="string">&#x27;任务耗时:&#123;:,.2f&#125; ms&#x27;</span>.<span class="built_in">format</span>(cost))</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;以上完成redlock完整的分析、实现和测试，现在回看redlock的实现，它提出的所谓加锁耗时、时钟漂移等，都可以用最简单的方式代替：只需要把key的ttl设置足够长的时间，那么就无需担心在加锁过程中key突然失效。</p>
+<p>&#8195;&#8195;综上，个人认为redis实现分布式锁的过程过于繁琐（注意不是复杂），而且要求redis实例之间是独立运行，反正我个人不会在项目中使用这种逻辑，因此Zookeeper在分布式锁方面的可用性，无疑是最优的。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/redis%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/" rel="tag"># redis分布式锁</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/" rel="prev" title="基于redis实现分布式锁（单实例）">
+      <i class="fa fa-chevron-left"></i> 基于redis实现分布式锁（单实例）
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/10/%E5%9F%BA%E4%BA%8ECentos7.5%E5%AE%8C%E6%95%B4%E9%83%A8%E7%BD%B2%E5%88%86%E5%B8%83%E5%BC%8FHadoop3.1.2/" rel="next" title="基于Centos7.5完整部署分布式Hadoop3.1.2">
+      基于Centos7.5完整部署分布式Hadoop3.1.2 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%AB%98%E5%8F%AF%E7%94%A8%E7%9A%84%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E8%A6%81%E6%B1%82%EF%BC%9A"><span class="nav-number">1.</span> <span class="nav-text">高可用的分布式锁要求：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Redlock%E7%AE%97%E6%B3%95%E8%AF%B4%E6%98%8E"><span class="nav-number">2.</span> <span class="nav-text">Redlock算法说明</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#RedLock%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%EF%BC%9A"><span class="nav-number">3.</span> <span class="nav-text">RedLock代码实现：</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9C%A8%E5%8D%95%E4%B8%AAredis%E4%B8%8B%E6%B5%8B%E8%AF%95redlock"><span class="nav-number">3.1.</span> <span class="nav-text">在单个redis下测试redlock</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#1%EF%BC%89%E5%8D%95redis%EF%BC%8C100%E4%B8%AA%E5%B9%B6%E5%8F%91%E8%AF%B7%E6%B1%82"><span class="nav-number">3.2.</span> <span class="nav-text">1）单redis，100个并发请求</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%EF%BC%895%E4%B8%AAredis%E5%AE%9E%E4%BE%8B%EF%BC%8C1%E4%B8%AA%E5%B9%B6%E5%8F%91%E8%AF%B7%E6%B1%82"><span class="nav-number">3.3.</span> <span class="nav-text">2）5个redis实例，1个并发请求</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%EF%BC%89redis%E5%AE%9E%E4%BE%8B%E5%B7%A5%E4%BD%9C%E6%95%B0%E9%87%8F%E5%B0%8F%E4%BA%8E%E5%8D%8A%E6%95%B0%EF%BC%8C1%E4%B8%AA%E5%B9%B6%E5%8F%91%E8%AF%B7%E6%B1%82"><span class="nav-number">3.4.</span> <span class="nav-text">3）redis实例工作数量小于半数，1个并发请求</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%94%AF%E6%8C%81%E5%A4%9A%E7%BA%BF%E7%A8%8B%E7%9A%84redlock%E7%AE%97%E6%B3%95"><span class="nav-number">4.</span> <span class="nav-text">支持多线程的redlock算法</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

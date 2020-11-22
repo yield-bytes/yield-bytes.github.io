@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;前面文章讨论了mysql做高可用的配置，参考文章链接，而本文则是开发项目过程需要用的部分，从配置数据库到实用数据库，以及再用SQL做BI分析再到SQL优化，这些都是全栈工程师的基本功。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="使用连接池方式和多线程方式连接mysql的测试说明">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/08/29/%E4%BD%BF%E7%94%A8%E8%BF%9E%E6%8E%A5%E6%B1%A0%E6%96%B9%E5%BC%8F%E5%92%8C%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%96%B9%E5%BC%8F%E8%BF%9E%E6%8E%A5mysql%E7%9A%84%E6%B5%8B%E8%AF%95%E8%AF%B4%E6%98%8E/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;前面文章讨论了mysql做高可用的配置，参考文章链接，而本文则是开发项目过程需要用的部分，从配置数据库到实用数据库，以及再用SQL做BI分析再到SQL优化，这些都是全栈工程师的基本功。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-08-28T16:16:32.000Z">
+<meta property="article:modified_time" content="2020-02-04T03:31:36.000Z">
+<meta property="article:tag" content="mysql连接池">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/08/29/%E4%BD%BF%E7%94%A8%E8%BF%9E%E6%8E%A5%E6%B1%A0%E6%96%B9%E5%BC%8F%E5%92%8C%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%96%B9%E5%BC%8F%E8%BF%9E%E6%8E%A5mysql%E7%9A%84%E6%B5%8B%E8%AF%95%E8%AF%B4%E6%98%8E/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>使用连接池方式和多线程方式连接mysql的测试说明 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/08/29/%E4%BD%BF%E7%94%A8%E8%BF%9E%E6%8E%A5%E6%B1%A0%E6%96%B9%E5%BC%8F%E5%92%8C%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%96%B9%E5%BC%8F%E8%BF%9E%E6%8E%A5mysql%E7%9A%84%E6%B5%8B%E8%AF%95%E8%AF%B4%E6%98%8E/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          使用连接池方式和多线程方式连接mysql的测试说明
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-08-29 00:16:32" itemprop="dateCreated datePublished" datetime="2019-08-29T00:16:32+08:00">2019-08-29</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-04 11:31:36" itemprop="dateModified" datetime="2020-02-04T11:31:36+08:00">2020-02-04</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>8.2k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>7 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;前面文章讨论了mysql做高可用的配置，参考<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/99892680">文章链接</a>，而本文则是开发项目过程需要用的部分，从配置数据库到实用数据库，以及再用SQL做BI分析再到SQL优化，这些都是全栈工程师的基本功。</p>
+<a id="more"></a>
+<h4 id="1、连接池测试mysql默认连接配置"><a href="#1、连接池测试mysql默认连接配置" class="headerlink" title="1、连接池测试mysql默认连接配置"></a>1、连接池测试mysql默认连接配置</h4><p>&#8195;&#8195;先出简单的测试连接池或多线程并发的脚本，这里先借用DBUtils创建连接池，文章后面会给出无须借用第三方库也可以实现实用的连接池。<br><figure class="highlight py"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> pymysql</span><br><span class="line"><span class="keyword">import</span> threading</span><br><span class="line"><span class="keyword">from</span> DBUtils.PooledDB <span class="keyword">import</span> PooledDB</span><br><span class="line"></span><br><span class="line">db_info=&#123;</span><br><span class="line">            <span class="string">&#x27;host&#x27;</span>:<span class="string">&#x27;192.168.100.5&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;port&#x27;</span>:<span class="number">34312</span>, <span class="comment"># 改掉默认端口号，安全考虑</span></span><br><span class="line">            <span class="string">&#x27;user&#x27;</span>:<span class="string">&#x27;***&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;password&#x27;</span>:<span class="string">&#x27;***&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;db&#x27;</span>:<span class="string">&#x27;erp_app&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;charset&#x27;</span>:<span class="string">&#x27;utf8&#x27;</span></span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">db_pool = PooledDB(</span><br><span class="line">    creator=pymysql,</span><br><span class="line">    maxconnections=<span class="number">3000</span>,  <span class="comment"># 连接池允许的最大连接数，0和None表示不限制连接数</span></span><br><span class="line">    mincached=<span class="number">0</span>,  <span class="comment"># 初始化时，连接池中至少创建的空闲的链接，0表示不创建</span></span><br><span class="line">    maxcached=<span class="number">0</span>,  <span class="comment"># 连接池中最多闲置的连接，0和None不限制</span></span><br><span class="line">    maxshared=<span class="number">0</span>, <span class="comment"># 连接池中最多共享的连接数量，0和None表示全部共享。</span></span><br><span class="line">    blocking=<span class="literal">True</span>,  <span class="comment"># 连接池中如果没有可用连接后，是否阻塞等待。True</span></span><br><span class="line">    maxusage=<span class="literal">None</span>,  <span class="comment"># 一个连接最多被重复使用的次数，None表示无限制</span></span><br><span class="line">    **db_info <span class="comment"># 数据库账户等信息</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 测试插入数据</span></span><br><span class="line">insert_sql = (<span class="string">&quot;insert into apps_name &quot;</span></span><br><span class="line">              <span class="string">&quot;(id,app_log_name,log_path,log_date) &quot;</span></span><br><span class="line">              <span class="string">&quot;values(null,%(app_log_name)s,%(log_path)s,null)&quot;</span>)</span><br><span class="line">insert_data=&#123;</span><br><span class="line">    <span class="string">&#x27;app_log_name&#x27;</span>:<span class="string">&#x27;BI-Access-Log&#x27;</span>,</span><br><span class="line">    <span class="string">&#x27;log_path&#x27;</span>:<span class="string">&#x27;/opt/data/apps_log/&#x27;</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">save_data</span>(<span class="params">mode,inst_sql,inst_data</span>):</span></span><br><span class="line">    <span class="string">&#x27;&#x27;&#x27;</span></span><br><span class="line"><span class="string">    m:多线程模式，c:连接池模式</span></span><br><span class="line"><span class="string">    &#x27;&#x27;&#x27;</span></span><br><span class="line">    <span class="keyword">if</span> mode == <span class="string">&#x27;m&#x27;</span>:</span><br><span class="line">        conn=pymysql.connect(**db_info)</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        conn = db_pool.connection()</span><br><span class="line">    <span class="keyword">try</span>:</span><br><span class="line">        <span class="keyword">with</span> conn.cursor() <span class="keyword">as</span> cur:</span><br><span class="line">            resl=cur.execute(inst_sql,inst_data)</span><br><span class="line">            conn.commit()</span><br><span class="line">    <span class="keyword">except</span> pymysql.MySQLError <span class="keyword">as</span> err:</span><br><span class="line">        conn.rollback()</span><br><span class="line">    <span class="keyword">finally</span>:</span><br><span class="line">        <span class="comment"># PooledDB连接池关闭方法其实不是真的把该连接关闭，而是将该连接由放入池的队列里，在后文会看到该逻辑的实现</span></span><br><span class="line">        conn.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">multi_insert</span>(<span class="params">mode,nums=<span class="number">151</span></span>):</span></span><br><span class="line">    treads=[]</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(nums):</span><br><span class="line">        t=threading.Thread(target=save_data,args=(mode,insert_sql,insert_data))</span><br><span class="line">        treads.append(t)</span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> treads:</span><br><span class="line">        t.start()</span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> treads:</span><br><span class="line">        t.join()</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">run</span>(<span class="params">mode,request_nums</span>):</span></span><br><span class="line">    start=time.time()</span><br><span class="line">    multi_insert(mode,request_nums)</span><br><span class="line">    end=time.time()</span><br><span class="line">    cost=end-start</span><br><span class="line">    print(<span class="string">&#x27;cost:&#123;0:.3&#125; s&#x27;</span>.<span class="built_in">format</span>(cost))</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__==<span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line">    run(<span class="string">&#x27;c&#x27;</span>,<span class="number">100000</span>)</span><br></pre></td></tr></table></figure></p>
+<p>查看mariadb默认设置的最大连接数为151</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">MariaDB [erp_app]&gt; show variables like &#x27;%max_con%&#x27;;</span><br><span class="line">+---------------------------------------+-------+</span><br><span class="line">| Variable_name                         | Value |</span><br><span class="line">+---------------------------------------+-------+</span><br><span class="line">| extra_max_connections                 | 1     |</span><br><span class="line">| max_connect_errors                    | 100   |</span><br><span class="line">| max_connections                       | 151   |</span><br><span class="line">| performance_schema_max_cond_classes   | 80    |</span><br><span class="line">| performance_schema_max_cond_instances | -1    |</span><br><span class="line">+---------------------------------------+-------+</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;运行测试脚本，注意这里是连接池10万个连接的并发，对于server端的mysql来说，也就是同时有200个并发connections，就已经出错了，这就是模拟了客户端多线程大量并发消耗完mysql 最大连接资源引起error<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pymysql.err.OperationalError: (2003, &quot;Can&#x27;t connect to MySQL server on &#x27;192.168.100.5&#x27; ([Errno 24] Too many open files)&quot;)</span><br></pre></td></tr></table></figure></p>
+<h4 id="2、高并发连接数据库出错分析与测试"><a href="#2、高并发连接数据库出错分析与测试" class="headerlink" title="2、高并发连接数据库出错分析与测试"></a>2、高并发连接数据库出错分析与测试</h4><p>&#8195;&#8195;出现以上情况，可通过设置mysql max_connections最大值，来保证并发量,测试mysql在有限物理资源条件下可达到的最大连接数，随便设一个大值例如10000000，最后可mysql单机可设定的最大连接数为10万<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">MariaDB [erp_app]&gt; set GLOBAL max_connections=10000000;</span><br><span class="line">Query OK, 0 rows affected, 1 warning (0.000 sec)</span><br><span class="line"></span><br><span class="line">MariaDB [erp_app]&gt; show variables like &#x27;%max_con%&#x27;;</span><br><span class="line">+---------------------------------------+--------+</span><br><span class="line">| Variable_name                         | Value  |</span><br><span class="line">+---------------------------------------+--------+</span><br><span class="line">| extra_max_connections                 | 1      |</span><br><span class="line">| max_connect_errors                    | 100    |</span><br><span class="line">| max_connections                       | 100000 |</span><br><span class="line">| performance_schema_max_cond_classes   | 80     |</span><br><span class="line">| performance_schema_max_cond_instances | -1     |</span><br><span class="line">+---------------------------------------+--------+</span><br><span class="line">5 rows in set (0.001 sec)</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;在这里，==使用多线程方式==，测试脚本发起10万个线程并发请求，运行后程序很快出现socket请求打满客户端系统缓冲区，导致系统级别出错，如下<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">pymysql.err.OperationalError: (2003, &quot;Can&#39;t connect to MySQL server on &#39;192.168.</span><br><span class="line">100.5&#39; ([WinError 10055] 由于系统缓冲区空间不足或队列已满，不能执行套接字上的操</span><br><span class="line">作。)&quot;)</span><br></pre></td></tr></table></figure><br>再查看服务器响应的最大连接数，成功连接仅有745个</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">MariaDB [erp_app]&gt; show global status like &#x27;Max_used_connections&#x27;;</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Variable_name        | Value |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Max_used_connections | 745   |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">1 row in set (0.001 sec)</span><br></pre></td></tr></table></figure>
+<h4 id="3、为何选用连接池优化连接？"><a href="#3、为何选用连接池优化连接？" class="headerlink" title="3、为何选用连接池优化连接？"></a>3、为何选用连接池优化连接？</h4><p>&#8195;&#8195;从第二部分的测试可知，因为每个线程创建单独的连接，当并发量大时，会造成client和msyql server之间的频繁“线程创建tcp连接-登录-线程退出关闭tcp连接”，<br>若采用连接池方式连接mysql，则是重用数据库服务端的tcp通道，以达到client和MySQL之间只需维持较少的连接，单个客户端可以提高其并发量，且消耗较低的物理资源。</p>
+<p>打个不一定恰当的通俗比喻：</p>
+<p>有10000辆车同时要从A点到达B点，出发前，A、B之间没有路，需要先搭建</p>
+<p>1）多线程方式：需要1000个路面施工队同时搭建完1000条“高速路”后，才能同时出发，可见需要消耗非常多资源（10000个施工队以及10000条高速路资源），等10000辆车到达B点后，10000个施工队又得去拆除10000条高速路，非常耗资源</p>
+<p>2）连接池方式（假设连接池大小为1000）：需要1000个路面施工队同时搭建完1000条“高速路”后，前面1000辆车到达B点，后面9000辆车出发时，施工队不需要再新建高速路，继续重用前面搭建的1000条“高速路”，极大降低的物理资源浪费。</p>
+<p>连接池重要两个逻辑：</p>
+<ul>
+<li><p>在程序创建连接的时候，可以从连接池队列中取出一个空闲的连接，不需要重新初始化连接，提升获取连接的速度</p>
+</li>
+<li><p>关闭连接的时候，把连接放回存放连接池的队列中，而不是真正的关闭，所以可以减少频繁地打开和关闭tcp通道</p>
+</li>
+</ul>
+<h4 id="4、继续测试两种连接效果"><a href="#4、继续测试两种连接效果" class="headerlink" title="4、继续测试两种连接效果"></a>4、继续测试两种连接效果</h4><p>&#8195;&#8195;mysql的默认最大连接数已设置为1万个<br>1）开启2000个线程，重复1次，使用多线程并发，不出意外，mysql接收到已用连接数为1022个，之后的请求连接全部error 中断</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">(py36) [root@localhost opt]# python insert_test.py</span><br><span class="line">cost:1.99 s</span><br><span class="line"></span><br><span class="line">pymysql.err.OperationalError: (2003, &quot;Can&#x27;t connect to MySQL server on &#x27;192.168.100.4&#x27; ([Errno 24] Too many open files)&quot;)</span><br><span class="line"></span><br><span class="line">MariaDB [(none)]&gt; show global status like &#x27;Max_used_connections&#x27;;</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Variable_name        | Value |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Max_used_connections | 1022  |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">1 row in set (0.000 sec)</span><br></pre></td></tr></table></figure>
+<p>2) 开启多线程6000个并发，运行出错，6000个线程直接把客户端的系统缓冲区打满，无法继续运行</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pymysql.err.OperationalError: (2003, &quot;Can&#39;t connect to MySQL server on &#39;192.168.100.4&#39; ([WinError 10055] 由于系统缓冲区空间不足或队列已满，不能执行套接字上的操作。)&quot;)</span><br></pre></td></tr></table></figure>
+<p>3）连接池开启6000个并发，连接池最大连接限制3000个，运行没有问题，cost:24.3 s</p>
+<p>在mysql也可以看到最大已用连接数为3000个</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">MariaDB [(none)]&gt; show global status like &#x27;Max_used_connections&#x27;;</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Variable_name        | Value |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">| Max_used_connections | 3000  |</span><br><span class="line">+----------------------+-------+</span><br><span class="line">1 row in set (0.001 sec)</span><br></pre></td></tr></table></figure>
+<h4 id="5-、自行实现简易使用的mysql连接池"><a href="#5-、自行实现简易使用的mysql连接池" class="headerlink" title="5 、自行实现简易使用的mysql连接池"></a>5 、自行实现简易使用的mysql连接池</h4><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> threading</span><br><span class="line"><span class="keyword">from</span> queue <span class="keyword">import</span> Queue</span><br><span class="line"><span class="keyword">import</span> pymysql</span><br><span class="line"><span class="keyword">from</span> pymysql.cursors <span class="keyword">import</span> DictCursor</span><br><span class="line"></span><br><span class="line">db_info=&#123;</span><br><span class="line">            <span class="string">&#x27;host&#x27;</span>:<span class="string">&#x27;192.168.100.4&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;port&#x27;</span>:<span class="number">3306</span>,</span><br><span class="line">            <span class="string">&#x27;user&#x27;</span>:<span class="string">&#x27;***&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;password&#x27;</span>:<span class="string">&#x27;****&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;db&#x27;</span>:<span class="string">&#x27;erp_app&#x27;</span>,</span><br><span class="line">            <span class="string">&#x27;charset&#x27;</span>:<span class="string">&#x27;utf8&#x27;</span></span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">ConnPoolException</span>(<span class="params">Exception</span>):</span></span><br><span class="line">    <span class="string">&quot;&quot;&quot;连接池出错 &quot;&quot;&quot;</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">MariaDBPool</span>(<span class="params"><span class="built_in">object</span></span>):</span></span><br><span class="line">    _inst_lock=threading.RLock()</span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span>(<span class="params">self, connections, **db_conf</span>):</span></span><br><span class="line">        self.__connections = connections</span><br><span class="line">        self.__pool = Queue(connections)</span><br><span class="line">        <span class="comment"># 在init阶段，就已经创建好指定的连接，全部put到共享队列</span></span><br><span class="line">        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(self.__connections):</span><br><span class="line">            <span class="keyword">try</span>:</span><br><span class="line">                conn = pymysql.connect(**db_conf)</span><br><span class="line">                self.__pool.put(conn)</span><br><span class="line">            <span class="keyword">except</span> ConnPoolException <span class="keyword">as</span> e:</span><br><span class="line">                <span class="keyword">raise</span> IOError</span><br><span class="line"></span><br><span class="line">	<span class="comment"># 单例模式创建连接池，个人喜欢用__new__方法创建，简洁，且使用了递归锁，保证在多线程方式创建单例模式的对象都是同一对象</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__new__</span>(<span class="params">cls, *args, **kwargs</span>):</span></span><br><span class="line">        <span class="keyword">with</span> cls._inst_lock:</span><br><span class="line">            <span class="keyword">if</span> <span class="keyword">not</span> <span class="built_in">hasattr</span>(cls,<span class="string">&#x27;_inst&#x27;</span>):</span><br><span class="line">                cls._inst=<span class="built_in">object</span>.__new__(cls)</span><br><span class="line">        <span class="keyword">return</span> cls._inst</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">execute_insert</span>(<span class="params">self,sql,data_dict=<span class="literal">None</span></span>):</span></span><br><span class="line">        conn = self.__pool.get()</span><br><span class="line">        cursor = conn.cursor(DictCursor)</span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            result=cursor.execute(sql,data_dict) <span class="keyword">if</span> data_dict <span class="keyword">else</span> cursor.execute(sql)</span><br><span class="line">            conn.commit()</span><br><span class="line">        <span class="keyword">except</span> ConnPoolException <span class="keyword">as</span> e:</span><br><span class="line">           <span class="comment"># 这里就是重点，只是关闭了游标，连接对像又返回池里   </span></span><br><span class="line">            conn.rollback()</span><br><span class="line">            cursor.close()</span><br><span class="line">            self.__pool.put(conn)</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">False</span></span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            <span class="comment"># 这里就是重点，只是关闭了游标，连接对像又返回池里</span></span><br><span class="line">            cursor.close()</span><br><span class="line">            self.__pool.put(conn)</span><br><span class="line">            <span class="keyword">return</span> result</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">executemany_insert</span>(<span class="params">self,sql,data_dict_list=<span class="literal">None</span></span>):</span></span><br><span class="line">        conn = self.__pool.get()</span><br><span class="line">        cursor = conn.cursor(DictCursor)</span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            result=cursor.execute(sql,data_dict) <span class="keyword">if</span> data_dict_list <span class="keyword">else</span> cursor.executemany(sql)</span><br><span class="line">        <span class="keyword">except</span> ConnPoolException <span class="keyword">as</span> e:</span><br><span class="line">            conn.rollback()</span><br><span class="line">            cursor.close()</span><br><span class="line">            self.__pool.put(conn)</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">False</span></span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            cursor.close()</span><br><span class="line">            self.__pool.put(conn)</span><br><span class="line">            <span class="keyword">return</span> result</span><br><span class="line">            </span><br><span class="line">    <span class="comment"># 这里才是真正的关闭所有连接池</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">close</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(self.__connections):</span><br><span class="line">            self.__pool.get().close()</span><br></pre></td></tr></table></figure>
+<p>&#8195;&#8195;就本文测试的数据库以及简单表结构而言，使用该连接池模块，注意测试之前，需重启mysql，保证数据库最大已连接数为1，也即清空历史残留连接，以便做新测试对比。12000个并发，mysql设定最大可用连接数：3000，单例模式，cost:22.2 s，程序不会出现任何异常，当然因表结构和服务器性能情况而不同。</p>
+<p>&#8195;&#8195;这里顺便提下oracle线程池，部分项目使用oracle数据库，cx_Oracle也支持使用连接池方式连接，大致流程如下，也可根据使用习惯封装更适合自身业务需要的模块。<br><figure class="highlight py"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> cx_Oracle</span><br><span class="line">db_user=<span class="string">&#x27;foo&#x27;</span></span><br><span class="line">db_pwd=<span class="string">&#x27;barbar&#x27;</span></span><br><span class="line">db_host=<span class="string">&#x27;192.168.100.7&#x27;</span></span><br><span class="line">db_name=<span class="string">&#x27;erp_app&#x27;</span></span><br><span class="line">dsn = cx_Oracle.makedsn(db_host, <span class="string">&quot;1521&quot;</span>, db_name)</span><br><span class="line">db_config = &#123;</span><br><span class="line">    <span class="string">&#x27;user&#x27;</span>: db_user,</span><br><span class="line">    <span class="string">&#x27;password&#x27;</span>: db_pwd,</span><br><span class="line">    <span class="string">&#x27;dsn&#x27;</span>: dsn,</span><br><span class="line">    <span class="string">&#x27;min&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">    <span class="string">&#x27;max&#x27;</span>: <span class="number">1000</span>,</span><br><span class="line">    <span class="string">&#x27;increment&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">    <span class="string">&#x27;threaded&#x27;</span>: <span class="literal">True</span></span><br><span class="line">&#125;</span><br><span class="line">orc_pool = cx_Oracle.SessionPool(**dbConfig)</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;若使用多线程方式，尤其数量大的情况下（500以上），很容易把底层bug爆出来，cx_Oracle会引发python解释器崩溃。其实建议，只要是连接数据库，所引入的第三方库支持线程池方法的话，都建议用线程池，哪怕你的插入数据不是太频繁或并发量不大，减少程序自身出错，也降低数据库连接压力。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/mysql%E8%BF%9E%E6%8E%A5%E6%B1%A0/" rel="tag"># mysql连接池</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/08/26/MariaDB+Keepalived%20%E6%90%AD%E5%BB%BA%E5%8F%8C%E4%B8%BBHA%E6%95%B0%E6%8D%AE%E5%BA%93%E6%9C%8D%E5%8A%A1/" rel="prev" title="MariaDB+Keepalived 搭建双主HA数据库服务">
+      <i class="fa fa-chevron-left"></i> MariaDB+Keepalived 搭建双主HA数据库服务
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/09/04/Centos7%E9%85%8D%E7%BD%AEdocker%E5%92%8Cdocker-compose%E7%8E%AF%E5%A2%83/" rel="next" title="Centos7配置docker和docker-compose环境">
+      Centos7配置docker和docker-compose环境 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81%E8%BF%9E%E6%8E%A5%E6%B1%A0%E6%B5%8B%E8%AF%95mysql%E9%BB%98%E8%AE%A4%E8%BF%9E%E6%8E%A5%E9%85%8D%E7%BD%AE"><span class="nav-number">1.</span> <span class="nav-text">1、连接池测试mysql默认连接配置</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81%E9%AB%98%E5%B9%B6%E5%8F%91%E8%BF%9E%E6%8E%A5%E6%95%B0%E6%8D%AE%E5%BA%93%E5%87%BA%E9%94%99%E5%88%86%E6%9E%90%E4%B8%8E%E6%B5%8B%E8%AF%95"><span class="nav-number">2.</span> <span class="nav-text">2、高并发连接数据库出错分析与测试</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E4%B8%BA%E4%BD%95%E9%80%89%E7%94%A8%E8%BF%9E%E6%8E%A5%E6%B1%A0%E4%BC%98%E5%8C%96%E8%BF%9E%E6%8E%A5%EF%BC%9F"><span class="nav-number">3.</span> <span class="nav-text">3、为何选用连接池优化连接？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81%E7%BB%A7%E7%BB%AD%E6%B5%8B%E8%AF%95%E4%B8%A4%E7%A7%8D%E8%BF%9E%E6%8E%A5%E6%95%88%E6%9E%9C"><span class="nav-number">4.</span> <span class="nav-text">4、继续测试两种连接效果</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5-%E3%80%81%E8%87%AA%E8%A1%8C%E5%AE%9E%E7%8E%B0%E7%AE%80%E6%98%93%E4%BD%BF%E7%94%A8%E7%9A%84mysql%E8%BF%9E%E6%8E%A5%E6%B1%A0"><span class="nav-number">5.</span> <span class="nav-text">5 、自行实现简易使用的mysql连接池</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;zookeeper的分布式方案当然最优雅也最可靠，如果redis集群服务已经搭起或者哨兵模式已经部署的条件下，那么基于多个redis实例实现的分布式锁同样高可用，而且redis性能凸显，本文给出的是在单个redis服务上使用setnx+expire实现可用的分布式锁，也可使用redis的事务MULTI+WATCH机制实现分布式锁，只不过这种方式相对简单，本文不再赘述。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于redis实现分布式锁（单实例）">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;zookeeper的分布式方案当然最优雅也最可靠，如果redis集群服务已经搭起或者哨兵模式已经部署的条件下，那么基于多个redis实例实现的分布式锁同样高可用，而且redis性能凸显，本文给出的是在单个redis服务上使用setnx+expire实现可用的分布式锁，也可使用redis的事务MULTI+WATCH机制实现分布式锁，只不过这种方式相对简单，本文不再赘述。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20190915103408140.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20190916215733472.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-09-19T14:00:53.000Z">
+<meta property="article:modified_time" content="2020-02-03T12:16:06.000Z">
+<meta property="article:tag" content="redis分布式锁">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20190915103408140.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于redis实现分布式锁（单实例） | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/09/19/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%8D%95%E5%AE%9E%E4%BE%8B%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于redis实现分布式锁（单实例）
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-09-19 22:00:53" itemprop="dateCreated datePublished" datetime="2019-09-19T22:00:53+08:00">2019-09-19</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 20:16:06" itemprop="dateModified" datetime="2020-02-03T20:16:06+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Redis/" itemprop="url" rel="index"><span itemprop="name">Redis</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>7.7k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>7 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;zookeeper的分布式方案当然最优雅也最可靠，如果redis集群服务已经搭起或者哨兵模式已经部署的条件下，那么基于多个redis实例实现的分布式锁同样高可用，而且redis性能凸显，本文给出的是在单个redis服务上使用setnx+expire实现可用的分布式锁，也可使用redis的事务MULTI+WATCH机制实现分布式锁，只不过这种方式相对简单，本文不再赘述。</p>
+<a id="more"></a>
+<h4 id="1、基于redis单实例实现的分布式锁"><a href="#1、基于redis单实例实现的分布式锁" class="headerlink" title="1、基于redis单实例实现的分布式锁"></a>1、基于redis单实例实现的分布式锁</h4><h5 id="加锁"><a href="#加锁" class="headerlink" title="加锁"></a>加锁</h5><p>加锁实际上就是在redis中，给Key键设置一个全局唯一值，为避免死锁（客户端加锁后，一直没有释放锁），并该key设一个过期时间，命令如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">SET locker uuid NX PX 20000</span><br><span class="line"></span><br><span class="line"># locker 所有客户端都统一在redis设置的key，名称可以根据业务逻辑，例如app_write_locker</span><br><span class="line"># uuid是客户端自己生成的全局唯一的字符串标识，在python中可以通过UUID库生成唯一标识。</span><br><span class="line"># NX 代表只在键不存在时，才能成功设置key也即成功加锁，否则给客户端返回false</span><br><span class="line"># PX 设置键的过期时间为2000毫秒。</span><br><span class="line"># EX 若要设置秒数，则用EX </span><br><span class="line"># 如果上面的命令执行成功，则证明客户端获取到了锁。</span><br></pre></td></tr></table></figure>
+<h5 id="延期锁的过期时间"><a href="#延期锁的过期时间" class="headerlink" title="延期锁的过期时间"></a>延期锁的过期时间</h5><p>假设有这样的场景：A客户端从加锁-业务执行-释放锁，这一过程需要5秒，锁的过期时间仅为2秒，显然2秒后，A的锁已经失效，B客户端加锁成功，但A还未处理完业务，也即出现两个客户端都加锁成功的情况。当然你可以将锁的失效时间设为更大值，这取决你对业务逻辑执行时长的熟悉度。</p>
+<p>事实上，无需熟悉业务执行时长的情况下，也可以让客户端加锁后，再开启一个子线程不断对该客户端创建的锁延期，以保证足够的时间让业务逻辑执行完。</p>
+<p>这个“延期锁的过期时间”在分布式锁当中，不是强制要实现的，正如前面所说，你非常清楚业务执行流程耗时基本不超过1秒，那么设置锁过期5秒，也完全OK。</p>
+<h5 id="解锁"><a href="#解锁" class="headerlink" title="解锁"></a>解锁</h5><p>解锁就是客户端将自己设置的Key删除，而且只能限制客户端A的删除自己设置的key，而且不能删除其他客户端设置的key，通过比加锁时设置的<code>uuid</code>，以及释放锁拿到的uuid是否一致作为实现。为了保证删除key操作的原子性，这里借用redis官方建议LUA脚本key的删除操作。</p>
+<p>为何客户端只能删除自己设定key？</p>
+<p>例如客户端A加锁locker成功，业务执行需要5秒，而key过期时间为2秒；2秒后导致客户端B加锁成功，业务执行需要5秒，当时间线来到第5秒时，A把B的锁删除了（客户端C此时加锁成功），而此时B还在执行业务，显然不合理。</p>
+<h4 id="2、python代码实现"><a href="#2、python代码实现" class="headerlink" title="2、python代码实现"></a>2、python代码实现</h4><p>基于redis单实例的分布式锁流程图<br><img src="https://img-blog.csdnimg.cn/20190915103408140.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<p>这里用with协议封装，使得使用者简单调用</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> redis</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> datetime</span><br><span class="line"><span class="keyword">from</span> _thread <span class="keyword">import</span> start_new_thread</span><br><span class="line"><span class="keyword">import</span> uuid</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">RedLock</span>(<span class="params"><span class="built_in">object</span></span>):</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span>(<span class="params">self, host, port, redis_timeout, retries, retry_itv, locker_key, expire, watch,extend, extend_interval</span>):</span></span><br><span class="line">        self.host = host</span><br><span class="line">        self.port = port</span><br><span class="line">        <span class="comment"># 客户端加锁的重试次数</span></span><br><span class="line">        self.retries = retries</span><br><span class="line">        <span class="comment"># 客户端加锁请求间隔时长</span></span><br><span class="line">        self.retry_itv = retry_itv</span><br><span class="line">        <span class="comment"># 客户端连接redis服务超时时长</span></span><br><span class="line">        self.r_timeout = redis_timeout</span><br><span class="line">        <span class="comment"># 客户端加锁的key</span></span><br><span class="line">        self.locker_key = locker_key</span><br><span class="line">        <span class="comment"># 锁的过期时长</span></span><br><span class="line">        self.expire = expire</span><br><span class="line">        <span class="comment"># 每次在锁原有过期时长的基础上再延长多长时间，秒或者毫秒</span></span><br><span class="line">        self.extend = extend</span><br><span class="line">        <span class="comment"># 每次延长锁的过期时间的wait间隔时长</span></span><br><span class="line">        self.extend_interval = extend_interval</span><br><span class="line">        <span class="comment"># 是否开启延长客户端锁的子线程,默认开启</span></span><br><span class="line">        self.watch_dog_thread = watch</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 客户端全局唯一ID标识</span></span><br><span class="line">        self.app_id=<span class="literal">None</span></span><br><span class="line">        </span><br><span class="line">        <span class="comment"># 是否获得锁</span></span><br><span class="line">        self.is_get_lock=<span class="literal">False</span></span><br><span class="line">      </span><br><span class="line">        <span class="comment"># 使用连接池</span></span><br><span class="line">        self.conn_pool = redis.ConnectionPool(host=self.host, port=self.port, socket_connect_timeout=self.r_timeout)</span><br><span class="line">        self.r = redis.Redis(connection_pool=self.conn_pool)</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">watch_dog</span>(<span class="params">self</span>):</span></span><br><span class="line">       <span class="string">&#x27;&#x27;&#x27;</span></span><br><span class="line"><span class="string">       为客户端的锁延长过期时间</span></span><br><span class="line"><span class="string">       &#x27;&#x27;&#x27;</span></span><br><span class="line">        <span class="keyword">while</span> <span class="literal">True</span>:</span><br><span class="line">            new_app_id = self.r.get(self.locker_key)</span><br><span class="line">            <span class="comment"># 客户端还未设置key时watch_dog线程抢先get key导致查询到为空</span></span><br><span class="line">            <span class="keyword">if</span> <span class="keyword">not</span> new_app_id:</span><br><span class="line">                <span class="keyword">continue</span></span><br><span class="line">            <span class="comment"># 只能延长由自己id加锁的失效时间</span></span><br><span class="line">            <span class="keyword">if</span> self.app_id == new_app_id.decode(<span class="string">&#x27;utf-8&#x27;</span>):</span><br><span class="line">                <span class="comment"># 对原有的过期时间延长</span></span><br><span class="line">                self.expire=self.expire+self.extend</span><br><span class="line">                self.r.<span class="built_in">set</span>(self.locker_key, self.app_id, ex=self.expire)</span><br><span class="line">                ttl=self.r.pttl(self.locker_key)</span><br><span class="line">                print(<span class="string">&#x27;watch_dog已延长该锁的过期时间至：&#123;&#125;s&#x27;</span>.<span class="built_in">format</span>(ttl/<span class="number">1000</span>))</span><br><span class="line">                time.sleep(self.extend_interval)</span><br><span class="line">                <span class="keyword">continue</span></span><br><span class="line">            <span class="keyword">else</span>:</span><br><span class="line">               <span class="comment"># 说明主线程以及完成业务逻辑且成功释放说，该watch_dog子线程退出</span></span><br><span class="line">                <span class="keyword">break</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">acquire</span>(<span class="params">self,retries</span>):</span></span><br><span class="line"></span><br><span class="line">        self.app_id = <span class="built_in">str</span>(uuid.uuid1())</span><br><span class="line">        <span class="comment"># 尝试加锁</span></span><br><span class="line">        is_set = self.r.<span class="built_in">set</span>(self.locker_key, self.app_id, ex=self.expire, nx=<span class="literal">True</span>)</span><br><span class="line">        <span class="keyword">if</span> is_set:</span><br><span class="line">            <span class="comment"># 加锁成功</span></span><br><span class="line">            print(<span class="string">&#x27;已获得锁&#123;&#125;开始watch dog 线程&#x27;</span>.<span class="built_in">format</span>(self.app_id))</span><br><span class="line">            <span class="comment"># 开启延长锁的过期时间的子线程</span></span><br><span class="line">            <span class="keyword">if</span> self.watch_dog_thread:</span><br><span class="line">                self.start_new_thread(self.watch_dog, ())</span><br><span class="line">            self.is_get_lock=<span class="literal">True</span></span><br><span class="line">            <span class="keyword">return</span> self.is_get_lock</span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            <span class="comment"># 重试加锁，超过尝试次数则加锁失败</span></span><br><span class="line">            retries=retries-<span class="number">1</span></span><br><span class="line">            <span class="keyword">if</span> retries == <span class="number">0</span>:</span><br><span class="line">                self.is_get_lock=<span class="literal">False</span></span><br><span class="line">                <span class="keyword">return</span> self.is_get_lock</span><br><span class="line">            print(<span class="string">&#x27;未获得锁，重试获锁剩余次数：&#123;0&#125;,每次获取锁的间隔时长：&#123;1&#125;s&#x27;</span>.<span class="built_in">format</span>(retries,self.retry_itv))</span><br><span class="line">            time.sleep(self.retry_itv)</span><br><span class="line">            self.acquire(retries)</span><br><span class="line">            </span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">atomic_delete</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        在redis服务端执行原生lua脚本，保证原子删除key，也即保证一定能解锁</span></span><br><span class="line"><span class="string"> </span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        <span class="comment"># lua的用法可以redis官网查阅到，KEYS：存放键的列表，ARGV：存放值得列表</span></span><br><span class="line">        <span class="comment"># KEYS[1]取第一个键，ARGV[1]取第一个值</span></span><br><span class="line">        lua_del_script = <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">        if redis.call(&quot;get&quot;,KEYS[1]) == ARGV[1] then</span></span><br><span class="line"><span class="string">            return redis.call(&quot;del&quot;,KEYS[1])</span></span><br><span class="line"><span class="string">        else</span></span><br><span class="line"><span class="string">            return 0</span></span><br><span class="line"><span class="string">        end</span></span><br><span class="line"><span class="string">        &quot;&quot;&quot;</span></span><br><span class="line">        lua_del_func = self.r.register_script(lua_del_script)</span><br><span class="line">        result= lua_del_func(keys=[self.locker_key], args=[self.app_id])</span><br><span class="line">        <span class="keyword">return</span> result</span><br><span class="line">      </span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">release</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="comment"># 解锁前，先获取该锁的值</span></span><br><span class="line">        now_app_id = self.r.get(self.locker_key)</span><br><span class="line">        <span class="keyword">if</span> <span class="keyword">not</span> now_app_id:</span><br><span class="line">            <span class="comment"># 客户端已完成业务逻辑，但锁已失效，此时不影响其他客户端请求锁，直接return即可</span></span><br><span class="line">            print(<span class="string">&#x27;客户端未完成任务，但锁提前过期了，无法完成更新数据&#x27;</span>)</span><br><span class="line">            <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">        <span class="comment"># 只能释放自己申请的锁，若别人申请的锁，自己不能删除，直接返回</span></span><br><span class="line">        <span class="keyword">if</span> self.app_id == now_app_id.decode(<span class="string">&#x27;utf-8&#x27;</span>):</span><br><span class="line">            self.atomic_delete()</span><br><span class="line">            print(<span class="string">&#x27;执行原子删除，锁释放：&#x27;</span>, self.app_id)</span><br><span class="line">            <span class="keyword">return</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__enter__</span>(<span class="params">self</span>):</span></span><br><span class="line">        <span class="comment"># 加锁入口</span></span><br><span class="line">        self.acquire(self.retries)</span><br><span class="line">        <span class="keyword">return</span> self.is_get_lock</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__exit__</span>(<span class="params">self, exc_type, exc_val, exc_tb</span>):</span></span><br><span class="line">        <span class="comment"># 解锁出口</span></span><br><span class="line">        self.release()</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">doing_jobs</span>(<span class="params">n</span>):</span></span><br><span class="line">    print(<span class="string">&#x27;doing jobs at:&#x27;</span>,datetime.datetime.now())</span><br><span class="line">    time.sleep(n)</span><br><span class="line">    print(<span class="string">&#x27;finish jobs at&#x27;</span>,datetime.datetime.now())</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:</span><br><span class="line"></span><br><span class="line">    db_conf = &#123;</span><br><span class="line">        <span class="string">&#x27;host&#x27;</span>: <span class="string">&#x27;192.168.100.5&#x27;</span>,</span><br><span class="line">        <span class="string">&#x27;port&#x27;</span>: <span class="number">6379</span>,</span><br><span class="line">        <span class="string">&#x27;retries&#x27;</span>: <span class="number">5</span>,</span><br><span class="line">        <span class="string">&#x27;retry_itv&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;redis_timeout&#x27;</span>: <span class="number">2</span>,</span><br><span class="line">        <span class="string">&#x27;locker_key&#x27;</span>: <span class="string">&#x27;locker&#x27;</span>,</span><br><span class="line">        <span class="string">&#x27;expire&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;extend&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;extend_interval&#x27;</span>: <span class="number">1</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">with</span> RedLock(**db_conf) <span class="keyword">as</span> lock:</span><br><span class="line">        <span class="keyword">if</span> lock:</span><br><span class="line">            doing_jobs(<span class="number">5</span>)</span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            print(<span class="string">&#x27;获取锁超时&#x27;</span>)</span><br><span class="line"></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>注意：在释放锁的逻辑中，引用了lua脚本执行redis删除键，这是非常微妙且核心的细节，如果使用非原生删除，有可能会出现以下极端情况：<br>流程顺序：(1)\==&gt;(2)\==&gt;(3)==&gt;(4)<br><img src="https://img-blog.csdnimg.cn/20190916215733472.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">（补充极限情况（2）的另外一个突发场景：key过期时间设置为毫秒单位，<br>redis设置为AOF持久化数据时，AOF同步到磁盘的方式默认每秒1次，如果在这1秒内断电，会导致内存数据丢失，立即重启服务器后，A设置的key已不在，故B加锁成功，A此时开始执行删除key的操作，导致互斥性失效）<br>==redis作者给出的key的有效期可使用毫秒精度的UNIX 时间戳，显然有较高的精度，因此场景（2）是可能发生的，因此直接用redis.del()命令删除key，不保证原子性<br>至于redis官网给出的原子删除lua脚本声称是保证原子操作，那么可认为以下两个操作：判断uuid是否为加锁者的uuid操作和删除该key的操作，它们一起消耗的时刻将足够微小，认为是原子的。（暂且相信官网，就像你相信mysql的事务原子操作）==<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if redis.call(&quot;get&quot;,KEYS[1]) &#x3D;&#x3D; ARGV[1] then</span><br><span class="line">      return redis.call(&quot;del&quot;,KEYS[1])</span><br></pre></td></tr></table></figure></p>
+<p>单线程运行结果：</p>
+<p>任务运行需要5秒，锁过期时长为1秒，那么watch_dog每隔1秒延长锁的过期时间1秒，那么在任务运行5秒这个过程中，总共将锁过期时长延长至6秒，足以保证任务完整运行且锁不失效</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">已获得锁0381e3c6-d6fa-11e9-bfb9-a45e60c5a11d开始watch dog 线程</span><br><span class="line">doing jobs at: ** 10:14:50.119315</span><br><span class="line">watch_dog已延长该锁的过期时间至：1.999s</span><br><span class="line">watch_dog已延长该锁的过期时间至：2.999s</span><br><span class="line">watch_dog已延长该锁的过期时间至：4.0s</span><br><span class="line">watch_dog已延长该锁的过期时间至：5.0s</span><br><span class="line">watch_dog已延长该锁的过期时间至：6.0s</span><br><span class="line">finish jobs at ** 10:14:55.121694</span><br><span class="line">执行原子删除，锁释放： 0381e3c6-d6fa-11e9-bfb9-a45e60c5a11d</span><br></pre></td></tr></table></figure>
+<p>不开启watch_dog，模拟任务运行时间过长，锁先失效的情况，程序运行1秒后，锁已经失效，该客户端任务结束后，发现自己加的锁没有了，为了数据安全，客户端只能放弃本次更新记录</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">已获得锁e04f94b0-d6fa-11e9-b8cf-a45e60c5a11d开始watch dog 线程</span><br><span class="line">doing jobs at: ** 10:21:00.531881</span><br><span class="line">finish jobs at ** 10:21:05.532265</span><br><span class="line">客户端未完成任务，但锁提前过期了，无法完成更新数据</span><br></pre></td></tr></table></figure>
+<h4 id="3、多线程模拟多个客户端并发争取分布式锁"><a href="#3、多线程模拟多个客户端并发争取分布式锁" class="headerlink" title="3、多线程模拟多个客户端并发争取分布式锁"></a>3、多线程模拟多个客户端并发争取分布式锁</h4><p>这里改下一部分代码：也即，每个线程共享redis连接池对象</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">RedLock</span>(<span class="params"><span class="built_in">object</span></span>):</span></span><br><span class="line">    <span class="function"><span class="keyword">def</span> <span class="title">__init__</span>(<span class="params">self,r,redis_timeout, retries, retry_itv, locker_key, expire, extend, extend_interval</span>):</span></span><br><span class="line">        ......</span><br><span class="line">        self.r = r</span><br><span class="line">......</span><br><span class="line"></span><br><span class="line">        </span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">doing_jobs</span>(<span class="params">r</span>):</span></span><br><span class="line">    thread_name = threading.currentThread().name</span><br><span class="line">    bonus = <span class="string">&#x27;money&#x27;</span></span><br><span class="line">    total = r.get(bonus)</span><br><span class="line">    <span class="keyword">if</span> <span class="built_in">int</span>(total) == <span class="number">0</span>:</span><br><span class="line">        print(<span class="string">&#x27;奖金已被抢完&#x27;</span>.<span class="built_in">format</span>(thread_name))</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> total:</span><br><span class="line">        print(<span class="string">&#x27;奖金池没设置&#x27;</span>)</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    result = r.decr(bonus, <span class="number">1</span>)</span><br><span class="line">    print(<span class="string">&#x27;客户端:&#123;0&#125;抢到奖金，还剩&#123;1&#125;&#x27;</span>.<span class="built_in">format</span>(thread_name, result))</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">run</span>(<span class="params">redis_conn</span>):</span></span><br><span class="line">    info = &#123;</span><br><span class="line">        <span class="string">&#x27;r&#x27;</span>:redis_conn,</span><br><span class="line">        <span class="string">&#x27;retries&#x27;</span>: <span class="number">5</span>,</span><br><span class="line">        <span class="string">&#x27;retry_itv&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;redis_timeout&#x27;</span>: <span class="number">5</span>,</span><br><span class="line">        <span class="string">&#x27;locker_key&#x27;</span>: <span class="string">&#x27;locker&#x27;</span>,</span><br><span class="line">        <span class="string">&#x27;expire&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;extend&#x27;</span>: <span class="number">1</span>,</span><br><span class="line">        <span class="string">&#x27;extend_interval&#x27;</span>: <span class="number">1</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">with</span> RedLock(**info) <span class="keyword">as</span> lock:</span><br><span class="line">        <span class="keyword">if</span> lock:</span><br><span class="line">            doing_jobs(redis_conn)</span><br><span class="line">        <span class="keyword">else</span>:</span><br><span class="line">            print(<span class="string">&#x27;获取锁超时&#x27;</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:</span><br><span class="line"></span><br><span class="line">    pool_obj = redis.ConnectionPool(host=<span class="string">&#x27;192.168.100.5&#x27;</span>, port=<span class="number">6379</span>, socket_connect_timeout=<span class="number">5</span>)</span><br><span class="line">    redis_conn_obj = redis.Redis(connection_pool=pool_obj)</span><br><span class="line">    threads = []</span><br><span class="line">    <span class="comment"># 开启100个线程模拟客户端争取redis锁</span></span><br><span class="line">    <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">100</span>):</span><br><span class="line">        t = threading.Thread(target=run, args=(redis_conn_obj,))</span><br><span class="line">        threads.append(t)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.start()</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> t <span class="keyword">in</span> threads:</span><br><span class="line">        t.join()</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p> 在redis服务端设置值</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1:6379&gt; set money 10</span><br><span class="line">OK</span><br></pre></td></tr></table></figure>
+<p>测试结果，资源为10份，故对应有10个客户端可获得资源，且是有序的扣减，其他客户端要么未抢到锁，要么抢到锁后发现没资源</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">客户端:Thread-14抢到奖金，还剩9</span><br><span class="line">客户端:Thread-3抢到奖金，还剩8</span><br><span class="line">客户端:Thread-78抢到奖金，还剩7</span><br><span class="line">客户端:Thread-16抢到奖金，还剩6</span><br><span class="line">客户端:Thread-11抢到奖金，还剩5</span><br><span class="line">客户端:Thread-17抢到奖金，还剩4</span><br><span class="line">客户端:Thread-5抢到奖金，还剩3</span><br><span class="line">客户端:Thread-66抢到奖金，还剩2</span><br><span class="line">客户端:Thread-38抢到奖金，还剩1</span><br><span class="line">客户端:Thread-9抢到奖金，还剩0</span><br><span class="line">获取锁超时</span><br><span class="line">获取锁超时</span><br><span class="line">奖金已被抢完</span><br><span class="line">奖金已被抢完</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<p>以上的实现都是基于redis单服务，若redis服务不可用或宕机之类的，所有客户端都无法加锁，显然单点故障不可靠，因此要实现高可用的redis分布式锁，还需设计如何在多个redis服务上实现，这就需要参考RedLock算法，后面的文章将进一步讨论。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/redis%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/" rel="tag"># redis分布式锁</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/09/14/redis-cluster%E5%8E%9F%E7%90%86%E5%8F%8A%E5%85%B6%E9%83%A8%E7%BD%B2%E6%B5%8B%E8%AF%95/" rel="prev" title="redis-cluster原理及其部署测试">
+      <i class="fa fa-chevron-left"></i> redis-cluster原理及其部署测试
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/09/22/%E5%9F%BA%E4%BA%8Eredis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%EF%BC%88%E5%A4%9A%E5%AE%9E%E4%BE%8Bredis+RedLock%E7%AE%97%E6%B3%95%EF%BC%89/" rel="next" title="基于redis实现分布式锁（多实例redis+RedLock算法）">
+      基于redis实现分布式锁（多实例redis+RedLock算法） <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81%E5%9F%BA%E4%BA%8Eredis%E5%8D%95%E5%AE%9E%E4%BE%8B%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81"><span class="nav-number">1.</span> <span class="nav-text">1、基于redis单实例实现的分布式锁</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%8A%A0%E9%94%81"><span class="nav-number">1.1.</span> <span class="nav-text">加锁</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%BB%B6%E6%9C%9F%E9%94%81%E7%9A%84%E8%BF%87%E6%9C%9F%E6%97%B6%E9%97%B4"><span class="nav-number">1.2.</span> <span class="nav-text">延期锁的过期时间</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E8%A7%A3%E9%94%81"><span class="nav-number">1.3.</span> <span class="nav-text">解锁</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81python%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0"><span class="nav-number">2.</span> <span class="nav-text">2、python代码实现</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%A8%A1%E6%8B%9F%E5%A4%9A%E4%B8%AA%E5%AE%A2%E6%88%B7%E7%AB%AF%E5%B9%B6%E5%8F%91%E4%BA%89%E5%8F%96%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81"><span class="nav-number">3.</span> <span class="nav-text">3、多线程模拟多个客户端并发争取分布式锁</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

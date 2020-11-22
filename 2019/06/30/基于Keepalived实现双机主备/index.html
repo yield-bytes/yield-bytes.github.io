@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;本文使用keepalived快速配置实现双机主备模式，该模式为keepalived入门使用，生产使用需要谨慎，当然可用于帮助理解keepalived 步骤： 1）主备server安装keepalived 2）主备server配置keepalived.conf 3）主备server安装httpd web服务（用于测试） 4）主备启动keepalived，并测试master">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于Keepalived实现双机主备">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;本文使用keepalived快速配置实现双机主备模式，该模式为keepalived入门使用，生产使用需要谨慎，当然可用于帮助理解keepalived 步骤： 1）主备server安装keepalived 2）主备server配置keepalived.conf 3）主备server安装httpd web服务（用于测试） 4）主备启动keepalived，并测试master">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
+<meta property="og:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
+<meta property="og:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20190630203253526.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
+<meta property="article:published_time" content="2019-06-30T12:56:19.000Z">
+<meta property="article:modified_time" content="2020-02-04T04:32:08.000Z">
+<meta property="article:tag" content="Keepalived">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于Keepalived实现双机主备 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于Keepalived实现双机主备
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-06-30 20:56:19" itemprop="dateCreated datePublished" datetime="2019-06-30T20:56:19+08:00">2019-06-30</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-04 12:32:08" itemprop="dateModified" datetime="2020-02-04T12:32:08+08:00">2020-02-04</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>6.6k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>6 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;本文使用keepalived快速配置实现双机主备模式，该模式为keepalived入门使用，生产使用需要谨慎，当然可用于帮助理解keepalived</p>
+<p>步骤：</p>
+<p>1）主备server安装keepalived</p>
+<p>2）主备server配置keepalived.conf</p>
+<p>3）主备server安装httpd web服务（用于测试）</p>
+<p>4）主备启动keepalived，并测试master、backup各自中断服务后，访问情况</p>
+<a id="more"></a>
+<h5 id="1、yum-y-install-keepalived-httpd"><a href="#1、yum-y-install-keepalived-httpd" class="headerlink" title="1、yum -y install keepalived httpd"></a>1、yum -y install keepalived httpd</h5><h5 id="2、主server的配置文件："><a href="#2、主server的配置文件：" class="headerlink" title="2、主server的配置文件："></a>2、主server的配置文件：</h5><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">! Configuration File for keepalived</span><br><span class="line"></span><br><span class="line">global_defs &#123;</span><br><span class="line">   router_id s0  ！ 集群作用域的全局路由id，每台serverID要求唯一</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">vrrp_instance VI_1 &#123;</span><br><span class="line">    state MASTER ! 主server为master，备server为BACKUP</span><br><span class="line">    interface eth0 ！该server的网卡</span><br><span class="line">    virtual_router_id 51  ！集群作用域所有server 相同id</span><br><span class="line">    priority 100 ！优先级，同一个vrrp_instance里，主server必须要高于备server</span><br><span class="line">    advert_int 1 </span><br><span class="line">    authentication &#123;  ！主与备之间的认证机制</span><br><span class="line">        auth_type PASS  </span><br><span class="line">        auth_pass 1111</span><br><span class="line">    &#125;</span><br><span class="line">    virtual_ipaddress &#123; ！ 虚拟IP</span><br><span class="line">        192.168.1.10</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
+<p>备机的配置同上，只需将state和priority改下 。从该配置文件可知，kl提供的功能极为简单，因此可实现一主多备的模式，而且非常容易配置，例如通过ansible 批量配置备机。</p>
+<h5 id="3、安装apache-httpd-web-server"><a href="#3、安装apache-httpd-web-server" class="headerlink" title="3、安装apache httpd web server"></a>3、安装apache httpd web server</h5><p>修改web主页内容，以便显示访问的是来自哪台server：</p>
+<p>cd /var/www/html</p>
+<p>vi index.html</p>
+<p>内容：from keepalived master server</p>
+<p>同理备机：from keepalived slave server</p>
+<p>（聪明的你，可用docker去启动一个web服务，甚至keepalived也被docker化）</p>
+<h5 id="4、主备分别启动keepalived"><a href="#4、主备分别启动keepalived" class="headerlink" title="4、主备分别启动keepalived"></a>4、主备分别启动keepalived</h5><p>server keepalived start</p>
+<p>在主server的linux日志可看到相关运行info</p>
+<p>vi /var/log/messages</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn systemd: Started LVS <span class="keyword">and</span> VRRP High Availability Monitor.</span><br><span class="line"><span class="comment"># 启动LVS和VRRP HA监测服务</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_healthcheckers[<span class="number">11285</span>]: Opening file <span class="string">&#x27;/etc/keepalived/keepalived.conf&#x27;</span>.</span><br><span class="line"><span class="comment"># 读取ka配置文件</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Registering Kernel netlink reflector</span><br><span class="line"><span class="comment"># ka使用Linux内核netlink创建与ka进程的通信</span></span><br><span class="line"><span class="comment"># netlink是用户进程与内核的IP网络配置之间的通信接口，同时它也可以作为内核内部与多个用户空间进程之</span></span><br><span class="line"><span class="comment"># 间的消息传输系统.基于netlink，用户进程和内核之间的通信支持全双工、组播、异步，像一台纯软件实现的“虚拟机三层交换机”，从这一点可感受到Linux内核有多强大！</span></span><br><span class="line"></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Registering Kernel netlink command channel</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Registering gratuitous ARP shared channel</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Opening file <span class="string">&#x27;/etc/keepalived/keepalived.conf&#x27;</span>.</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP_Instance(VI_1) removing protocol VIPs.</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Using LinkWatch kernel netlink reflector...</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">10</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP sockpool: [ifindex(<span class="number">2</span>), proto(<span class="number">112</span>), unicast(<span class="number">0</span>), fd(<span class="number">10</span>,<span class="number">11</span>)]</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">11</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP_Instance(VI_1) Transition to MASTER STATE</span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP_Instance(VI_1) Entering MASTER STATE</span><br><span class="line"><span class="comment"># 通过VRRP协议和ka的配置文件，将这台server选为master角色</span></span><br><span class="line"></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP_Instance(VI_1) setting protocol VIPs.</span><br><span class="line"><span class="comment"># eth0网口上设置VIP</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Sending gratuitous ARP on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.1</span><span class="number">.10</span></span><br><span class="line"><span class="comment"># 在eth0发送ARP广播，对外问下192.168.1.10有没有机器在使用</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: VRRP_Instance(VI_1) Sending/queueing gratuitous ARPs on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.88</span><span class="number">.10</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Sending gratuitous ARP on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.1</span><span class="number">.10</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Sending gratuitous ARP on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.1</span><span class="number">.10</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Sending gratuitous ARP on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.1</span><span class="number">.10</span></span><br><span class="line">Jun <span class="number">27</span> 02:<span class="number">58</span>:<span class="number">12</span> nn Keepalived_vrrp[<span class="number">11286</span>]: Sending gratuitous ARP on eth0 <span class="keyword">for</span> <span class="number">192.168</span><span class="number">.1</span><span class="number">.10</span></span><br></pre></td></tr></table></figure>
+<p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
+<p>备机的message：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 systemd: Starting LVS <span class="keyword">and</span> VRRP High Availability Monitor...</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived[<span class="number">11248</span>]: Starting Keepalived v1<span class="number">.3</span><span class="number">.5</span> (03/<span class="number">19</span>,<span class="number">2017</span>), git commit v1<span class="number">.3</span><span class="number">.5</span>-<span class="number">6</span>-g6fa32f2</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived[<span class="number">11248</span>]: Opening file <span class="string">&#x27;/etc/keepalived/keepalived.conf&#x27;</span>.</span><br><span class="line">Jun 27 03:25:23 dn2 systemd: PID file /var/run/keepalived.pid not readable (yet?) after start.</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived[<span class="number">11249</span>]: Starting Healthcheck child process, pid=<span class="number">11250</span></span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived[<span class="number">11249</span>]: Starting VRRP child process, pid=<span class="number">11251</span></span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 systemd: Started LVS <span class="keyword">and</span> VRRP High Availability Monitor.</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_healthcheckers[<span class="number">11250</span>]: Opening file <span class="string">&#x27;/etc/keepalived/keepalived.conf&#x27;</span>.</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: Registering Kernel netlink reflector</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: Registering Kernel netlink command channel</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: Registering gratuitous ARP shared channel</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: Opening file <span class="string">&#x27;/etc/keepalived/keepalived.conf&#x27;</span>.</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: VRRP_Instance(VI_1) removing protocol VIPs.</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: Using LinkWatch kernel netlink reflector...</span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: VRRP_Instance(VI_1) Entering BACKUP STATE</span><br><span class="line"><span class="comment"># 备机进入BACKUP状态</span></span><br><span class="line">Jun <span class="number">27</span> 03:<span class="number">25</span>:<span class="number">23</span> dn2 Keepalived_vrrp[<span class="number">11251</span>]: VRRP sockpool: [ifindex(<span class="number">2</span>), proto(<span class="number">112</span>), unicast(<span class="number">0</span>), fd(<span class="number">10</span>,<span class="number">11</span>)]</span><br></pre></td></tr></table></figure>
+<p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
+<p>对比主备ka的运行日志发现：</p>
+<p>主server比被server多了在eth0网口设置VIP：192.168.1.10的过程，使用ip a命令查看网口配置可看到：</p>
+<p>主server网口多了VIP，而备机网口还是单IP，这里涉及到keepalived的设计原理，以下为原理解析部分</p>
+<h5 id="5、keepalived工作原理"><a href="#5、keepalived工作原理" class="headerlink" title="5、keepalived工作原理"></a>5、keepalived工作原理</h5><h6 id="5-1-模块设计"><a href="#5-1-模块设计" class="headerlink" title="5.1 模块设计"></a>5.1 模块设计</h6><p>keepalived采用是模块化设计，不同模块实现不同的功能，keepalived主要有三个模块，分别是core、check和vrrp。</p>
+<p>core：是keepalived的核心，负责主进程的启动和维护，全局配置文件的加载解析等</p>
+<p>check： 负责healthchecker(健康检查)，包括了各种健康检查方式，以及对应的配置的解析包括LVS的配置解析；</p>
+<p>可基于脚本检查对IPVS后端服务器健康状况进行检查。</p>
+<p>vrrp：VRRPD子进程，VRRPD子进程就是来实现VRRP协议，虚拟冗余路由协议。</p>
+<p>下面是其他库： libipfwc：iptables/ipchains库，配置LVS会用到 libipvs*：配置LVS会用到，注意，keepalived和LVS完全不同的技术方向，各司其职相互配合</p>
+<p>架构图：</p>
+<p><img src="https://img-blog.csdnimg.cn/20190630203253526.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="img"></p>
+<p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
+<p>&#8195;&#8195;keepalived启动后会有三个进程:</p>
+<p>父进程：内存管理，IO调度、子进程管理等等</p>
+<p>子进程：vrrpd子进程</p>
+<p>子进程：healthchecker子进程</p>
+<p>&#8195;&#8195;由上图可知，两个子进程都被系统WatchDog看管，两个子进程各自实现自己的事，healthchecker子进程实现检查各自服务器的健康程度，例如HTTP，LVS等等，如果healthchecker子进程检查到MASTER上服务不可用，就会通知本机上的兄弟VRRP子进程，让他删除通告，并且去掉虚拟IP，转换为BACKUP状态</p>
+<h6 id="5-2-工作原理"><a href="#5-2-工作原理" class="headerlink" title="5.2 工作原理"></a>5.2 工作原理</h6><p>&#8195;&#8195;kpa是一个类似于layer3，4 &amp; 5交换机制的软件，类似第3层、第4层和第5层物理交换机，分别工作在IP/TCP协议栈的IP层、TCP层、应用层。原理分别如下：</p>
+<p>&#8195;&#8195;在layer3，kpa使用layer3的方式工作式时，kpa会定期向服务器群中的服务器发送一个ICMP的数据包（既Ping），如果发现某台服务的IP地址没有激活，kpa便报告这台服务器失效，并将它从服务器群中剔除(这种情况的典型例子是某台服务器被非法关机)。Layer3方式是以服务器的IP地址是否有效作为服务器工作正常与否的标准。</p>
+<p>&#8195;&#8195;在layer4: layer4主要以TCP端口的状态来决定服务器工作正常与否。如web server的服务端口一般是80，8080或者443，如果kpa检测到80端口没有启动，则kpa将把这台服务器从服务器群中剔除。</p>
+<p>&#8195;&#8195;Layer5： Layer5就是工作在具体的应用层了，比Layer3,Layer4要复杂，在网络上占用的带宽也要大一些。kpa将根据用户的设定规则检查服务器相应服务是否运行正常，如果没有正常运行，则Keepalived将把服务器从服务器群中剔除。</p>
+<h6 id="5-3-VRRP虚拟冗余路由协议"><a href="#5-3-VRRP虚拟冗余路由协议" class="headerlink" title="5.3 VRRP虚拟冗余路由协议"></a>5.3 VRRP虚拟冗余路由协议</h6><p>&#8195;&#8195;在现实的网络环境中，两台需要通信的主机大多数情况下并没有直接的物理连接。对于这样的情况，它们之间路由怎样选择？主机如何选定到达目的主机的下一跳路由，这个问题通常的解决方法有二种：在主机上使用动态路由协议(RIP、OSPF等)或者在主机上配置静态路由。显然，在主机上配置动态路由是不切实际的，因为管理、维护成本以及是否支持等诸多问题。配置静态路由则变得十分流行，但路由器(或者说默认网关default gateway)却经常成为单点。</p>
+<p>VRRP的目的就是为了解决静态路由单点故障问题。VRRP通过一竞选(election)协议来动态的将路由任务交给LAN中虚拟路由器中的某台VRRP路由器。</p>
+<p>​      VRRP工作机制</p>
+<p>​      在一个VRRP虚拟路由器中，有多台物理的VRRP路由器，但是这多台的物理的机器并不能同时工作，而是由一台称为MASTER的负责路由工作，其它的都是BACKUP，MASTER并非一成不变，VRRP让每个VRRP路由器参与竞选，最终获胜的就是MASTER。MASTER拥有一些特权，比如 拥有虚拟路由器的IP地址，我们的主机就是用这个IP地址作为静态路由的。拥有特权的MASTER要负责转发发送给网关地址的包和响应ARP请求。VRRP通过竞选协议来实现虚拟路由器的功能，所有的协议报文都是通过IP多播(multicast)包形式发送的。虚拟路由器由VRID(范围0-255)和一组IP地址组成，对外表现为一个周知的MAC地址。所以，在一个虚拟路由 器中，不管谁是MASTER，对外都是相同的MAC和IP(称之为VIP)。客户端主机并不需要因为MASTER的改变而修改自己的路由配置，对他们来说，这种主从的切换是透明的。</p>
+<p> &#8195;&#8195;在一个虚拟路由器中，只有作为MASTER的VRRP路由器会一直发送VRRP广告包(VRRPAdvertisement message)，BACKUP不会抢占MASTER，除非它的优先级(priority)更高。当MASTER不可用时(BACKUP收不到广告包)， 多台BACKUP中优先级最高的这台会被抢占为MASTER。这种抢占是非常快速的(&lt;1s)，以保证服务的连续性</p>
+<h5 id="6、入门级kpa优缺点"><a href="#6、入门级kpa优缺点" class="headerlink" title="6、入门级kpa优缺点"></a>6、入门级kpa优缺点</h5><p>&#8195;&#8195;优点当然是配置简单，缺点：浪费服务器资源，因为配置模式为主备，正常对外服务时，仅有一台主机对外提供服务，而多台备机只能处于未使用状态。在之后的几篇文章中，将开始使用keepalived+nginx，keepalived+lvs实现负载均衡高可用的主从、双主模式。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/Keepalived/" rel="tag"># Keepalived</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/06/19/%E5%A0%A1%E5%9E%92%E6%9C%BA%E7%B3%BB%E7%BB%9F%E8%87%AA%E5%AE%9A%E4%B9%89Chrome%E4%BB%A3%E5%A1%AB%E7%A8%8B%E5%BA%8F%E5%BC%80%E5%8F%91/" rel="prev" title="堡垒机系统自定义Chrome代填程序开发">
+      <i class="fa fa-chevron-left"></i> 堡垒机系统自定义Chrome代填程序开发
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/06/30/centos%E5%AD%98%E5%82%A8%E6%89%A9%E5%AE%B9%E9%85%8D%E7%BD%AE%EF%BC%88%E5%9F%BA%E4%BA%8ELVM%EF%BC%89/" rel="next" title="centos存储扩容配置（基于LVM）">
+      centos存储扩容配置（基于LVM） <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-5"><a class="nav-link" href="#1%E3%80%81yum-y-install-keepalived-httpd"><span class="nav-number">1.</span> <span class="nav-text">1、yum -y install keepalived httpd</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2%E3%80%81%E4%B8%BBserver%E7%9A%84%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6%EF%BC%9A"><span class="nav-number">2.</span> <span class="nav-text">2、主server的配置文件：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#3%E3%80%81%E5%AE%89%E8%A3%85apache-httpd-web-server"><span class="nav-number">3.</span> <span class="nav-text">3、安装apache httpd web server</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#4%E3%80%81%E4%B8%BB%E5%A4%87%E5%88%86%E5%88%AB%E5%90%AF%E5%8A%A8keepalived"><span class="nav-number">4.</span> <span class="nav-text">4、主备分别启动keepalived</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#5%E3%80%81keepalived%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="nav-number">5.</span> <span class="nav-text">5、keepalived工作原理</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#5-1-%E6%A8%A1%E5%9D%97%E8%AE%BE%E8%AE%A1"><span class="nav-number">5.1.</span> <span class="nav-text">5.1 模块设计</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#5-2-%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="nav-number">5.2.</span> <span class="nav-text">5.2 工作原理</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#5-3-VRRP%E8%99%9A%E6%8B%9F%E5%86%97%E4%BD%99%E8%B7%AF%E7%94%B1%E5%8D%8F%E8%AE%AE"><span class="nav-number">5.3.</span> <span class="nav-text">5.3 VRRP虚拟冗余路由协议</span></a></li></ol></li><li class="nav-item nav-level-5"><a class="nav-link" href="#6%E3%80%81%E5%85%A5%E9%97%A8%E7%BA%A7kpa%E4%BC%98%E7%BC%BA%E7%82%B9"><span class="nav-number">6.</span> <span class="nav-text">6、入门级kpa优缺点</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

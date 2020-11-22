@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="1、Hadoop是一种具体的技术吗？&amp;#8195;&amp;#8195;准确的说，Hadoop是一套大数据的解决方案或者技术栈，不仅仅特指某种大数据技术，由Apache基金会上多个与大数据有关的明星组件构成，包括HDFS（分布式文件系统），YARN（分布式资源调度系统），MapReduce（分布式计算系统）、Spark、Hive、Hbase、Mahout、Zookeeper、Flume等，如下图所示。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="理解HDFS文件系统架构和原理">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/10/15/%E7%90%86%E8%A7%A3HDFS%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E5%92%8C%E5%8E%9F%E7%90%86/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="1、Hadoop是一种具体的技术吗？&amp;#8195;&amp;#8195;准确的说，Hadoop是一套大数据的解决方案或者技术栈，不仅仅特指某种大数据技术，由Apache基金会上多个与大数据有关的明星组件构成，包括HDFS（分布式文件系统），YARN（分布式资源调度系统），MapReduce（分布式计算系统）、Spark、Hive、Hbase、Mahout、Zookeeper、Flume等，如下图所示。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191014221453428.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191014231209135.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191015000223140.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191015001052278.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191015220557202.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191015223215262.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-10-15T11:34:10.000Z">
+<meta property="article:modified_time" content="2020-02-03T10:22:58.000Z">
+<meta property="article:tag" content="HDFS原理">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191014221453428.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/10/15/%E7%90%86%E8%A7%A3HDFS%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E5%92%8C%E5%8E%9F%E7%90%86/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>理解HDFS文件系统架构和原理 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/10/15/%E7%90%86%E8%A7%A3HDFS%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E5%92%8C%E5%8E%9F%E7%90%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          理解HDFS文件系统架构和原理
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-10-15 19:34:10" itemprop="dateCreated datePublished" datetime="2019-10-15T19:34:10+08:00">2019-10-15</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 18:22:58" itemprop="dateModified" datetime="2020-02-03T18:22:58+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Hadoop/" itemprop="url" rel="index"><span itemprop="name">Hadoop</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>7.6k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>7 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h4 id="1、Hadoop是一种具体的技术吗？"><a href="#1、Hadoop是一种具体的技术吗？" class="headerlink" title="1、Hadoop是一种具体的技术吗？"></a>1、Hadoop是一种具体的技术吗？</h4><p>&#8195;&#8195;准确的说，Hadoop是一套大数据的解决方案或者技术栈，不仅仅特指某种大数据技术，由Apache基金会上多个与大数据有关的明星组件构成，包括HDFS（分布式文件系统），YARN（分布式资源调度系统），MapReduce（分布式计算系统）、Spark、Hive、Hbase、Mahout、Zookeeper、Flume等，如下图所示。<img src="https://img-blog.csdnimg.cn/20191014221453428.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<a id="more"></a>
+<p>&#8195;&#8195;本文将重点讨论HDFS、YARN以及MapReduce，为何？<br>设想这么一个场景：<br>1）、如果T企业每天产生10T的数据，一年为3650T，显然单台服务器是无法存储的，必须分别存放在多台服务器上。HDFS就是负责存放这些超大数据文件的核心组件。<br>2）、对于初始数据价值密度低的数据文件，T企业需要对其进行数据挖掘，提取高价值密度数据，用以协助调整自身的商业策略，那么这环节会涉及到从多台服务器上读数据、并执行相应的计算、统计逻辑任务（业务代码），这里就涉及如何从多台服务器上的数据计算出一份有价值数据出来呢？这是MapReduce要负责的活。<br>3）、在MapReduce这一场景中，例如T企业同时运行多个主题的计算任务，如果没有对于多台服务器的cpu+内存+网络吞吐资源进行统一分配、有效管理、回收，那么有可能计算非核心任务a占据集群资源的80%，而核心任务确只能分配到20%计算资源，显然无法达到计算资源最优化，这就是YARN要做的事情。<br>当然三个组件要负责的具体工作远不止以上的描述，博客将分别发布三篇文章讨论对应以上三个组件。<br>此外，从Hadoop的演进历史来看：<br>Hadoop1.0版本为两个核心（分布式存储+计算）：HDFS+MapReduce<br>Hadoop2.0版本，引入了Yarn：HDFS+Yarn+Mapreduce<br>Yarn是资源调度框架。能够细粒度的管理和调度任务。此外，还能够支持其他的计算框架，比如Spark等。</p>
+<h4 id="2、HDFS"><a href="#2、HDFS" class="headerlink" title="2、HDFS"></a>2、HDFS</h4><p>&#8195;&#8195;一个HDFS集群是由一个Namenode和一定数目的Datanodes组成。Namenode是一个中心服务器，负责管理文件系统的名字空间(namespace)以及客户端对文件的访问。集群中的Datanode一般是一个节点一个，负责管理它所在节点上的存储。HDFS暴露了文件系统的名字空间，用户能够以文件的形式在上面存储数据。<br>HDFS 采用Master/Slave的架构来存储数据，这里以下图所示作为说明：<br><img src="https://img-blog.csdnimg.cn/20191014231209135.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<h5 id="2-1-Hadoop-block块概念"><a href="#2-1-Hadoop-block块概念" class="headerlink" title="2.1 Hadoop block块概念"></a>2.1 Hadoop block块概念</h5><p>&#8195;&#8195;block是物理的文件，真正存储的位置在磁盘中例如目录：{hadoop.tmp.dir}/data，将客户端上传的完整数据文件切分多个block后存储的块文件。Hadoop1.0是按64MB切，BlockSize=64MB。Hadoop2.0 BlockSize=128MB<br>&#8195;&#8195;文件分块存储，DateNode中存储以数字编号的方块用于备份，每个块都会复制到其他节点上（默认3个节点）,如果一个块不可用，可从其它节点读取副本，副本默认为3份，如果配置文件中副本设置为 4 ，而仅有2台Datanode，最后block副本还是2</p>
+<p>&#8195;&#8195;对存储小文件，1000个1M的小文件会占用1024个块和1024个 inode，每个1M文件只是占用1个物理文件块中的1M，不会占用整个128M的完整block，但因为inode存储在NameNode的内存里，如果NameNode内存不足以存储更多的inode，那么磁盘也无法存储更多数据block文件，白白浪费存储资源，因此HDFS并不适合存储小文件，务必考虑将小文件合并为大文件，再扔到HDFS上。</p>
+<p>&#8195;&#8195;补充：inode的内容：文件（这里指代Linux一切皆文件的文件）索引数据结构，inode中主要存储以下这些元数据：</p>
+<pre><code>- inode编号
+</code></pre><ul>
+<li>文件大小</li>
+<li>占用的块数目与块大小</li>
+<li>文件类型（普通文件、目录、管道，etc.）</li>
+<li>存储该文件的设备号</li>
+<li>链接数目</li>
+<li>读、写、执行权限</li>
+<li>拥有者的用户ID和组ID</li>
+<li>文件的最近访问、数据最近修改时间<ul>
+<li>inode最近修改时间<br>其中，inode编号相当于这个结构中的“主键”，说明Linux使用inode编号唯一标识一个文件，通过stat命令可以查看元数据信息，如下图所示。<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# stat /opt/hadoop-3.1.2/ </span><br><span class="line">  File: ‘/opt/hadoop-3.1.2/’</span><br><span class="line">  Size: 204             Blocks: 0          IO Block: 4096   directory</span><br><span class="line">Device: fd00h/64768d    Inode: 4216030   Links: 13</span><br><span class="line">Access: (0755/drwxr-xr-x)  Uid: ( 1001/ UNKNOWN)   Gid: ( 1002/ UNKNOWN)</span><br><span class="line">Context: unconfined_u:object_r:usr_t:s0</span><br><span class="line">Access: 2019-1**51.243402848 +0800</span><br><span class="line">Modify: 2019-**:40.433267611 +0800</span><br><span class="line">Change: 2019-**:40.433267611 +0800</span><br><span class="line"> Birth: -</span><br></pre></td></tr></table></figure>
+显示块信息命令：<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 显示hdfs目录&#x2F;app下TJKL.txt数据文件，大小为536M，到底被切分为多少文件块，以及这些文件块的详细情况及其所在位置</span><br><span class="line">[root@nn ~]# hdfs fsck &#x2F;app -files -blocks -locations -racks</span><br><span class="line">&#x2F;app&#x2F;TJKL.txt 562227059 bytes, replicated: replication&#x3D;3, 5 block(s):  OK</span><br><span class="line">0. BP-1004123743-192.188.0.4-15**1724:blk_1073741912_1096 len&#x3D;134217728 Live_repl&#x3D;3  [&#x2F;default-rack&#x2F;192.188.0.5:9866, &#x2F;default-rack&#x2F;192.188.0.6:9866, &#x2F;default-rack&#x2F;192.188.0.4:9866]</span><br><span class="line">1. BP-1004123743-192.188.0.4-15**1724:blk_1073741913_1097 len&#x3D;134217728 Live_repl&#x3D;3  [&#x2F;default-rack&#x2F;192.188.0.5:9866, &#x2F;default-rack&#x2F;192.188.0.6:9866, &#x2F;default-rack&#x2F;192.188.0.4:9866]</span><br><span class="line">2. BP-1004123743-192.188.0.4-15**1724:blk_1073741914_1098 len&#x3D;134217728 Live_repl&#x3D;3  [&#x2F;default-rack&#x2F;192.188.0.6:9866, &#x2F;default-rack&#x2F;192.188.0.5:9866, &#x2F;default-rack&#x2F;192.188.0.4:9866]</span><br><span class="line">3. BP-1004123743-192.188.0.4-15**1724:blk_1073741915_1099 len&#x3D;134217728 Live_repl&#x3D;3  [&#x2F;default-rack&#x2F;192.188.0.6:9866, &#x2F;default-rack&#x2F;192.188.0.5:9866, &#x2F;default-rack&#x2F;192.188.0.4:9866]</span><br><span class="line">4. BP-1004123743-192.188.0.4-15**1724:blk_1073741916_1100 len&#x3D;25356147 Live_repl&#x3D;3  [&#x2F;default-rack&#x2F;192.188.0.6:9866, &#x2F;default-rack&#x2F;192.188.0.5:9866, &#x2F;default-rack&#x2F;192.188.0.4:9866]</span><br></pre></td></tr></table></figure>
+以上信息说明：TJKL.txt被切分为5个文件块（前4个block都是128M，第5个block为24M），每个文件块都有3个副本，每个副本分别放在同一Rack（机架）上三台服务器上</li>
+</ul>
+</li>
+</ul>
+<h5 id="2-2-Client"><a href="#2-2-Client" class="headerlink" title="2.2 Client"></a>2.2 Client</h5><p>&#8195;&#8195;连接到hadoop集群的客户端， 或者说使用API或指令操作的一端都可以看做是客户端。<br>文件上传 HDFS 的时候，Client 将文件切分成 一个一个的Block，然后进行存储<br>与 NameNode 交互，获取文件的位置信息<br>与 DataNode 交互，读取或者写入数据，例如使用管道把文件块从上游节点写到下游节点<br>Client 提供一些命令来管理 HDFS，比如启动或者关闭HDFS<br>Client 可以通过一些命令来访问 HDFS</p>
+<h5 id="2-3-NameNode：Master角色，名字节点"><a href="#2-3-NameNode：Master角色，名字节点" class="headerlink" title="2.3 NameNode：Master角色，名字节点"></a>2.3 NameNode：Master角色，名字节点</h5><p>&#8195;&#8195;管理元数据信息（Metadata），只存储元数据信息，存放在内存中，会通过fsimage和edits文件，将元数据信息持久化到磁盘上<br>管理数据块（Block）映射信息<br>配置副本策略<br>处理客户端读写请求<br>注意：Hadoop1.0版本使用SecondaryNamenode做fsimage和edits文件的合并，但是这种机制达不到热备的效果，即存在单点故障问题，Hadoop2.0解决了该缺点。 </p>
+<h5 id="2-4-fsimage、edits"><a href="#2-4-fsimage、edits" class="headerlink" title="2.4 fsimage、edits"></a>2.4 fsimage、edits</h5><p>&#8195;&#8195;fsimage 文件，记录元数据信息的文件edits文件，记录元数据信息改动的文件。只要元数据发生变化，这个edits文件就会有对应记录。<br>fsimage和edits文件会定期做合并，这个周期默认是3600s。fsimage根据edits里改动记录进行元数据更新。<br>元数据信息如果丢失，HDFS就不能正常工作了，因此在生产环境中，元数据是需要做备份的。<br>hadoop集群部署中，命令hadoop namenode -format 执行时，创建了初始的fsimage文件和edits文件，如下所示：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@nn current]# pwd</span><br><span class="line">&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;namenode&#x2F;current</span><br><span class="line">......</span><br><span class="line">edits_0000000000000000556-0000000000000000557  fsimage_0000000000000001186</span><br><span class="line">edits_0000000000000000558-0000000000000000655  fsimage_0000000000000001186.md5</span><br></pre></td></tr></table></figure>
+<h5 id="2-5-Secondary-Namenode"><a href="#2-5-Secondary-Namenode" class="headerlink" title="2.5 Secondary Namenode"></a>2.5 Secondary Namenode</h5><p>辅助 NameNode，分担其工作量。<br>定期合并 fsimage和fsedits，并推送给NameNode。<br>在紧急情况下，可辅助恢复 NameNode。<br>Hadoop集群最开始启动的时候，创建Fsimage和edits文件，这个namenode负责，此外，namenode会做一次文件合并工作，这么做的目的是确保元数据信息是最新的，之后的合并工作，就交给SN去做了。这种SN机制是Hadoop1.0的机制，该机制达不到元数据的实时更新，若NN宕机，元数据信息可能还会丢失。</p>
+<h5 id="2-6-DataNode"><a href="#2-6-DataNode" class="headerlink" title="2.6 DataNode"></a>2.6 DataNode</h5><p>Slave角色，具体干活者，NameNode下发指令操作，DataNode 执行实际的操作<br>存储实际的物理数据块block。<br>执行数据块的读/写操作。<br>为了防止datanode挂掉造成的数据丢失，对于文件块要有备份，一个文件块有三个副本。这里体现出hdfs是一种高容错的文件系统。<br>在服务器上的构成：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 subdir0]# pwd</span><br><span class="line">/opt/hadoop-3.1.2/datanode/current/BP-1004123743-192.188.0.4-***current/finalized/subdir0/subdir0</span><br><span class="line">......</span><br><span class="line">blk_1073741876_1052.meta  blk_1073741901_1078.meta  blk_1073741916_1100.meta</span><br><span class="line">blk_1073741877            blk_1073741902</span><br><span class="line">blk_1073741877_1053.meta  blk_1073741902_1079.meta</span><br></pre></td></tr></table></figure>
+<h5 id="2-7-HDFS写文件流程图"><a href="#2-7-HDFS写文件流程图" class="headerlink" title="2.7 HDFS写文件流程图"></a>2.7 HDFS写文件流程图</h5><p><img src="https://img-blog.csdnimg.cn/20191015000223140.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<p>1）、发起一个写数据请求，并指定上传文件的路径，然后去找NN。NN首先会判断路径合法性以及客户端是否有写权限，若符合，则NN会给客户端返回一个输出流。此外，NN会为文件分配块存储信息（理解为记录block文件位置大小等信息的索引文件）。注意NN也是分配块的存储信息，但不做物理切块工作。</p>
+<p>2）、客户端拿到输出流以及块存储信息之后，就开始向DN节点写数据。因为一个块数据，有三个副本，所以图里有三个NN节点。<br>3）、数据块的发送（管道发送或者接力棒传递方式），先发给第一台DN节点，数据再从第一台DN发往第二台DN，……，此方式用到了pipeLine 数据流管道的机制，就像redis发送管道命令，然后批量返回结果，从而减少网络来回RTT时间消耗。<br>pipeLine:[bl1,datanode01-datanode02-datanode-03]<br>数据流管道充分利用每台机器的带宽，避免网络瓶颈和高延时的连接，最小化推送所有数据的延时，提高传输效率。<br>packet 默认为64kb大小的数据包</p>
+<p>4）、通过ack确认机制，向上游节点发送确认，例如DN3向DN2ack说我已写好数据，DN2继续向DN1说我已写好数据，DN1再跟客户端说:数据块已经在DN1、DN2、DN3都存储好，这么做的目的是确保块数据复制的完整性。</p>
+<p> 5）、通过最上游节点DN1，向客户端发送ack，如果块数据没有发送完，客户端会就继续发送下一块，直到所有块数据都已发完，关闭文件关流。</p>
+<p>6）、所有块数据都写完后，关闭文件流。</p>
+<h5 id="2-8-hadoop读取文件流程图"><a href="#2-8-hadoop读取文件流程图" class="headerlink" title="2.8 hadoop读取文件流程图"></a>2.8 hadoop读取文件流程图</h5><ul>
+<li><img src="https://img-blog.csdnimg.cn/20191015001052278.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></li>
+</ul>
+<p>  1.客户端发出读数据请求，Open File指定读取的文件路径，在NN节点获取元数据信息。<br>    2.NN将目标文件的元数据信息返回给客户端。<br>    3.客户端根据返回的元数据信息，去对应的DN去读块数据。<br>    4.假如一个文件特别大，比如1TB，会分成好多块，此时，NN并是不一次性把所有的元数据信息返回给客户端，而是分节点返回。<br>    5.客户端读完此部分后，再向NN节点要下一部分的元数据信息，再接着读。<br>    6.读完之后，通知namenode关闭流</p>
+<h4 id="3、再讨fsimage和editlog"><a href="#3、再讨fsimage和editlog" class="headerlink" title="3、再讨fsimage和editlog"></a>3、再讨fsimage和editlog</h4><ul>
+<li><p>NameNode通过组织两个核心数据结构：“FSImage”和“EditLog”文件，实现==维护文件系统树内所有文件和目录，记录每个文件在哪个DateNode的位置和副本信息，来通知客户端应该去哪个节点访问文件blocks。==</p>
+</li>
+<li><p>fsImage_*：元数据镜像文件，即系统的目录树，包括文件目录和inodes元信息（文件名，文件大小，创建时间，备份级别，访问权限，block size，所有block的构成)，每个inode是hdfs的一个代表文件或者目录的元数据。这个镜像文件相当于hdfs的元数据额数据库文件。</p>
+</li>
+<li><p>edits<em>*：编辑日志文件，也就是事务日志文件，也就是针对文件系统做的修改操作记录，记录元数据的变化，相当于操作日志文件。一个文件的创建，追加，移动等。 NameNode内存中存储的是=fsimage+edits 检查点：NameNode启动时，从磁盘中读取上面两种文件，然后把edits</em><em>里面记录的事务全部刷新到 fsimage_</em>中，这样就截去了旧的edits_*事务日志，这个过程叫checkpoint。</p>
+</li>
+<li><p>==为何使用一大一小两种数据结构的文件？ 因为fsimage本身是大文件，试想你要向大文件每时每刻open file—&gt;append new line—&gt; close file，也太累了吧。因此可把新来的操作记录放到小的EditLog里， 再设定每隔一段时间，把一个FsImage和一个Editlog 进行合并会得到一个新的FsImage。==</p>
+</li>
+<li>==fsimage中存储的信息就相当于整个hdfs在某一时刻的一个快照==，既然这个快照可以管理整个hdfs集群的文件信息，那么对其备份则非常重要，于是<br>引入一个叫SendaryNamenode的节点用来做备份fsimage，它会定期的和namenode就行通信来完成整个的备份操作，具体工作原理见第4点：</li>
+</ul>
+<h4 id="4、SecondaryNameNode合并FSImage"><a href="#4、SecondaryNameNode合并FSImage" class="headerlink" title="4、SecondaryNameNode合并FSImage"></a>4、SecondaryNameNode合并FSImage</h4><p><img src="https://img-blog.csdnimg.cn/20191015220557202.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;为何NN节点不负责合并工作而是由其他节点服务器来运行此任务？<br>因为这两个文件合并过程需要消耗内存、磁盘io以及cpu，因此将这些“蓝领”工作交给其他节点做，否则NN主节点消耗大量资源。<br>具体流程：<br>1）、SN定时和NN通信chectpoint，在什么时候进行checkpoint？由两个参数dfs.namenode.checkpoint.preiod(默认值是3600，即1小时)和dfs.namenode.checkpoint.txns(默认值是1000000)来决定），通过请求NN其停止使用edits文件，暂时将新的操作写到一个新的edits.new文件<br>2）、SN通过HTTP GET方式从NN上获取到fsimge和edits文件，并下载到本地的相应目录下；<br>3）、SN将下载下来的fsimage载入到内存，然后一条一条地执行edits文件中的各项更新操作，使得内存中的fsimge保持最新；这个过程就是edits和fsimage文件合并，同时SN节点也会在磁盘上存放一份fsimage（不就实现了fsimage的备份吗）<br>4）、SN执行完（3）操作之后，会通过HTTP POST方式将新的fsimage文件发送到NN节点上<br>5）、 NN将从SN接收到的新的fsimage替换掉旧fsimage文件，同时将edits.new替换edits文件，通过这个过程edit内容就变小而且都是最新的操作日志。</p>
+<h4 id="5、文件blocks副本存放策略"><a href="#5、文件blocks副本存放策略" class="headerlink" title="5、文件blocks副本存放策略"></a>5、文件blocks副本存放策略</h4><p>&#8195;&#8195;NN节点如何选择在哪个datanode 存储block副本？<br>这里需要对可靠性、写入带宽和读取带宽进行权衡。Hadoop对DN存储副本有自己的副本策略，在其发展过程中一共有两个版本的副本策略，分别如下所示：<br><img src="https://img-blog.csdnimg.cn/20191015223215262.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/HDFS%E5%8E%9F%E7%90%86/" rel="tag"># HDFS原理</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/13/%E5%9F%BA%E4%BA%8Ehadoop3.1.2%E5%88%86%E5%B8%83%E5%BC%8F%E5%B9%B3%E5%8F%B0%E4%B8%8A%E9%83%A8%E7%BD%B2spark%20HA%E9%9B%86%E7%BE%A4/" rel="prev" title="基于hadoop3.1.2分布式平台上部署spark HA集群">
+      <i class="fa fa-chevron-left"></i> 基于hadoop3.1.2分布式平台上部署spark HA集群
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/27/MapReduce%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86/" rel="next" title="MapReduce设计原理">
+      MapReduce设计原理 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81Hadoop%E6%98%AF%E4%B8%80%E7%A7%8D%E5%85%B7%E4%BD%93%E7%9A%84%E6%8A%80%E6%9C%AF%E5%90%97%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">1、Hadoop是一种具体的技术吗？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81HDFS"><span class="nav-number">2.</span> <span class="nav-text">2、HDFS</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#2-1-Hadoop-block%E5%9D%97%E6%A6%82%E5%BF%B5"><span class="nav-number">2.1.</span> <span class="nav-text">2.1 Hadoop block块概念</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-2-Client"><span class="nav-number">2.2.</span> <span class="nav-text">2.2 Client</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-3-NameNode%EF%BC%9AMaster%E8%A7%92%E8%89%B2%EF%BC%8C%E5%90%8D%E5%AD%97%E8%8A%82%E7%82%B9"><span class="nav-number">2.3.</span> <span class="nav-text">2.3 NameNode：Master角色，名字节点</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-4-fsimage%E3%80%81edits"><span class="nav-number">2.4.</span> <span class="nav-text">2.4 fsimage、edits</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-5-Secondary-Namenode"><span class="nav-number">2.5.</span> <span class="nav-text">2.5 Secondary Namenode</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-6-DataNode"><span class="nav-number">2.6.</span> <span class="nav-text">2.6 DataNode</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-7-HDFS%E5%86%99%E6%96%87%E4%BB%B6%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-number">2.7.</span> <span class="nav-text">2.7 HDFS写文件流程图</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-8-hadoop%E8%AF%BB%E5%8F%96%E6%96%87%E4%BB%B6%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-number">2.8.</span> <span class="nav-text">2.8 hadoop读取文件流程图</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E5%86%8D%E8%AE%A8fsimage%E5%92%8Ceditlog"><span class="nav-number">3.</span> <span class="nav-text">3、再讨fsimage和editlog</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81SecondaryNameNode%E5%90%88%E5%B9%B6FSImage"><span class="nav-number">4.</span> <span class="nav-text">4、SecondaryNameNode合并FSImage</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5%E3%80%81%E6%96%87%E4%BB%B6blocks%E5%89%AF%E6%9C%AC%E5%AD%98%E6%94%BE%E7%AD%96%E7%95%A5"><span class="nav-number">5.</span> <span class="nav-text">5、文件blocks副本存放策略</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

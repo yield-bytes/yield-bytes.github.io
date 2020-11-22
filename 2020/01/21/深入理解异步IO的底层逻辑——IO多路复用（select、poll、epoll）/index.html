@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在前面两篇文章《gevent与协程》和《asyncio与协程》，讨论了有关协程异步编程方面的内容，从代码层面和基本的demo可以大致理解协程的工作方式。如果要深入理解为何单线程基于事件的驱动可以在“低能耗”的条件下达到高性能的IO服务，则要研究Linux底层实现原理——IO多路复用，而理解IO多路复用的前提是对文件描述符有较为深入的理解，因此本文把文件描述符和IO多路复">
+<meta property="og:type" content="article">
+<meta property="og:title" content="深入理解异步IO的底层逻辑——IO多路复用（select、poll、epoll）">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2020/01/21/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E5%BC%82%E6%AD%A5IO%E7%9A%84%E5%BA%95%E5%B1%82%E9%80%BB%E8%BE%91%E2%80%94%E2%80%94IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%EF%BC%88select%E3%80%81poll%E3%80%81epoll%EF%BC%89/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在前面两篇文章《gevent与协程》和《asyncio与协程》，讨论了有关协程异步编程方面的内容，从代码层面和基本的demo可以大致理解协程的工作方式。如果要深入理解为何单线程基于事件的驱动可以在“低能耗”的条件下达到高性能的IO服务，则要研究Linux底层实现原理——IO多路复用，而理解IO多路复用的前提是对文件描述符有较为深入的理解，因此本文把文件描述符和IO多路复">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200105162510770.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200105184452579.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2020010622220268.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200111121353731.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200111123715373.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200111144223563.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2020011122281639.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200111174200198.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200118225411426.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20200119210515593.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2020-01-21T12:16:10.000Z">
+<meta property="article:modified_time" content="2020-02-03T07:05:52.000Z">
+<meta property="article:tag" content="IO多路复用">
+<meta property="article:tag" content="epoll">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20200105162510770.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2020/01/21/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E5%BC%82%E6%AD%A5IO%E7%9A%84%E5%BA%95%E5%B1%82%E9%80%BB%E8%BE%91%E2%80%94%E2%80%94IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%EF%BC%88select%E3%80%81poll%E3%80%81epoll%EF%BC%89/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>深入理解异步IO的底层逻辑——IO多路复用（select、poll、epoll） | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2020/01/21/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E5%BC%82%E6%AD%A5IO%E7%9A%84%E5%BA%95%E5%B1%82%E9%80%BB%E8%BE%91%E2%80%94%E2%80%94IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%EF%BC%88select%E3%80%81poll%E3%80%81epoll%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          深入理解异步IO的底层逻辑——IO多路复用（select、poll、epoll）
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-01-21 20:16:10" itemprop="dateCreated datePublished" datetime="2020-01-21T20:16:10+08:00">2020-01-21</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 15:05:52" itemprop="dateModified" datetime="2020-02-03T15:05:52+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Python%E8%BF%9B%E9%98%B6/" itemprop="url" rel="index"><span itemprop="name">Python进阶</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>31k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>28 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在前面两篇文章<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103721630">《gevent与协程》</a>和<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103745410">《asyncio与协程》</a>，讨论了有关协程异步编程方面的内容，从代码层面和基本的demo可以大致理解协程的工作方式。如果要深入理解为何单线程基于事件的驱动可以在“低能耗”的条件下达到高性能的IO服务，则要研究Linux底层实现原理——IO多路复用，而理解IO多路复用的前提是对文件描述符有较为深入的理解，因此本文把文件描述符和IO多路复用放在同一篇文章里，形成全局的体系化认知，这就是本文讨论的内容。</p>
+<a id="more"></a>
+<h4 id="1、理解文件描述符"><a href="#1、理解文件描述符" class="headerlink" title="1、理解文件描述符"></a>1、理解文件描述符</h4><h5 id="1-1-基本概念"><a href="#1-1-基本概念" class="headerlink" title="1.1 基本概念"></a>1.1 基本概念</h5><p>&#8195;&#8195;在Linux中，一切皆文件，而理解文件描述符才能理解“一切皆文件”的真实含义，IO多路复用的select、poll和epoll机制正是通过操作文件描述符集合来处理IO事件。<br>含义，这里引用百度的介绍：</p>
+<blockquote>
+<p>&#8195;&#8195;文件描述符是一个索引号，是一个非负整数，它指向普通的文件或者I/O设备，它是连接用户空间和内核空间纽带。在linux系统上<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/内核/108410">内核</a>（kernel）利用文件描述符（file descriptor）来访问文件。打开现存文件或新建文件时，内核会返回一个文件描述符。读写文件也需要使用文件描述符来指定待读写的文件。（在Windows系统上，文件描述符被称作文件句柄）</p>
+</blockquote>
+<p>当你看完本篇内容后，再回它这段解释，总结得真到位！在后面会给出为何文件描述符是一个非负整数，而不是其他更为复杂数据结构呢（例如hash map、list、链表等）？</p>
+<h5 id="1-2-打开一个文件"><a href="#1-2-打开一个文件" class="headerlink" title="1.2 打开一个文件"></a>1.2 打开一个文件</h5><p>&#8195;&#8195;当某个进程打开一个已有文件或创建一个新文件时，内核向该进程返回一个文件描述符（一个非负整数）。<br>(在程序设计中，一些涉及底层的程序编写往往会围绕着文件描述符展开。但是文件描述符这一概念往往只适用于<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/UNIX">UNIX</a>、<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/Linux">Linux</a>这样的操作系统。)<br>这里以打开的iPython shell进程调用os.open为例，OS是Centos7.5<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">1</span>]: <span class="keyword">import</span> os</span><br><span class="line">In [<span class="number">6</span>]: fd = os.<span class="built_in">open</span>( <span class="string">&quot;/opt/test.txt&quot;</span>, os.O_RDWR|os.O_CREAT) <span class="comment"># os.O_RDWR读写模式打开，os.O_CREAT若文件不存在则创建               </span></span><br><span class="line">In [<span class="number">7</span>]: fd                                                                             </span><br><span class="line">Out[<span class="number">7</span>]: <span class="number">17</span> <span class="comment"># 这个17就是file descriptor</span></span><br></pre></td></tr></table></figure><br>在Python里面，os.open方法返回文件描述符是更为底层API，而open方法是返回python文件对象，是更贴近用户的API。</p>
+<p>在linux系统上查看以上iPython进程打开的所有文件描述符示例：（这里就是一个文件描述表的大致形式，每一个文件描述符指向一个文件或者设备）<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# ll /proc/11622/fd #11622为ipython的shell进程</span><br><span class="line">total 0</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 0 -&gt; /dev/pts/0</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 1 -&gt; /dev/pts/0</span><br><span class="line">lr-x------ 1 root root 64 **** 16:43 10 -&gt; pipe:[41268]</span><br><span class="line">l-wx------ 1 root root 64 **** 16:43 11 -&gt; pipe:[41268]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 12 -&gt; anon_inode:[eventpoll]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 13 -&gt; socket:[41269]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 14 -&gt; socket:[41270]</span><br><span class="line">lr-x------ 1 root root 64 **** 16:43 15 -&gt; pipe:[41271]</span><br><span class="line">l-wx------ 1 root root 64 **** 16:43 16 -&gt; pipe:[41271]</span><br><span class="line">l-wx------ 1 root root 64 **** 16:43 17 -&gt; /opt/test.txt</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 18 -&gt; /opt/test.txt</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 19 -&gt; /opt/test.txt</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 2 -&gt; /dev/pts/0</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 20 -&gt; anon_inode:[eventpoll]</span><br><span class="line">l-wx------ 1 root root 64 **** 16:43 3 -&gt; /dev/null</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 4 -&gt; /root/.ipython/profile_default/history.sqlite</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 5 -&gt; /root/.ipython/profile_default/history.sqlite</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 6 -&gt; anon_inode:[eventpoll]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 7 -&gt; socket:[41266]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 8 -&gt; socket:[41267]</span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 9 -&gt; anon_inode:[eventpoll]</span><br></pre></td></tr></table></figure></p>
+<p>因为在ipython里面，<code>fd = os.open( &quot;/opt/test.txt&quot;, os.O_RDWR)</code> 运行3次，也就文件<code>/opt/test.txt</code>打开3次，所以返回个文件描述符:17、18、19（从这里说明，同一进程可以同一时刻打开同一文件多次）</p>
+<p>11622进程号指向当前iPython shell，查看它打开的文件描述符18，指向被打开文件：<code>/opt/test.txt</code>：<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# ll /proc/11622/fd/18 </span><br><span class="line">lrwx------ 1 root root 64 **** 16:43 /proc/11622/fd/18 -&gt; /opt/test.txt</span><br></pre></td></tr></table></figure><br>关闭文件描述符就关闭了所打开的文件<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">In [14]: os.close(19)                                                                  </span><br><span class="line">In [15]: os.close(18)                                                                  </span><br><span class="line">In [16]: os.close(17)</span><br></pre></td></tr></table></figure></p>
+<h5 id="1-3-对文件描述符进行读写"><a href="#1-3-对文件描述符进行读写" class="headerlink" title="1.3 对文件描述符进行读写"></a>1.3 对文件描述符进行读写</h5><p>读：通过给定文件描述符读文件内容<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string"># os.read()方法的docstring</span></span><br><span class="line"><span class="string">os.read()</span></span><br><span class="line"><span class="string">Signature: os.read(fd, length, /)</span></span><br><span class="line"><span class="string">Docstring: Read from a file descriptor.  Returns a bytes object.</span></span><br><span class="line"><span class="string">Type:      builtin_function_or_method</span></span><br><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="keyword">import</span> os</span><br><span class="line">fd=os.<span class="built_in">open</span>(<span class="string">&#x27;/opt/test.txt&#x27;</span>,os.O_RDWR|os.O_CREAT)</span><br><span class="line">data=os.read(fd,<span class="number">64</span>) <span class="comment">#指定读文件前64byte内容 </span></span><br><span class="line">print(data) <span class="comment"># b&#x27;foo\nbar\n\n&#x27;</span></span><br></pre></td></tr></table></figure></p>
+<p>写：通过给定文件描述符将数据写入到文件<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string"># os.read()方法的docstring</span></span><br><span class="line"><span class="string">Signature: os.write(fd, data, /)</span></span><br><span class="line"><span class="string">Docstring: Write a bytes object to a file descriptor.</span></span><br><span class="line"><span class="string">Type:      builtin_function_or_method</span></span><br><span class="line"><span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="keyword">import</span> os</span><br><span class="line">fd=os.<span class="built_in">open</span>(<span class="string">&#x27;/opt/test.txt&#x27;</span>,os.O_RDWR|os.O_CREAT)</span><br><span class="line">byte_nums=os.write(fd,<span class="string">b&#x27;save data by file descriptor directly \n&#x27;</span>) <span class="comment"># 注意要写入byte类型的数据</span></span><br><span class="line">print(byte_nums) <span class="comment"># 返回写入byte字符串长度（字符个数）</span></span><br><span class="line"></span><br></pre></td></tr></table></figure></p>
+<p>了解基本调用底层的os读写文件描述符的方法，也可以封装出一个类似内建open方法的定制myopen类。</p>
+<h5 id="1-4-通过管道打开文件描述符"><a href="#1-4-通过管道打开文件描述符" class="headerlink" title="1.4 通过管道打开文件描述符"></a>1.4 通过管道打开文件描述符</h5><p>也可以通过管道pipe方法（创建一个无名管道）同时打开一个读文件描述符以及一个写文件描述符。（有关管道的定义和理解本文不再累赘，可参考其他博文。）<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> os</span><br><span class="line">fd_read,fd_write=os.pipe()</span><br><span class="line">print(<span class="string">&#x27;fd_read:&#x27;</span>,fd_read,<span class="string">&#x27;fd_write:&#x27;</span>,fd_write) <span class="comment">#系统返回两个整数3、4， fd_read: 3 fd_write: 4</span></span><br><span class="line">os.write(fd_write,<span class="string">b&#x27;foo&#x27;</span>) <span class="comment"># 向管道的写端写入数据</span></span><br><span class="line">os.read(fd_read,<span class="number">64</span>) <span class="comment"># 从管道的读端读取数据</span></span><br></pre></td></tr></table></figure><br>创建管道时总是返回相邻的两个整数，因为stderr为2，故之后创建的文件描述符只能从3开始，示意图如下：<br><img src="https://img-blog.csdnimg.cn/20200105162510770.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>如果尝试向管道另外一端的fd_write描述符读取数据，就会报错，所以对于管道，读数据只能在读文件描述符上读操作，写入数据只能在写文件描述符操作。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">os.read(fd_write,64)</span><br><span class="line">OSError: [Errno 9] Bad file descriptor</span><br></pre></td></tr></table></figure>
+<p>如果已经把fd_read读取完好后，此时管道为空，若再读取该管道，进程会被阻塞，因为写管道端没有数据写入，这是管道的性质之一——数据一旦被读走，便不在管道中存在，若此时还继续向读端反复读取，则进程会被阻塞。</p>
+<p>注意写入管道的字符个数是有限制的，当超过管道容量时，写入操作被阻塞，可以通过以下方法精确策略出<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> os</span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">get_pipe_capacity</span>(<span class="params">size</span>):</span></span><br><span class="line">    fd_read,fd_write=os.pipe()</span><br><span class="line">    total=<span class="number">0</span></span><br><span class="line">    print(<span class="string">&quot;start to count&quot;</span>)</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">1</span>,size+<span class="number">1</span>):</span><br><span class="line">        os.write(fd_write,<span class="string">b&#x27;a&#x27;</span>)</span><br><span class="line">        total=i</span><br><span class="line">        </span><br><span class="line">    print(<span class="string">&quot;end to count,total bytes:&quot;</span>,total)</span><br><span class="line"></span><br><span class="line">get_pipe_capacity(<span class="number">64</span>*<span class="number">1024</span>)</span><br><span class="line">输出：</span><br><span class="line">start to count</span><br><span class="line">end to count,total <span class="built_in">bytes</span>: <span class="number">65536</span></span><br></pre></td></tr></table></figure></p>
+<p>往管道写入<code>64*1024</code> 大小的byte时，管道写端未发生阻塞，当把写入的byte数改为：写入<code>64*1024+1</code>时，写入操作被阻塞了</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">get_pipe_capacity(<span class="number">64</span>*<span class="number">1024</span>+<span class="number">1</span>)</span><br><span class="line">输出:</span><br><span class="line">start to count <span class="comment"># 执行流被阻塞，无后续输出。</span></span><br></pre></td></tr></table></figure>
+<p>通过该方法可以精确测量出pipe默认容量为64KB。<br>看到这部内容，是否有人联想到在使用subprocess执行某些cmd命令后，一直卡在读取输出上？<br>常见用法：<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">p= subprocess.Popen(your_cmd, shell= <span class="literal">True</span>, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) <span class="comment"># 问题出现在：标准输出使用了管道，而管道有容量限制，当命令返回的数据大小超过管道64KB时，执行流卡在这里</span></span><br><span class="line">bytes_result, err = p.communicate(timeout=<span class="number">1</span>)</span><br><span class="line">str_result = <span class="built_in">str</span>(bytes_result, encoding=<span class="string">&quot;utf-8&quot;</span>)</span><br><span class="line"><span class="keyword">if</span> p.returncode != <span class="number">0</span>:</span><br><span class="line">    <span class="keyword">pass</span></span><br><span class="line"><span class="keyword">if</span> <span class="keyword">not</span> str_result:</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">False</span></span><br><span class="line"><span class="keyword">else</span>:</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">True</span></span><br></pre></td></tr></table></figure><br>问题出现在：subprocess.Popen标准输出使用了管道，而管道有容量限制，当你的your_cmd返回的数据大小超过管道64KB时（stdout获取返回数据，用了管道存放），执行流卡在subprocess.Popen这里，其实进程阻塞了。<br>既然知道管道有容量限制，那么可以将stdout定向到本地文件系统，那么输出的数据就存放到容量更大的文件，建议使用临时文件作为重定向输出，如下所示：<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">stdout_by_tempfile</span>():</span></span><br><span class="line">    <span class="comment"># SpooledTemporaryFile也是一个普通文件对象，当然支持with协议（它的源码实现了__enter__和__exit__方法）</span></span><br><span class="line">    <span class="keyword">with</span> tempfile.SpooledTemporaryFile(buffering=<span class="number">1</span>*<span class="number">1024</span>) <span class="keyword">as</span> tf:</span><br><span class="line">    <span class="string">&quot;&quot;&quot;创建一个临时文件对象，注意这个bufferfing不是限制只能存储1024字节的数据，而是输出内容超过1024字节后，自动将输出的数据缓存到临时文件里&quot;&quot;&quot;</span></span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            fd = tf.fileno() <span class="comment"># 返回文件描述符，这个文件描述符不再指向管道，而是指向某个临时文件</span></span><br><span class="line">            p = subprocess.Popen(your_cmd,stdin=fd,stdout=fd,stderr=fd,shell=<span class="literal">True</span>) <span class="comment"># 将stdout输出的内容定向到文件描述符指向的文件</span></span><br><span class="line">            p.communicate(timeout=<span class="number">5</span>) <span class="comment"># 指定输出超时时间</span></span><br><span class="line">            tf.seek(<span class="number">0</span>) <span class="comment"># 将文件对象指针放置起始位置，以便读取从头到尾的完整的已存数据</span></span><br><span class="line">            output_data = tf.readlines() <span class="comment"># 一次读取临时文件的所有数据（这是读取的是byte类型），也可用迭代器（如果数据上几百M）这里tf就是普通文件对象，因为也有readlines、readline、write、tell等常见文件操作方法</span></span><br><span class="line">            save_to_db(output_data) <span class="comment"># 将your_cmd输出的数据存到db或者其他地方</span></span><br><span class="line">            <span class="keyword">return</span> <span class="literal">True</span></span><br><span class="line">        <span class="keyword">except</span> Exception <span class="keyword">as</span> e:</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">False</span></span><br></pre></td></tr></table></figure><br>经过对文件描述符的讨论，现在你可以轻松“操作进程的stdin或者stdout”</p>
+<h5 id="1-5-常见的文件描述符0、1、2"><a href="#1-5-常见的文件描述符0、1、2" class="headerlink" title="1.5 常见的文件描述符0、1、2"></a>1.5 常见的文件描述符0、1、2</h5><p>&#8195;&#8195;在Linux系统上，每个进程都有属于自己的stdin、stdout、stderr。标准输入（standard input）的文件描述符是 0，标准输出（standard output）是 1，标准错误（standard error）是 2。尽管这种习惯并非<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/Unix">Unix</a>内核的特性，但是因为一些 shell 和很多应用程序都使用这种习惯，因此，如果内核不遵循这种习惯的话，很多应用程序将不能使用。</p>
+<p>&#8195;&#8195;在上面的iPython例子中，ll /proc/11622/fd 其实是列出属于11622进程的文件描述符表，可以看到，每个进程拥有的fd数值从0到linux限制的最大值，其中每个进程自己的0、1、2就是用于当前进程的标准输入、标准输出和标准错误。</p>
+<blockquote>
+<p>关于文件描述符表简单介绍：操作系统内核为每个进程在u_block结构中维护文件描述符表，所有属于该进程的文件描述符都在该表中建立索引:数值—&gt;某个文件。你可以把整个文件描述表看成是一个C语言的数组，数组的元素指向文件引用，数组的下表就是它的文件描述符</p>
+</blockquote>
+<p>下面，已iPython的一个shell进程为例，如何将stdin、stdout、stderr的0、1、2替换为其他文件描述符：<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 也可以用sys模块，例如：sys.stdout.fileno() </span></span><br><span class="line">In [<span class="number">4</span>]: stdin_fd=os.sys.stdin.fileno() <span class="comment"># 当前iPython shell进程的标准输入</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">5</span>]: stdin_fd</span><br><span class="line">Out[<span class="number">5</span>]: <span class="number">0</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">6</span>]: stdout_fd=os.sys.stdout.fileno() <span class="comment">#当前iPython shell进程的标准输出</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">7</span>]: stdout_fd</span><br><span class="line">Out[<span class="number">7</span>]: <span class="number">1</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">8</span>]: stderr_fd=os.sys.stderr.fileno() <span class="comment">#当前iPython shell进程的标准错误</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">9</span>]: stderr_fd</span><br><span class="line">Out[<span class="number">9</span>]: <span class="number">2</span></span><br></pre></td></tr></table></figure></p>
+<p>os.sys.stdin等是什么呢？其实这些对象跟open(file_name,mode) 打开文件返回的文件对象是一样的，例如下面：os.sys.stdin是以utf-8编码的只读模式的文件对象，os.sys.stdout以及os.sys.stderr是以utf-8编码的写模式的文件对象，既然是文件对象，那么读对象就支持read、readline等方法，写对象则支持write等方法<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">21</span>]: os.sys.stdin</span><br><span class="line">Out[<span class="number">21</span>]: &lt;_io.TextIOWrapper name=<span class="string">&#x27;&lt;stdin&gt;&#x27;</span> mode=<span class="string">&#x27;r&#x27;</span> encoding=<span class="string">&#x27;UTF-8&#x27;</span>&gt;</span><br><span class="line"></span><br><span class="line">In [<span class="number">22</span>]: os.sys.stdout</span><br><span class="line">Out[<span class="number">22</span>]: &lt;_io.TextIOWrapper name=<span class="string">&#x27;&lt;stdout&gt;&#x27;</span> mode=<span class="string">&#x27;w&#x27;</span> encoding=<span class="string">&#x27;UTF-8&#x27;</span>&gt;</span><br><span class="line"></span><br><span class="line">In [<span class="number">23</span>]: os.sys.stderr</span><br><span class="line">Out[<span class="number">23</span>]: &lt;_io.TextIOWrapper name=<span class="string">&#x27;&lt;stderr&gt;&#x27;</span> mode=<span class="string">&#x27;w&#x27;</span> encoding=<span class="string">&#x27;UTF-8&#x27;</span>&gt;</span><br></pre></td></tr></table></figure><br>将文件描述符2：stdout替换为其他打开某个文件的文件描述符：<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">2</span>]: f=<span class="built_in">open</span>(<span class="string">&#x27;/opt/test.txt&#x27;</span>,<span class="string">&#x27;w&#x27;</span>)</span><br><span class="line">In [<span class="number">3</span>]: f.fileno()</span><br><span class="line">Out[<span class="number">3</span>]: <span class="number">11</span></span><br><span class="line"></span><br><span class="line">In [<span class="number">4</span>]: os.sys.stdout=f</span><br><span class="line">In [<span class="number">5</span>]: os.sys.stdout.fileno() <span class="comment"># 输出不再打印到当前shell，而且写入文件：/opt/test.txt</span></span><br><span class="line">In [<span class="number">7</span>]: print(<span class="string">&#x27;stdout redirect to file&#x27;</span>) <span class="comment"># 输出不再打印到当前shell，而且写入文件：/opt/test.txt</span></span><br><span class="line">In [<span class="number">8</span>]: os.sys.stdout <span class="comment"># 输出不再打印到当前shell，而且写入文件：/opt/test.txt</span></span><br></pre></td></tr></table></figure><br>查看/opt/test.txt文件内容<br><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"> % cat test.txt</span><br><span class="line"></span><br><span class="line">11</span><br><span class="line"></span><br><span class="line">stdout redirect to file</span><br><span class="line"></span><br><span class="line">&lt;_io.TextIOWrapper name=&#x27;/opt/test.txt&#x27; mode=&#x27;w&#x27; encoding=&#x27;UTF-8&#x27;&gt;</span><br></pre></td></tr></table></figure><br>可以看到当前进程os.sys.stdout标准输出不再是2，而是11，指向某个已打开的文件。<br>当拿到一个已知的文件描述符后（一个非负整数），那么可以调用os.write(fd,bstr)方法向fd指向的文件写入数据，例如向文件描述符为11写入b’foo’字符串<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">In [<span class="number">11</span>]: os.write(<span class="number">11</span>,<span class="string">b&#x27;foo\n&#x27;</span>)</span><br></pre></td></tr></table></figure></p>
+<p>查看文件/opt/test.txt内容：<br><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">% cat test.txt</span><br><span class="line"></span><br><span class="line">11</span><br><span class="line"></span><br><span class="line">stdout redirect to file</span><br><span class="line"></span><br><span class="line">&lt;_io.TextIOWrapper name=&#x27;/opt/test.txt&#x27; mode=&#x27;w&#x27; encoding=&#x27;UTF-8&#x27;&gt;</span><br><span class="line">foo</span><br><span class="line">3</span><br></pre></td></tr></table></figure><br>==这一小节内容是想表述这么一个逻辑：如果要进程要对文件写入数据、或者读取数据（这不就是IO吗），底层必须通过文件描述符来实现，这就为讨论IO多路复用提供很好的知识背景，因为IO多路复用就是涉及到client向server写入数据，或者从server读取数据的需求。==</p>
+<h5 id="1-6-进程打开文件描述符的个数"><a href="#1-6-进程打开文件描述符的个数" class="headerlink" title="1.6 进程打开文件描述符的个数"></a>1.6 进程打开文件描述符的个数</h5><p>&#8195;&#8195;文件描述符的有效范围是 0 到 OPEN_MAX。centos7.5默认每个进程最多可以打开 1024个文件（0 -1023）。对于 FreeBSD 、Mac OS X  和 Solaris 来说，每个进程最多可以打开文件的多少取决于<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/系统内存">系统内存</a>的大小，int 的大小，以及系统管理员设定的限制。Linux 2.4.22 强制规定最多不能超过 1,048,576 。</p>
+<p>调整文件描述符打开数量的限制：</p>
+<p>管理用户可以在etc/security/limits.conf配置文件中设置他们的文件描述符极限，如下例所示。<br><code>softnofile 10240</code><br><code>hardnofile 20480</code><br>系统级文件描述符极限还可以通过将以下三行添加到/etc/rc.d/rc.local启动脚本中来设置：<br><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">\#Increasesystem-widefiledescriptorlimit.</span><br><span class="line">echo4096&gt;/proc/sys/fs/file-max</span><br><span class="line">echo16384&gt;/proc/sys/fs/inode-max</span><br></pre></td></tr></table></figure><br>在一些基于IO事件实现的高性能中间件例如redis、nginx、gevent等，在其官方的调优教程，一般会建议将系统打开文件描述符的数量设为大值，以便发挥并发性能。</p>
+<h5 id="1-7-文件描述符底层原理"><a href="#1-7-文件描述符底层原理" class="headerlink" title="1.7 文件描述符底层原理"></a>1.7 文件描述符底层原理</h5><p>&#8195;&#8195;之所以将文件描述符的底层原理放在本节最后讨论，是考虑到，当前面的内容你已经理解后，那么再讨论背后原理，将更容易理解。<br>&#8195;&#8195;总结1.2~1.6的内容：</p>
+<ul>
+<li>进程只有拿到文件描述符才能向它指向的物理文件写入数据或者读取数据，然后再把这些数据用socket方式（通过网卡）远程传输给client。</li>
+<li>文件描述符就是操作系统为了高效管理已打开文件所创建的一个索引。给os.wirte传入fd，进程非常迅速通过fd找到已打开的文件，进程高效率了，作为操作系统当然也更高效管理这些进程。</li>
+</ul>
+<p>&#8195;&#8195;那么不禁会提问：为什么进程只有拿到文件描述符才能向它指向的物理文件写入数据或者读取数据？本节内容回答此问题，相关图或者表述参考这些文章：<a target="_blank" rel="noopener" href="https://blog.csdn.net/qq_28114615/article/details/94590598">《Linux中文件描述符的理解(文件描述符、文件表项、i-node)》</a>（推荐这篇文章，作者从源码的角度解析fd的理解）、<a target="_blank" rel="noopener" href="https://blog.csdn.net/wan13141/article/details/89433379">《Linux文件描述符到底是什么？》</a></p>
+<p>&#8195;&#8195;基本知识背景：理解数组、指针、结构体以及内存，c语言的结构体像Python的类，都是为了封装属性和方法，形成一个“具备多个功能”的object。<br><strong>原理</strong><br>&#8195;&#8195;一个 Linux 进程启动后，它在内核中每一个打开的文件都需要由3种数据结构支撑运行：</p>
+<ul>
+<li><p>每个进程对应一张打开文件描述符表，属于进程级的数据结构，进程通过调用系统IO方法（传入文件描述符）访问文件数据（用户态切到内核态）；</p>
+</li>
+<li><p>内核维持一张打开文件表，文件表由多个文件表项组成，属于系统级数据结构，该文件表创建者和管理由内核负责，每个进程可共享；</p>
+</li>
+<li><p>每个打开的文件对应一个i-node数据结构，系统通过i-node可以取到位于磁盘的数据（用于返回给用户态，内核态切回用户态），存在于内核中。<br>（机智的小伙伴应该联想到这个技术点：为何用户程序读取文件数据，会出现用户态到内核态切换，然后再由内核态转到用户态？上面3个表可以回答这个问题）</p>
+</li>
+</ul>
+<p>三者的关系图如下：</p>
+<p><img src="https://img-blog.csdnimg.cn/20200105184452579.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><strong>文件描述符表</strong><br>&#8195;&#8195;在Linux中，对于每一个进程，都会分配一个PCB（进程控制块——Processing Control Block），在C代码实现上，这个数据结构名为<code>task_struct</code>，它里面有一个成员变量<code>*files</code>(属于files_struct类型)，<code>files_struct</code>的指针又指向一个<code>指针数组fd_array</code>，数组每一个元素都是一个指向<code>file类型的指针</code>，该进程打开的每个文件都属于file类型。从这里得出：<br>所谓文件描述符，就是fd_array[NR_OPEN_DEFAULT]这个指针数组的索引号，这也回答了为何文件描述符为非负整数。</p>
+<p><code>task_struct类型--&gt;*files指针(files_struct类型)--&gt;fd_array(文件描述符表)</code><br>==task_struct类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">task_struct</span> &#123;</span></span><br><span class="line">	......</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">files_struct</span> *<span class="title">files</span>;</span> </span><br><span class="line">	......</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure><br>==files_struct类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">files_struct</span> &#123;</span></span><br><span class="line">	......</span><br><span class="line">	<span class="keyword">int</span> next_fd; #进程新打开一个文件对应的文件描述符</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">file</span> __<span class="title">rcu</span> * <span class="title">fd_array</span>[<span class="title">NR_OPEN_DEFAULT</span>];</span> <span class="comment">//进程级打开文件描述符表</span></span><br><span class="line">	......	</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure><br><strong>系统级文件表</strong><br>&#8195;&#8195;每一个打开的文件都对应于一个file结构体（c语言上用结构体，而其他高级语言例如python或者java则称为<code>file类型</code>或者<code>file对象</code>），在该结构体中，f_flags描述了文件标志，f_pos描述了文件的偏移位置，而在<code>f_path中有含有一个指向一个inode结点的指针</code>，因此f_path非常关键，它直接指向物理文件存储的inode节点。<br>文件表指向逻辑大致如下：<br><code>file类型 --&gt; f_path变量（path类型 --&gt; *dentry指针（dentry类型）--&gt; d_inode指针（inode类型）</code></p>
+<p>==file类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">file</span> &#123;</span></span><br><span class="line">	......	</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">path</span>		<span class="title">f_path</span>;</span>     <span class="comment">//属于path类型，包括目录项以及i-node</span></span><br><span class="line">	<span class="keyword">atomic_long_t</span>		f_count;  <span class="comment">//文件打开次数</span></span><br><span class="line">	<span class="keyword">fmode_t</span>			f_mode;   <span class="comment">//文件打开时的mode，对应于open函数的mode参数</span></span><br><span class="line">	......		</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure><br>==path类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">path</span> &#123;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">vfsmount</span> *<span class="title">mnt</span>;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">dentry</span> *<span class="title">dentry</span>;</span><span class="comment">//目录项</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure><br>==dentry类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">dentry</span> &#123;</span></span><br><span class="line">	......	</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">inode</span> *<span class="title">d_inode</span>;</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">super_block</span> *<span class="title">d_sb</span>;</span>	<span class="comment">/* The root of the dentry tree *</span></span><br><span class="line"><span class="comment"> 	......	</span></span><br><span class="line"><span class="comment">&#125;;</span></span><br></pre></td></tr></table></figure><br>从以上“file类型嵌套链”可知：进程打开一个文件后，系统给它返回一个文件描述符fd，进程通过fd调用系统io方法，系统（内核）通过f_path再到dentry指针找到物理文件的inode，从而找到相应的数据块。</p>
+<p><strong>系统级的文件i-node表</strong><br>&#8195;&#8195;继续上面内容，内核找到i-node节点后，就能获取文件数据块在磁盘上的位置以及文件大小等文件的元数据信息，使得进程能够根据已打开文件对应的文件描述符一路定位到磁盘上相应文件的位置，从而进行文件读写。<br>==inode类型的定义(省略部分代码)==：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">inode</span> &#123;</span></span><br><span class="line">    .......</span><br><span class="line">	<span class="keyword">umode_t</span>			i_mode;     <span class="comment">//权限</span></span><br><span class="line">	<span class="keyword">uid_t</span>			i_uid;      <span class="comment">//用户id</span></span><br><span class="line">	<span class="keyword">gid_t</span>			i_gid;      <span class="comment">//组id</span></span><br><span class="line">    .......</span><br><span class="line">	<span class="keyword">unsigned</span> <span class="keyword">long</span>		i_ino;   <span class="comment">//inode节点号</span></span><br><span class="line">	<span class="keyword">loff_t</span>			i_size;   <span class="comment">//文件大小</span></span><br><span class="line">	.......</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">timespec</span>		<span class="title">i_atime</span>;</span>  <span class="comment">//最后一次访问(access)的时间</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">timespec</span>		<span class="title">i_mtime</span>;</span>  <span class="comment">//最后一次修改(modify)的时间</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">timespec</span>		<span class="title">i_ctime</span>;</span>  <span class="comment">//最后一次改变(change)的时间</span></span><br><span class="line">    .......	</span><br><span class="line">	<span class="keyword">blkcnt_t</span>		i_blocks;    <span class="comment">//块数</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">address_space</span>	*<span class="title">i_mapping</span>;</span>   <span class="comment">//块地址映射</span></span><br><span class="line"></span><br></pre></td></tr></table></figure><br>上面有Linux文件常见的基本属性，例如访问时间、修改时间、权限、属主等，系统级的文件表里每一个文件表项都会指向i-node，这个i-node对应磁盘中的一个物理文件。</p>
+<h5 id="本节小结"><a href="#本节小结" class="headerlink" title="本节小结"></a>本节小结</h5><p>&#8195;&#8195;到处，有关文件描述符的底层原理介绍完毕，本节内容也只是抛砖引玉，读者可自行去检索Linux文件系统原理或者VFS虚拟文件系统原理等底层文件系统知识(从这里联想到不得不佩服Apache开发hdfs文件系统的大咖团队，他们对Linux文件系统的底层实现应该且必须是绝对掌握的)。如果你能理解以上全部内容，那么在第2部分的IO多路复用中提到的大部分概念，将不再晦涩难懂。</p>
+<h4 id="2、-IO多路复用原理"><a href="#2、-IO多路复用原理" class="headerlink" title="2、 IO多路复用原理"></a>2、 IO多路复用原理</h4><p>&#8195;&#8195;IO：input和output，一般指数据的写入、数据的读取。IO主要分为两类：硬盘 IO和网络IO，本内容主要针对网络 IO。复用的含义？复用当然理解为重复使用某个<code>事物</code>，而在本文，这个<code>事物</code>是一个线程，因此，IO多路复用，是指并发的socket连接复用一个IO线程(换句话说：只需要一个线程，即可为多个client同时提供socket连接请求)。在第1章节中，如果用户程序要将数据写入或者读取数据，那么它在底层必须通过文件描述符才能达到相应操作结果，因此IO多路复用与文件描述符密切相连，这就是为何在第一章节里给出了大量有关文件描述符知识的原因。</p>
+<h5 id="2-1-IO触发用户空间与内核空间之间的切换"><a href="#2-1-IO触发用户空间与内核空间之间的切换" class="headerlink" title="2.1 IO触发用户空间与内核空间之间的切换"></a>2.1 IO触发用户空间与内核空间之间的切换</h5><p>在本博客前面有关大数据项目的文章里，其中<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103301847">《深入理解kafka》</a>提到kafka通过通过sendfile（零拷贝机制）提高消费者端的吞吐量，其中就提到用户空间与内核空间之间的切换，结合第1章节内容简要介绍：<br><img src="https://img-blog.csdnimg.cn/2020010622220268.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">   </p>
+<ul>
+<li>用户程序通过系统调用获得网络和文件的数据</li>
+<li>内核负责网络和文件数据的读写 <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">file_path=<span class="string">&#x27;/opt/test.txt&#x27;</span> <span class="comment"># 上下文为用户空间</span></span><br><span class="line">fd=os.<span class="built_in">open</span>(file_path,os.O_RDWR|os.O_CREAT) <span class="comment"># 用户空间切换到内核空间</span></span><br><span class="line">data=os.read(fd,<span class="number">64</span>) <span class="comment">#指定读文件前64byte内容  # 上下文从用户空间切换到内核空间，数据准备好后，上下文再从内核空间再切换到用户空间</span></span><br><span class="line">print(data) <span class="comment"># 上下文为用户空间</span></span><br></pre></td></tr></table></figure>
+对于os.read的过程，用文件描述符的背景也可以理解：read底层用fd读取文件数据的流程：进程级文件描述符，到系统级文件表，再到系统级i-node表。从进程级到系统级，这里从代码层面展示用户空间到内核的空间的上下文切换<br>所以只要有网络IO或者磁盘IO，必然会发生用户空间到内核空间的上下文切换。</li>
+</ul>
+<p>图的原理参考<br><a target="_blank" rel="noopener" href="https://www.cnblogs.com/yanguhung/p/10145755.html">https://www.cnblogs.com/yanguhung/p/10145755.html</a></p>
+<h5 id="2-2-IO模型的介绍"><a href="#2-2-IO模型的介绍" class="headerlink" title="2.2 IO模型的介绍"></a>2.2 IO模型的介绍</h5><p><strong>IO模型基本分类</strong>：<br>（1）Blocking I/O（同步阻塞IO）：最常见也最传统IO模型，即代码语句按顺序执行若某一条语句执行需等待那么后面的代码会被阻塞，例如常见顺序步骤：读取文件、等待内核返回数据、拿到数据、处理输出<br>（2）同步非阻塞IO（Non-blocking IO）：默认创建的socket为阻塞型，将socket设置为NONBLOCK，业务流程则变为同步非阻塞IO<br>（3）IO多路复用（IO Multiplexing ）：即经典的Reactor设计模式，有时也称为异步阻塞IO，Java中的Selector和Linux中的epoll都是这种模型。<br>（4）异步IO（Asynchronous IO）：即经典的Proactor设计模式，也称为异步非阻塞IO<br>==这里也给出个人在知乎看到一篇关于IO模型更为形象的回答：<a target="_blank" rel="noopener" href="https://www.zhihu.com/question/32163005">链接</a>==，通过购买火车票的场景来介绍5种IO模型（本章节未提到的信号驱动的IO模型）</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/E3PYOSCuO4O6JB2FpHyZCg">https://mp.weixin.qq.com/s/E3PYOSCuO4O6JB2FpHyZCg</a></p>
+<p><strong>同步和异步</strong><br>&#8195;&#8195;同步是指用户线程发起IO请求后需要等待或者轮询内核IO操作完成后才能继续执行；例如内核读文件需要耗时10秒，那么用户线程发起读取文件IO后，等待内核从磁盘拷贝到内存10秒，接着用户线程才能进行下一步对文件内容进行其他操作，按顺序执行。<br>&#8195;&#8195;而异步是指用户线程发起IO请求后仍继续执行，当内核IO操作完成后会通知用户线程，或者调用用户线程注册的回调函数。</p>
+<p><strong>阻塞和非阻塞</strong><br>&#8195;&#8195;阻塞是指内核空间IO操作需要为把数据返回到用户空间；而非阻塞是指IO操作被调用后立即返回给用户一个状态值，无需等到IO操作彻底完成。</p>
+<p>以下为四个模型的内容，图和部分文参考此篇<a target="_blank" rel="noopener" href="https://www.cse.huji.ac.il/course/2004/com1/Exercises/Ex4/I.O.models.pdf">《英文原文文章》</a></p>
+<h6 id="同步阻塞IO"><a href="#同步阻塞IO" class="headerlink" title="同步阻塞IO"></a>同步阻塞IO</h6><p>&#8195;&#8195;同步阻塞IO模型是最简单的IO模型，如图1所示：<img src="https://img-blog.csdnimg.cn/20200111121353731.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;用户线程通过系统调用recvfrom方法向内核发起IO读文件操作（application switch to kernel），后面的代码被阻塞，用于线程处于等待当中，当内核已经从磁盘拿到数据并加载到内核空间，然后将数据拷贝到用户空间（kernel switch to application），用户线程再进行最后的data process数据处理。</p>
+<p>同步阻塞IO模型的伪代码描述为：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(socket, buffer) # 执行流被阻塞，直到buffer有数据可以读或者内核抛给用户程序一个error信号，程序才会往下执行。</span><br><span class="line">process(buffer) </span><br></pre></td></tr></table></figure><br>缺点分析：<br>&#8195;&#8195;用在多线程高并发场景（例如10万并发），服务端与客户端一对一连接，对于server端来说，将大量消耗内存和CPU资源（用户态到内核态的上下文切换），并发能力受限。</p>
+<h6 id="同步非阻塞IO"><a href="#同步非阻塞IO" class="headerlink" title="同步非阻塞IO"></a>同步非阻塞IO</h6><p>&#8195;&#8195;同步非阻塞IO是在同步阻塞IO的基础上，将socket设置为NONBLOCK。这样做用户线程可以在发起IO请求后可以立即返回，原理图如下：<br><img src="https://img-blog.csdnimg.cn/20200111123715373.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>&#8195;&#8195;在该图中，用户线程前面3次不断发起调用recvfrom，内核还未准备好数据，因此只能返回error of EWOULDBLOCK，直到最后一次调用recvfrom时，内核已经将数据拷贝到用户buffer端，此次可读取到数据，接下来就是process the data。</p>
+<p>同步非阻塞IO模型的伪代码描述为：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">while true:</span><br><span class="line">        try:</span><br><span class="line">        	streaming_data&#x3D;read(buffer)</span><br><span class="line">    	 	do_someting(streaming_data)</span><br><span class="line">    		do_foo(streaming_data)	    </span><br><span class="line">    		do_bar(streaming_data)     </span><br><span class="line">	    except error of EWOULDBLOCK:</span><br><span class="line">	         print(&#39;kernel not ready for data yet,going to next loop&#39;)</span><br><span class="line">	         pass</span><br><span class="line">    	sleep(0.1)</span><br></pre></td></tr></table></figure>
+<p>该模式有两个明显的缺点：</p>
+<p>&#8195;&#8195;第一点：即client需要循环system call，尝试读取socket中的数据，直到读取成功后，才继续处理接收的数据。整个IO请求的过程中，虽然用户线程每次发起IO请求后可以立即返回，但是为了等到数据，仍需要不断地轮询、重复请求。如果有10万个客户端连接，那么将消耗大量的serverCPU资源和占用带宽。</p>
+<p>&#8195;&#8195;第二点：虽然设定了一个间隔时间去轮询，但也会发生一定响应延迟，因为每间隔一小段时间去轮询一次read操作，而任务可能在两次轮询之间的任意时间就已经完成，这会导致整体数据吞吐量的降低。</p>
+<p>&#8195;&#8195;（以上的流程就像你在Starbucks店点了一杯cappuccino ，付款后，咖啡师正在制作中，而你却每隔0.1秒从座位走到点餐台问咖啡师OK了没，以至于你根本无法腾出时间享受<code>用一台MacBook Pro优雅的coding的下午茶美好时光</code>。当然如果仅有你1个人以这种方式去询问，咖啡师应该还可以接受（假设“客户是上帝这个真理“在Starbucks能够严格实施）。假设有10万个客户，都以这方式去轮询咖啡师，想象下画面…）</p>
+<h6 id="IO多路复用模式"><a href="#IO多路复用模式" class="headerlink" title="IO多路复用模式"></a>IO多路复用模式</h6><p>&#8195;&#8195;前面两种模式缺点明显，那么 IO多路复用模式就是为了解决以上两种情况，IO多路复用是指内核一旦发现进程指定的一个或者多个IO事件准备读取，它就通知该进程，原理图如下：<br><img src="https://img-blog.csdnimg.cn/20200111144223563.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;前面两种IO模型用户线程直接调用recvfrom来等待内核返回数据，而IO复用则通过调用select（还有poll或者epoll）系统方法，此时用户线程会阻塞在select语句处，等待内核copy数据到用户态，用户再收到内核返回可读的socket文件描述符，伪代码如下：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">while true:</span><br><span class="line">	all_fds=select()# 执行流在此处阻塞，当之前注册的socket文件描述符集合有其中的fd发生IO事件，内核会放回所有fds（注意：select不会返回具体发生IO事件的fd，需要用户线程自行查找）</span><br><span class="line">    for each_fd in all_fds:</span><br><span class="line">        if can_read(fd):  # 遍历内核返回每个socket文件描述符对象来判断到底是哪个流产生的IO事件。</span><br><span class="line">        	process_data(fd) # 找到了发生IO事件的文件描述符fd</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>此IO模型优点：<br>&#8195;&#8195;用户线程终于可以实现一个线程内同时发起和处理多个socket的IO请求，用户线程注册多个socket，（对于内核就是文件描述符集合），然后不断地调用select读取被激活的socket 文件描述符。（在这里，select看起就像是用户态和内核态之间的一个代理）<br>缺点在下文会谈到。</p>
+<h6 id="IO多路复用适用场景："><a href="#IO多路复用适用场景：" class="headerlink" title="IO多路复用适用场景："></a>IO多路复用适用场景：</h6><p>&#8195;&#8195;从Redis、Nginx等这些强大的用于高并发网络访问的中间件可知，IO多路复用目前使用最突出的场景就是：socket连接，也即web服务，一般指高性能网络服务。<br>&#8195;&#8195;与多进程和多线程技术的简单粗暴的业务实现不同，I/O多路复用技术的最大优势是系统开销小，系统不必创建多进程或者多线程，也不必维护这些进程/线程的复杂上下文以及内存管理，从而大大减小了系统的开销，极大提升响应时间。</p>
+<h4 id="3、深入理解select、poll"><a href="#3、深入理解select、poll" class="headerlink" title="3、深入理解select、poll"></a>3、深入理解select、poll</h4><p>&#8195;&#8195;上面第2节内容提到了IO多路复用的基本工作原理，目前linux支持I/O多路复用的系统调用常见有 select，poll，epoll（linux2.4内核前主要是select和poll，epoll方法则是从Linux 2.6内核引入），它们都是实现这么一个逻辑：一个进程可以监听多个文件描述符（10k-100k不等，看服务器性能），一旦某个文件描述符就绪（一般是读就绪或者写就绪），内核返回这些可读写的文件描述符给到用户线程，从而让用户线程进行相应的读写操作，这一过程支持并发请求。<br>下面就linux实现IO多路复用三种方式进行详细讨论：</p>
+<h5 id="理解select函数"><a href="#理解select函数" class="headerlink" title="理解select函数"></a>理解select函数</h5><p>&#8195;&#8195;select：在一段时间内，监听用户线程感兴趣的文件描述符上面的可读、可写和异常等事件，在这里通过简单介绍其C接口的用法即可理解select功能，API：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/select.h&gt;</span></span></span><br><span class="line"><span class="keyword">int</span> select（<span class="keyword">int</span> nfds, fd_set * readfds, fd_set * writefds, fd_set * exceptfds, <span class="class"><span class="keyword">struct</span> <span class="title">timeval</span> * <span class="title">timeout</span>);</span></span><br></pre></td></tr></table></figure><br>函数参数解释，<a target="_blank" rel="noopener" href="https://my.oschina.net/ijaychen/blog/184647">参考文章</a><br><code>nfds</code>：<br>&#8195;&#8195;非负整数的变量，表示当前线程打开的所有件文件描述符集的总数，nfds=maxfdp+1，计算方法就是当前线程打开的最大文件描述符+1</p>
+<p><code>*readfds</code>:<br>&#8195;&#8195;fd_set集合类型的指针变量，表示当前线程接收到内核返回的可读事件文件描述符集合（有数据到了这个状态称之为读事件），如果这个集合中有一个文件可读，内核给select返回一个大于0的值，表示有文件可读，如果没有可读的文件，则根据timeout参数再判断是否超时，若内核阻塞当前线程的时长超出timeout，select返回0，若发生错误返回负值。传入NULL值，表示不关心任何文件的读变化</p>
+<p><code>*writefd</code>:<br>&#8195;&#8195;当前有多少个写事件（关心输出缓冲区是否已满）<br>最后一个结构体表示每个几秒钟醒来做其他事件，用来设置select等待时间</p>
+<p><code>*exceptfds</code>：<br>&#8195;&#8195;监视文件描述符集合中的有抛出异常的fd</p>
+<p><code>timeout</code>：<br>&#8195;&#8195;select()的超时结束时间，它可以使select处于三种状态：<br>（1）若将NULL以形参传入，select置于阻塞状态，当前线程一直等到内核监视文件描述符集合中某个文件描述符发生变化为止；<br>（2）若将时间值设为0秒0毫秒，表示非阻塞，不管文件描述符是否有变化，都立刻返回继续执行，文件无变化返回0，有变化返回一个正值；<br>（3）timeout的值大于0，等待时长，即select在timeout时间内阻塞，超时后返回-1，否则在超时后不管怎样一定返回。</p>
+<p><code>select函数返回值</code>：<br>&#8195;&#8195;执行成功则返回绪的文件描述符的总数。如果在超过时间内没有任何文件描述符准备就绪，将返回0；失败则返回-1并设置errno；若在select等待事件内程序接收到信号，则select立即返回-1，并设置errno为EINTER。<br>（从这里可以得出：写C的同学尤其是Unix 网络开发方向，对什么select、poll、epoll早已轻车熟路）</p>
+<p><strong>select的优点</strong><br>&#8195;&#8195;select目前几乎在所有的平台上支持，其良好跨平台支持。</p>
+<p> <strong>select的缺点</strong></p>
+<p>（1）打开的文件描述符有最大值限制<br>&#8195;&#8195;默认1024，当然可自行设为较大值，例如10万，取决于服务器性内存和cpu配置。 </p>
+<p>（2）对socket进行扫描时是线性扫描，即采用轮询的方法，效率较低。<br>&#8195;&#8195;当一个线程发起socket请求数较大时例如100，用户线程每次select()都会触发server端的内核遍历所有文件描述符，如果有1万个client发起这种IO请求，server的内核要遍历1万<em>100=100万的文件描述符。可想而知这种时间复杂度为o(n)是非常低效率的。<br>（3）第2点说了，当并发量大时，服务端提供server socket连接的进程需要维护一个用来存放大量fd的数据结构（参考1.7章节的内容：`task_struct类型—&gt;</em>files指针(files_struct类型)—&gt;fd_array(文件描述符表)`），会导致用户态和内核态之间在传递该数据结构时复制占用内存开销大。<br><a target="_blank" rel="noopener" href="https://www.itnotebooks.com/?p=1106">https://www.itnotebooks.com/?p=1106</a></p>
+<h5 id="理解poll函数"><a href="#理解poll函数" class="headerlink" title="理解poll函数"></a>理解poll函数</h5><p>本节内容部分参考<a target="_blank" rel="noopener" href="https://blog.csdn.net/skypeng57/article/details/82743681">《poll函数解析》</a>，oll函数的定义：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">poll</span><span class="params">(struct pollfd *fds, <span class="keyword">nfds_t</span> nfds, <span class="keyword">int</span> timeout)</span></span>;</span><br></pre></td></tr></table></figure><br>pollfd类型定义：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">　　<span class="class"><span class="keyword">struct</span> <span class="title">pollfd</span>&#123;</span></span><br><span class="line">　　<span class="keyword">int</span> fd;              <span class="comment">//文件描述符：socket或者其他输入设备的对应fd</span></span><br><span class="line">　　<span class="keyword">short</span> events;    <span class="comment">//用户向内核注册感兴趣的事件（读事件、写事件、异常事件）</span></span><br><span class="line">　　<span class="keyword">short</span> revents;   <span class="comment">//内核返回给用户注册的就绪事件</span></span><br><span class="line">　　&#125;;</span><br></pre></td></tr></table></figure><br>events有以下三大类：<br><img src="https://img-blog.csdnimg.cn/2020011122281639.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">例如fd=10，events=POLLRDNORM<br>revents：返回用户在调用poll注册的感兴趣且已就绪的事件</p>
+<p>参数说明：<br>pollfd类型的<code>*fds</code>变量：传入socket的文件描述符，用户线程通过fds[i].events注册感兴趣事件(可读、可写、异常)，<br><code>nfds</code>:<br>跟select的nfds参数相同<br><code>timeout</code>:<br>INFTIM:永远等待<br>0:立即返回，不阻塞<br>大于0:等待给定时长</p>
+<p><code>函数返回值</code>：<br>成功时，poll() 返回结构体中 revents事件不为 0 的文件描述符个数；<br>如果在超时前没有任何事件发生，poll()返回 0；</p>
+<p><code>工作流程</code><br>（1）pollfd初始化，传入socket的文件描述符，设置感兴趣事件event，以及内核revent。设置时间限制（用户线程通过fds[i].events传入感兴趣事件，内核通过修改fds[i].revents向用户线程返回已经就绪的事件）<br>（2）用户线程调用poll，并阻塞于此处<br>（3）内核返回就绪事件，并处理该事件</p>
+<p>==select与poll本质差别不大，只是poll没有最大文件描述符的限制，因为它是基于链表来存储的==</p>
+<p><code>poll缺点</code>：<br>（1）大量的fd的数组被整体复制于用户态和内核地址空间之间，而不管这样的复制是否有意义。<br>（2）poll还有一个特点是“水平触发”，如果报告了fd后，没有被处理，那么下次poll时会再次报告该fd</p>
+<p>这里引用了这篇文章<a target="_blank" rel="noopener" href="https://www.cnblogs.com/zhuwbox/p/4222382.html">《linux 下 poll 编程》</a>代码来说明poll流程，程序逻辑并不难理解，能够让poll返回就绪的事件，是内核驱动通过中断信号来判断事件是否发生：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/socket.h&gt;</span></span></span><br><span class="line">......</span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> OPEN_MAX 1024</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">()</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">int</span> listenfd, connfd, sockfd, i, maxi;</span><br><span class="line">    <span class="keyword">char</span> buf[MAXLINE];</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">pollfd</span> <span class="title">client</span>[<span class="title">OPEN_MAX</span>];</span><span class="comment">//存放客户端发来的所有socket对应的文件描述符，限定最大可用文件描述符1024</span></span><br><span class="line">    ......</span><br><span class="line">    client[<span class="number">0</span>].fd = listenfd;<span class="comment">// 传入socket对应的文件描述符</span></span><br><span class="line">    client[<span class="number">0</span>].events = POLLRDNORM;<span class="comment">//关心监听套机字的读事件</span></span><br><span class="line">    </span><br><span class="line">    <span class="keyword">for</span>(;;)</span><br><span class="line">    &#123;</span><br><span class="line">        nready = poll(client, maxi + <span class="number">1</span>, <span class="number">-1</span>); <span class="meta">#server 进程调用poll，用户线程在此处阻塞，直到内核返回就绪的POLLRDNORM事件的文件描述符集合</span></span><br><span class="line">        <span class="keyword">if</span>(client[<span class="number">0</span>].revents &amp; POLLRDNORM) # 如果收到内核返回client注册的事件</span><br><span class="line">        &#123;</span><br><span class="line">            connfd = accept(listenfd, (SA *) &amp;cliaddr, &amp;clilen); # 获取每个client socket连接对应的文件描述符</span><br><span class="line">            <span class="keyword">if</span>(connfd &lt; <span class="number">0</span>)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">continue</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">for</span>(i = <span class="number">1</span>; i &lt; OPEN_MAX; ++i)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">if</span>(client[i].fd &lt; <span class="number">0</span>)</span><br><span class="line">                    client[i].fd = connfd; # 将客户端的请求的fd加到polled这个列表</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">if</span>(i == OPEN_MAX)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="built_in">printf</span>(<span class="string">&quot;too many clients&quot;</span>);</span><br><span class="line">                <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">            &#125;</span><br><span class="line">            client[i].events = POLLRDNORM;# 为客户端的fd注册可读事件</span><br><span class="line">            <span class="keyword">if</span>(i &gt; maxi)</span><br><span class="line">            &#123;</span><br><span class="line">                maxi = i;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">if</span>(--nready &lt;=<span class="number">0</span> )</span><br><span class="line">                <span class="keyword">continue</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">for</span>(i = <span class="number">1</span>; i &lt; OPEN_MAX; ++i)</span><br><span class="line">        &#123;</span><br><span class="line">            <span class="keyword">if</span>((sockfd = client[i].fd) &lt; <span class="number">0</span>)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">continue</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">if</span>(client[i].revents &amp; POLLRDNORM | POLLERR) <span class="meta"># server通过轮询所有的文件描述符，如果revents有读事件或者异常事件</span></span><br><span class="line">            &#123;</span><br><span class="line">                <span class="keyword">if</span>((n = read(sockfd, buf, MAXLINE)) &lt; <span class="number">0</span>)# 读取数据</span><br><span class="line">                &#123;</span><br><span class="line">                    <span class="keyword">if</span>(errno == ECONNRESET)</span><br><span class="line">                    &#123;</span><br><span class="line">                        close(sockfd); # 若该就绪的文件描述符返回的异常事件，则重置</span><br><span class="line">                        client[i].fd = <span class="number">-1</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">else</span></span><br><span class="line">                    &#123;</span><br><span class="line">                        <span class="built_in">printf</span>(<span class="string">&quot;read error!\n&quot;</span>);</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">else</span> <span class="keyword">if</span>(n == <span class="number">0</span>)</span><br><span class="line">                &#123;</span><br><span class="line">                    close(sockfd);</span><br><span class="line">                    client[i].fd = <span class="number">-1</span>;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">else</span></span><br><span class="line">                &#123;</span><br><span class="line">                    write(sockfd, buf,  n);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">if</span>(--nready &lt;= <span class="number">0</span>)</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;从上面看，不管select和poll都需要在返回后，都需要通过遍历文件描述符来获取已经就绪的socket（<code>for(i = 1; i &lt; OPEN_MAX; ++i)</code>==&gt;<code>if(client[i].revents &amp; POLLRDNORM | POLLERR)</code>）。事实上，高并发连接中例如10k个连接，在同一时刻可能只有小部分的socket fd处于就绪状态，但server端进程却为此不断的遍历，当注册的描述符数量的增长，其效率也会线性下降。<br>该图为select、poll和Epoll性能对比（还有一个更高性能的Kqueue）<br><img src="https://img-blog.csdnimg.cn/20200111174200198.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">可以看到，随着socket连接数量增大（对应文件描述符数量也增加），select、poll处理响应更慢，epoll响应速度几乎不受文件描述符数量的影响。</p>
+<h4 id="4、深入理解epoll"><a href="#4、深入理解epoll" class="headerlink" title="4、深入理解epoll"></a>4、深入理解epoll</h4><p>&#8195;&#8195;考虑到epoll为本文核心内容，而且知识相对更有深度，因此将其单独作为1个章节讨论。部分内容参考的以下文章（吸收多篇文章内容后，你会赞叹epoll设计的精巧）：<br><a target="_blank" rel="noopener" href="https://blog.csdn.net/daaikuaichuan/article/details/83862311">《epoll原理详解及epoll反应堆模型》</a><br><a target="_blank" rel="noopener" href="https://www.itnotebooks.com/?p=1106">《Linux下的I/O复用与epoll详解》</a><br><a target="_blank" rel="noopener" href="https://blog.csdn.net/mango_song/article/details/42643971">《我读过最好的Epoll模型讲解》</a><br><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/FRg_lSHDiZofzTZApU6z9Q">《 彻底搞懂epoll高效运行的原理 》</a></p>
+<h5 id="4-1-epoll的c语言接口详解："><a href="#4-1-epoll的c语言接口详解：" class="headerlink" title="4.1 epoll的c语言接口详解："></a>4.1 epoll的c语言接口详解：</h5><p>这里介绍epoll的IO模型完成创建过程：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">epoll_create</span><span class="params">(<span class="keyword">int</span> size)</span></span>;</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>功能说明：创建一个epoll实例，参数<code>size</code>用来指定该epoll对象可以管理的socket文件描述符的个数。在Linux 2.6.8以后的版本中，参数 size 已被忽略，但是必须大于0。</p>
+</li>
+<li><p>函数返回值：一个代表新创建的epoll实例的文件描述符epoll_fd，这个描述符由server端持有，用于<code>统管所有client请求的socket连接对应的文件描述符</code></p>
+</li>
+</ul>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">epoll_ctl</span><span class="params">(<span class="keyword">int</span> epfd, <span class="keyword">int</span> op, <span class="keyword">int</span> fd, struct epoll_event *event)</span></span>;  </span><br></pre></td></tr></table></figure>
+<ul>
+<li>epfd：epoll_create创建的epoll对象，以文件描述符形式epoll_fd返回，对于一个server进程，它对于只有一个epoll_fd。</li>
+<li>op:监听socket时告诉内核要监听针对这个socket（其实是socket对应的文件描述符fd）什么类型的事件，主要有以下三种要监听的事件类型需要注册到epoll_fd上：<br>— EPOLL_CTL_ADD：注册新的fd到epfd中；<br>— EPOLL_CTL_MOD：修改已经注册的fd的监听事件；<br>— EPOLL_CTL_DEL：从epfd中删除一个fd；</li>
+</ul>
+<ul>
+<li>fd：epfd需要监听的fd，主要指server为client的socket请求创建对应文件描述符，来一个socket连接就对应新建一个文件描述符，</li>
+<li><p>epoll_event：告诉内核需要对所注册文件描述符的什么类型事件进行监听，和poll函数支持的事件（读、写、异常）类型基本相同，不同是epoll还可以监听两个额外的事件：EPOLLET和EPOLLONESHOT（水平触发和边缘触发），这是epoll高性能的关键，文章后面会深入讨论。epoll_event结构如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> &#123;</span></span><br><span class="line">  <span class="keyword">__uint32_t</span> events;  <span class="comment">/* Epoll的事件类型 */</span></span><br><span class="line">  <span class="keyword">epoll_data_t</span> data;  <span class="comment">/* User data variable */</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<p>其中events就包括以下事件：</p>
+</li>
+<li><p>EPOLLIN ： 监听的文件描述符可读（包括client主动向server断开socket连接的事件）</p>
+</li>
+<li>EPOLLOUT：  监听的文件描述符可写；</li>
+<li>EPOLLPRI： 监听的文件描述符有紧急的数据可读；</li>
+<li>EPOLLERR： 监听的文件描述符有异常事件；</li>
+<li>EPOLLRDHUP： 监听的文件描述对应的socket连接被挂断；这里挂断像不像打电话给对方，对方挂断你的电话的意思？没错，这里是指socket连接的client断开了TCP连接（TCP半开），此时epoll监听对应的socket文件描述符会触发一个EPOLLRDHUP事件。==（这里也需要给出一个知识：使用 2.6.17 之后版本内核，对端连接断开触发的 epoll 事件会包含 EPOLLIN | EPOLLRDHUP，即 0x2001。有了这个事件，对端断开连接的异常就可以在TCP层进行处理，无需到应用层处理，提高断开响应速度。）==<br>EPOLLET：将EPOLL设为边缘触发模式Edge Triggered，一般用法如下：<br><code>ev.events = EPOLLIN|EPOLLET; //监听读状态同时设置ET模式</code><br>如果要设为水平触发Level Triggered，只需：<br><code>ev.events = EPOLLIN //默认就是水平触发模式</code></li>
+<li><p>EPOLLONESHOT： 只监听一次事件，当监听完这次事件之后，如果还需要继续监听这个socket文件描述符，需要再次把这个socket加入到EPOLL队列里。</p>
+</li>
+<li><p>关于epoll_event类型的data用法如下：<br>定义一个变量ev，类型为struct epoll_event<br>ev.data.fd = 10;//将要监听的文件描述符绑定到ev.data.fd<br>ev.events = EPOLLIN|EPOLLET; //监听读状态同时设置ET模式</p>
+</li>
+</ul>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/epoll.h&gt;</span></span></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">epoll_wait</span> <span class="params">( <span class="keyword">int</span> epfd, struct epoll_event* events, <span class="keyword">int</span> maxevents, <span class="keyword">int</span> timeout )</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li><p>函数返回值：成功时返回有IO（或者异常）事件就绪的文件描述符的数量，如果在timeout时间内没有描述符准备好则返回0。出错时，epoll_wait()返回-1并且把errno设置为对应的值</p>
+<ul>
+<li>events：内核检测监听描述符发生了事件，内核将这些描述符的所有就绪事件以events数组返回给用户，。</li>
+<li>maxevents：指定最多监听多少个事件类型</li>
+</ul>
+</li>
+<li>timeout：指定epoll的超时时间，单位是毫秒。当timeout为-1是，epoll_wait调用将永远阻塞，直到某个时间发生。当timeout为0时，epoll_wait调用将立即返回。</li>
+</ul>
+<p>==为更好理解该epoll_wait，这里给个简单epoll工作流程说明：==</p>
+<ul>
+<li>1、假设socket server进程持有的epoll_fd为3，即<code>epoll_fd=epoll_create(size=1024);</code></li>
+<li><p>2、假设现有2个client向server发起socket连接，server给它分配的文件描述符是4和5，并且注册的事件为：EPOLLIN可读事件，注册过程如下：</p>
+<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">ev.data.fd = 4</span><br><span class="line">ev.events = EPOLLIN</span><br><span class="line">epoll_ctl(epfd=4, op=EPOLL_CTL_ADD, fd=4, &amp;ev);  # 这里不是C语言的写法，只是为了方便说明原理，将关键字参数也列出来，用类似python的参数语法</span><br><span class="line"></span><br><span class="line">ev.data.fd = 5</span><br><span class="line">ev.events = EPOLLIN</span><br><span class="line">epoll_ctl(epfd=4, op=EPOLL_CTL_ADD, fd=5, &amp;ev);  </span><br></pre></td></tr></table></figure>
+</li>
+<li><p>3、假设现在文件描述符5可读事件触发（例如内核已经完成将data.log拷贝到用户空间）</p>
+</li>
+<li>4、调用epoll_wait(epfd=3, events,maxevents=10, timeout=-1)，返回1，表示当前内核告诉server进程有1个文件描述符发生了事件，这里events存放的是就绪文件描述符及其事件：<figure class="highlight txt"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ready_fds=epoll_wait(epfd=3, events,maxevents=10, timeout=-1)</span><br><span class="line">for i in range(ready_fds）：</span><br><span class="line">	ev=events[i] //从内核返回的事件数组中取出epoll_event类型</span><br><span class="line">	print(ev.data.fd) //这里返回的就绪文件描述符是5，对应client的第二个socket连接</span><br><span class="line">	print(ev.evevts）//这里返回EPOLLIN可读事件</span><br><span class="line">	os.read(ev.data.fd)//读取文件描述符5指向的数据</span><br></pre></td></tr></table></figure>
+==请重点关注第4点，这里可以初步回答epoll适合的场景以及为何epoll比select和poll更高效的原因：（这里说了是<code>初步</code>，第4.2和4.3节将给出更有深度的内容）<br>&#8195;&#8195;epoll适合的场景：适用于连接数量大且长连接，但活动连接较少的情况。如何解释？在上面的例子中，我们假设了2个client socket连接，现在，我们假设10万个socket连接，而当中”活跃“（就绪）的文件描述符只有100个，调用epoll_wait返回100，接着在for循环里面将非常快速处理完可读事件。==<br>&#8195;&#8195;也就是说，使用epoll的IO效率，不会随着socket连接数（文件描述符connect_fd数量）的增加而降低。因为内核只返回少量活跃就绪的fd才会被回调处理；<br>&#8195;&#8195;换句话说：epoll几乎跟外部连接总数无关，它只管“就绪”的连接，这就是Epoll的效率就会远远高于select和poll的原因。<br>&#8195;&#8195;现在大家应该可以理解第3节最后给出的Libevet Benchmark图：100个active条件下，连接的文件描述符从2500到15000，可以看到epoll高性能几乎保持稳定，因为它只需处理这固定的100个就绪的fds，而select和poll，要处理的是从2500个到15000个，因此处理时长也是线性增长，效率越来越低。</li>
+</ul>
+<p>==简单总结epoll3个方法即可完成高效且并发数高的文件描述符监听的基本流程==</p>
+<ul>
+<li>A、server端持有可统管所有socket文件描述符的唯一epoll_fd=epoll_create()</li>
+<li>B 、epoll_ctl(epoll_fd，添加或者删除所有待监听socket文件描述符以及它们的事件类型)</li>
+<li>C、返回有事件发生的就绪文件描述符 =epoll_wait(epoll_fd)</li>
+</ul>
+<h5 id="4-2-epoll用红黑树管理所有监听文件描述符"><a href="#4-2-epoll用红黑树管理所有监听文件描述符" class="headerlink" title="4.2 epoll用红黑树管理所有监听文件描述符"></a>4.2 epoll用红黑树管理所有监听文件描述符</h5><h6 id="用python设计一个伪epoll模型？"><a href="#用python设计一个伪epoll模型？" class="headerlink" title="用python设计一个伪epoll模型？"></a>用python设计一个伪epoll模型？</h6><p>&#8195;&#8195;在4.1介绍epoll的相关函数中，大家应该有这么一个<code>开发者直觉</code>：<br>每次有新的文件描述符，则将其注册到一个”由内核管理的数据结构“，而且还是向该数据结构添加、删除文件描述符感兴趣的事件。ok，既然提到这个数据结构可以<code>添加、删除</code>，这个直觉告诉我们，内核是否用一个类似python列表（或者链表）的方式来管理所有监听文件描述符呢（其中列表中每项用）？不妨假设epoll就是用python列表管理fds，来讨论”原版epoll“的设计：<br>1) epoll_create(size)是内核创建一个python列表<br>epoll_list= epoll_create(size=100) //全局list变量，用户进程持有，可监听100个外部文件描述符。<br>2) 假设现在有2个新的外部socket连接请求server，3个tcp的socket连接对应文件描述符为4、5、6，注册事件为EPOLLIN可读<br>注册过程如下<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">epoll_list= epoll_create(size=<span class="number">100</span>) </span><br><span class="line"><span class="keyword">while</span> <span class="literal">True</span>:</span><br><span class="line">	connect_fd=socket_obj.accept().fd</span><br><span class="line">	epoll_ctl(epoll_list, op=<span class="string">&#x27;EPOLL_CTL_ADD&#x27;</span>,&#123;<span class="string">&#x27;fd&#x27;</span>:connect_fd,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;)</span><br><span class="line">	</span><br></pre></td></tr></table></figure><br>op都是添加，说明是向epoll_list进行append操作</p>
+<p>3) 由于用户空间持有epoll_list，若内核要处理epoll，需将epoll_list拷贝到内核空间，对于内核，它看到的epoll_list如下：<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">epoll_list=[ </span><br><span class="line">&#123;<span class="string">&#x27;fd&#x27;</span>:<span class="number">4</span>,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;,</span><br><span class="line">&#123;<span class="string">&#x27;fd&#x27;</span>:<span class="number">5</span>,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;,</span><br><span class="line">&#123;<span class="string">&#x27;fd&#x27;</span>:<span class="number">6</span>,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;,</span><br><span class="line">]</span><br></pre></td></tr></table></figure></p>
+<p>4) 假设现在文件描述符4、5可读，最终调用回调函数处理业务：<br><code>ready_fds_list=epoll_wait(epoll_list,events,maxevents=10, timeout=-1)</code># epoll_list又从内核空间拷贝到用户空间，当前仅有2个文件描述符，性能还ok，而且假设返回的是就绪文件描述符列表:<br><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ready_fds_list=[ </span><br><span class="line">&#123;<span class="string">&#x27;fd&#x27;</span>:<span class="number">4</span>,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;,</span><br><span class="line">&#123;<span class="string">&#x27;fd&#x27;</span>:<span class="number">5</span>,<span class="string">&#x27;listen_event&#x27;</span>:<span class="string">&#x27;EPOLLIN&#x27;</span>&#125;,</span><br><span class="line">]</span><br><span class="line"><span class="keyword">for</span>  each_fd <span class="keyword">in</span> ready_fds_list:</span><br><span class="line">	callback(each_fd)</span><br></pre></td></tr></table></figure><br>经过上面4个步骤，我们貌似造出了一个可易于理解的、python版本的<code>epoll</code>。下面介绍<code>原版epoll设计</code></p>
+<h6 id="真epoll设计"><a href="#真epoll设计" class="headerlink" title="真epoll设计"></a>真epoll设计</h6><p><strong>第一点</strong>：上面简陋python版本epoll，用列表来管理所有监听的文件描述符<br><code>epoll_list= epoll_create(size=100)</code><br>==真实设计==：<code>epoll_fd= epoll_create(size=100)</code>，Linux用一个特殊文件描述符，并创建了eventpoll实例，eventpoll里面指向了一个<code>红黑树</code>，这棵树就是用于存放所有监听的文件描述符及其事件。</p>
+<p><strong>第二点</strong>：上面简陋python版本epoll，用列表来管理所有监听的文件描述符，每次有新的socket连接，注册fd以及获取活动fd都会发生用户态到内核态、内核态到用户态切换：拷贝的对象——epoll_list。假设当前服务器有10万个socket连接请求，那么将发生10万次用户态到内核态切换，以及10万次内核态到用户态的切换，显然效率极低。<br>==真实设计==：第一点说了，用epoll_fd指向一颗存放在内核空间的红黑树，如何避免用户态和内核态频繁切换？Linux用mmap()函数解决。mmap将用户空间的一块地址和内核空间的一块地址同时映射到同一块物理内存地址，使得这块物理内存对用户进程和内核均可访问，砍掉用户态和内核态切换的环节（注意区别zero copy）。也就是说内核拿到epoll_fd后，可直接操作epoll_fd指向的红黑树上存放的所有被监听的文件描述符，妙了！<br>==这里说的epoll_fd是如何实现在底层指向一个红黑树呢?==<br>用户进程调用：epoll_fd=epoll_create(size)时，用户进程mmap映射的一块物理地址上就创建一个eventpoll结构体对象，该对象包含一个红黑树的根节点，从而实现epoll_fd由此至终都指向这颗红黑树（内核也可直接访问）：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">eventpoll</span>&#123;</span>  </span><br><span class="line">    ....  </span><br><span class="line">    <span class="comment">/*红黑树的根节点，这颗树的节点存储着epoll_fd所有要监听的文件描述符及该文件描述符关联的其他属性*/</span>  </span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">rb_root</span>  <span class="title">rbr</span>;</span>  </span><br><span class="line">    <span class="comment">/*双链表中则存放着将要通过epoll_wait返回给用户的满足条件文件描述符、事件类型*/</span>  </span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">list_head</span> <span class="title">rdlist</span>;</span>  </span><br><span class="line">    <span class="comment">/*还有其他成员变量，这里省略了，因为我们更关注存放就绪事件链表和存放被监听的所有文件描述符的红黑树 */</span></span><br><span class="line">    ....  </span><br><span class="line">&#125;;  </span><br></pre></td></tr></table></figure><br>&#8195;&#8195;上面的rdllist是一个双向链表，用于存储就绪事件的文描述符。用户进程代码执行epoll_wait时，执行流阻塞（在底层，是内核让进程休眠），直到监听的文件描述符有中断事件发生，内核将这些就绪文件描述符添加到rdlist里面，最后返回用户的是events数组，数组包含就绪的fd及其事件类型。</p>
+<p><strong>第三点</strong>：用列表存放大量项，但需要进行增或者删除操作时，列表时间复杂度为<br>&#8195;&#8195;时间复杂度O(N)，想象下10万个连接的时间复杂度<br>==真实设计==：Linux为epoll设计了一个红黑树的数据结构，当调用epoll_ctl函数用于添加或者删除一个文件描述符时，对应内核而已，都是在红黑树的节点去处理，而红黑树本身插入和删除性能比列表高，时间复杂度O(logN)，N为树的高度，太巧妙了。<br>&#8195;&#8195;这个红黑树上的节点存放什么数据呢？每个节点称为epoll item结构，里面的组成如下：<br>fd:被epoll对象监听的文件描述符（client发起的socket连接对应的文件描述符）<br>event：要监听该fd的就绪事件，例如前面说的EPOLLIN可读事件<br>file:在1.6章节提到的系统文件表中，一个文件描述符对应系统文件表中一个文件项，这个文件项就是file类型，用于指向inode）<br>ready_node:双向链表中一个就绪事件的节点，可指回双向链表。</p>
+<p><img src="https://img-blog.csdnimg.cn/20200118225411426.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>&#8195;&#8195;用户进程调用epoll_create函数，对应在内核就已经创建了一个全局唯一eventpoll实例（object），对应背后完整的数据结构如下，示意图来源于<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/50984245">该文章</a>：<br>&#8195;&#8195;图中的list就是双向链表，可以清楚看出epoll主要用了两个struct类型（当然不止这2个成员变量，还有锁、等待队列）和两种数据结构，完成高并发IO模型的构建，设计巧妙。因此，如果大家提高个人开发能力以及设计能力，数据结构必须要精通！（这里涉及到内核对红黑树、链表的操作是线程安全的，源码用了锁保操作原子性）<br><img src="https://img-blog.csdnimg.cn/20200119210515593.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>&#8195;&#8195;关于更深入的epoll红黑树以及事件就绪链表等底层的代码实现和图解析，这里有两篇文章，写得很好，作者根据英文原版内容自行理解后的整理：<br><a target="_blank" rel="noopener" href="https://www.cnblogs.com/sduzh/p/6714281.html">《Linux内核笔记：epoll实现原理（一）》</a><br><a target="_blank" rel="noopener" href="https://www.cnblogs.com/sduzh/p/6793879.html">《Linux内核笔记：epoll实现原理（二）》</a><br>（英文原版的链接现无法访问，地址<a target="_blank" rel="noopener" href="https://idndx.com/2014/09/01/the-implementation-of-epoll-1/">《the-implementation-of-epoll》</a> )</p>
+<h5 id="4-3-level-trigger和edge-trigger"><a href="#4-3-level-trigger和edge-trigger" class="headerlink" title="4.3 level trigger和edge trigger"></a>4.3 level trigger和edge trigger</h5><p>&#8195;&#8195;epoll工作模式支持水平触发(level trigger，简称LT，又称普通模式)和边缘触发(edge trigger，简称ET，又称“高速模式”)，而select和poll只支持LT模式。这里说的触发需要通过以下详细的说明来体会其内涵：<br>==level trigger模式的触发条件：==</p>
+<ul>
+<li>对于读就绪事件，只要用户程序没有读完fd的数据，也即缓冲内容不为空，epoll_wait还会继续返回该fd，让用户程序继续读该fd</li>
+<li>对于写就绪事件，只要用户程序未向fd写满数据，也即缓冲区还不满，epoll_wait还会继续返回该fd，让用户程序继续对该fd写操作</li>
+</ul>
+<p>原理解释：<br>&#8195;&#8195;假设当前用户进程添加监听的文件描述符为4，以下简称为4fd，当该4fd有可读可写就绪事件时，epoll_wait()有返回，于是用户程序去进行读写操作，如果当前这一轮用户程序没有把4fd数据一次性全部读写完，那么下一轮调用 epoll_wait()时，它还会返回4fd这个事件对象，让你继续把4fd的缓存区上读或者写。如果用户程序一直不去读写，它会一直通知返回4fd。<br>参考代码如下：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/epoll.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">void</span>)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">　　<span class="keyword">int</span> epfd,nfds;</span><br><span class="line">　　<span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">ev</span>,<span class="title">events</span>[10];</span> <span class="comment">//ev用于注册事件，数组用于返回要处理的事件</span></span><br><span class="line">　　epfd = epoll_create(<span class="number">1</span>); <span class="comment">//监听标准输入描述符，用于做测试</span></span><br><span class="line">　　ev.data.fd = STDIN_FILENO; <span class="comment">//标准输入描述符绑定到用户data的fd变量</span></span><br><span class="line">　　ev.events = EPOLLIN; <span class="comment">//监听读事件，且默认为LT水平触发事件</span></span><br><span class="line">　　epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &amp;ev); <span class="comment">//注册epoll事件</span></span><br><span class="line">　　<span class="keyword">for</span>(;;)</span><br><span class="line">　　&#123;</span><br><span class="line">　　　　nfds = epoll_wait(epfd, events, <span class="number">5</span>, <span class="number">-1</span>); <span class="comment">//内核返回就绪事件</span></span><br><span class="line">　　　　<span class="keyword">for</span>(<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; nfds; i++)</span><br><span class="line">　　　　&#123;</span><br><span class="line">　　　　　　<span class="keyword">if</span>(events[i].data.fd==STDIN_FILENO) <span class="comment">//如果返回的事件对象的fd为标准输入fd，则打印字符串，注意到，用户程序没有在缓存区读取数据</span></span><br><span class="line">　　　　　　　　<span class="built_in">printf</span>(<span class="string">&quot;epoll LT mode&quot;</span>);</span><br><span class="line"></span><br><span class="line">　　　　&#125;</span><br><span class="line">　　&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;上面代码最关键的地方：在<code>if(events[i].data.fd==STDIN_FILENO)</code>之后，用户程序没有在标准输入的缓存区读取数据，根据水平触发原理，epoll_wait一直返回STDIN_FILENO这个就绪读事件，该代码最终效果：屏幕标准输出一直打印”epoll LT mode”字符串。<br>&#8195;&#8195;上面的过程可以解释为何LT模式是epoll工作效率较低的模式，具体说明如下：<br>&#8195;&#8195;假设除了感兴趣监听的文件描述符4fd，还有另外100个我不需要读写文件描述符（监听它们不代表一定要处理他们的就绪读写事件），最终会出现这样场景：epoll_wait每次都把这100个fd返回，而我只想对4fd进行读写，因此导致程序必须从101个fd中检索出4fd，若这些100fd以更高的优先级返回，那么用户则更晚才能拿到4fd，最终降低业务处理效率。</p>
+<p>==edge trigger模式的触发条件：==</p>
+<ul>
+<li><p>对于读就绪事件，常见触发条件：<br> 缓冲区由空变为不空的时候（有数据可读时）<br> 当有新增数据到达时，即缓冲区中的待读数据变多时</p>
+<ul>
+<li>对于写就绪事件，常见触发条件<br> 缓冲区由满变为空的时候（可写）<br>当有旧数据被发送走，即缓冲区中的内容变少的时</li>
+</ul>
+</li>
+</ul>
+<p>原理解释：<br>&#8195;&#8195;假设当前用户进程添加监听的文件描述符为4，以下简称为4fd，当该4fd有可读可写就绪事件时，epoll_wait()有返回，于是用户程序去读写操作，如果当前这一轮用户程序没有把4fd数据一次性全部读写完，那么下次调用epoll_wait()时，它不会再返回这个4fd就绪事件，直到在4fd上出现新的可读写事件才会通知你。这种模式比水平触发效率高，系统不会充斥大量你不关心的就绪文件描述符。<br>参考代码如下：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/epoll.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">void</span>)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">　　<span class="keyword">int</span> epfd,nfds;</span><br><span class="line">　　<span class="class"><span class="keyword">struct</span> <span class="title">epoll_event</span> <span class="title">ev</span>,<span class="title">events</span>[10];</span> <span class="comment">//ev用于注册事件，数组用于返回要处理的事件</span></span><br><span class="line">　　epfd = epoll_create(<span class="number">1</span>); <span class="comment">//监听标准输入描述符，用于做测试</span></span><br><span class="line">　　ev.data.fd = STDIN_FILENO; <span class="comment">//标准输入描述符绑定到用户data的fd变量</span></span><br><span class="line">　　ev.events = EPOLLIN|EPOLLET; <span class="comment">//监听读事件，而且开启ET触发事件</span></span><br><span class="line">　　epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &amp;ev); <span class="comment">//注册epoll事件</span></span><br><span class="line">　　<span class="keyword">for</span>(;;)</span><br><span class="line">　　&#123;</span><br><span class="line">　　　　nfds = epoll_wait(epfd, events, <span class="number">5</span>, <span class="number">-1</span>); <span class="comment">//内核返回就绪事件</span></span><br><span class="line">　　　　<span class="keyword">for</span>(<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; nfds; i++)</span><br><span class="line">　　　　&#123;</span><br><span class="line">　　　　　　<span class="keyword">if</span>(events[i].data.fd==STDIN_FILENO) <span class="comment">//如果返回的事件对象的fd为标准输入fd，则打印字符串，注意到，用户程序没有在缓存区读取数据</span></span><br><span class="line">　　　　　　　　<span class="built_in">printf</span>(<span class="string">&quot;epoll ET mode&quot;</span>);</span><br><span class="line"></span><br><span class="line">　　　　&#125;</span><br><span class="line">　　&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;程序运行效果：<code>ev.events = EPOLLIN|EPOLLET</code>，将epoll监听的标准输入文件描述符设为ET模式，当向stdin敲入字符串abc时，缓存区由空转为不空，触发epoll_wait返回就绪事件，而之后用户程序并没有把缓冲区读取数据，根据ET原理，程序只打印一次”epoll ET mode”后就被阻塞。因为epoll_wait只通知一次，下次不再通知用户该4fd事件。除非外界再向stdin敲入字符串以至缓存区新增了数据，epoll_wait就会通知用户这个4fd有就绪事件。</p>
+<h5 id="4-4-水平触发和边缘触发的小结"><a href="#4-4-水平触发和边缘触发的小结" class="headerlink" title="4.4 水平触发和边缘触发的小结"></a>4.4 水平触发和边缘触发的小结</h5><p>&#8195;&#8195;以某个被监听的文件描述符发生读事件作为示例：</p>
+<ul>
+<li>a.对于某个监听的文件描述符fd，假设其指向的读缓冲区初始时刻为空</li>
+<li>b. 假设内核拷贝了4KB数据到用户进程的读缓冲区<ul>
+<li>c.不管水平触发还是边缘触发模式，epoll_wait此时都会返回可读就绪事件</li>
+<li>d. 若采用水平触发方式，用户读取了2KB的数据，读缓冲区还剩余2KB数据，epoll_wait还会继续返回（通知）用户fd有可读就绪事件，直到读缓冲变为空为止。</li>
+</ul>
+</li>
+<li>f.若采用边缘触发方式，用户读取了2KB的数据，读缓冲区还剩余2KB数据，epoll_wait不再返回（通知）用户fd有可读就绪事件，除非读缓存区被用户进程或者内核写入新增数据例如1KB（此时读取缓冲变为3KB数据)那么epoll_wait才会通知用户有可读就绪事件。</li>
+</ul>
+<p>&#8195;&#8195;到此，已经完成对epoll深入解析的内容，当你掌握这些底层原理后，再回看当前出色中间件或框架如redis、nginx、node.js、tornado等，真香！</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8/" rel="tag"># IO多路复用</a>
+              <a href="/blog/tags/epoll/" rel="tag"># epoll</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2020/01/14/Spark%20DataFrame%E3%80%81Spark%20SQL%E3%80%81Spark%20Streaming%E5%85%A5%E9%97%A8%E6%95%99%E7%A8%8B/" rel="prev" title="Spark DataFrame、Spark SQL、Spark Streaming入门教程">
+      <i class="fa fa-chevron-left"></i> Spark DataFrame、Spark SQL、Spark Streaming入门教程
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2020/03/06/%E5%9F%BA%E4%BA%8EPySpark%E6%95%B4%E5%90%88Spark%20Streaming%E4%B8%8EKafka/" rel="next" title="基于PySpark整合Spark Streaming与Kafka">
+      基于PySpark整合Spark Streaming与Kafka <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81%E7%90%86%E8%A7%A3%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6"><span class="nav-number">1.</span> <span class="nav-text">1、理解文件描述符</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#1-1-%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5"><span class="nav-number">1.1.</span> <span class="nav-text">1.1 基本概念</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-2-%E6%89%93%E5%BC%80%E4%B8%80%E4%B8%AA%E6%96%87%E4%BB%B6"><span class="nav-number">1.2.</span> <span class="nav-text">1.2 打开一个文件</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-3-%E5%AF%B9%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6%E8%BF%9B%E8%A1%8C%E8%AF%BB%E5%86%99"><span class="nav-number">1.3.</span> <span class="nav-text">1.3 对文件描述符进行读写</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-4-%E9%80%9A%E8%BF%87%E7%AE%A1%E9%81%93%E6%89%93%E5%BC%80%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6"><span class="nav-number">1.4.</span> <span class="nav-text">1.4 通过管道打开文件描述符</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-5-%E5%B8%B8%E8%A7%81%E7%9A%84%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A60%E3%80%811%E3%80%812"><span class="nav-number">1.5.</span> <span class="nav-text">1.5 常见的文件描述符0、1、2</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-6-%E8%BF%9B%E7%A8%8B%E6%89%93%E5%BC%80%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6%E7%9A%84%E4%B8%AA%E6%95%B0"><span class="nav-number">1.6.</span> <span class="nav-text">1.6 进程打开文件描述符的个数</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#1-7-%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86"><span class="nav-number">1.7.</span> <span class="nav-text">1.7 文件描述符底层原理</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E6%9C%AC%E8%8A%82%E5%B0%8F%E7%BB%93"><span class="nav-number">1.8.</span> <span class="nav-text">本节小结</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81-IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E5%8E%9F%E7%90%86"><span class="nav-number">2.</span> <span class="nav-text">2、 IO多路复用原理</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#2-1-IO%E8%A7%A6%E5%8F%91%E7%94%A8%E6%88%B7%E7%A9%BA%E9%97%B4%E4%B8%8E%E5%86%85%E6%A0%B8%E7%A9%BA%E9%97%B4%E4%B9%8B%E9%97%B4%E7%9A%84%E5%88%87%E6%8D%A2"><span class="nav-number">2.1.</span> <span class="nav-text">2.1 IO触发用户空间与内核空间之间的切换</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#2-2-IO%E6%A8%A1%E5%9E%8B%E7%9A%84%E4%BB%8B%E7%BB%8D"><span class="nav-number">2.2.</span> <span class="nav-text">2.2 IO模型的介绍</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#%E5%90%8C%E6%AD%A5%E9%98%BB%E5%A1%9EIO"><span class="nav-number">2.2.1.</span> <span class="nav-text">同步阻塞IO</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#%E5%90%8C%E6%AD%A5%E9%9D%9E%E9%98%BB%E5%A1%9EIO"><span class="nav-number">2.2.2.</span> <span class="nav-text">同步非阻塞IO</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E6%A8%A1%E5%BC%8F"><span class="nav-number">2.2.3.</span> <span class="nav-text">IO多路复用模式</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF%EF%BC%9A"><span class="nav-number">2.2.4.</span> <span class="nav-text">IO多路复用适用场景：</span></a></li></ol></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3select%E3%80%81poll"><span class="nav-number">3.</span> <span class="nav-text">3、深入理解select、poll</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E7%90%86%E8%A7%A3select%E5%87%BD%E6%95%B0"><span class="nav-number">3.1.</span> <span class="nav-text">理解select函数</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E7%90%86%E8%A7%A3poll%E5%87%BD%E6%95%B0"><span class="nav-number">3.2.</span> <span class="nav-text">理解poll函数</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3epoll"><span class="nav-number">4.</span> <span class="nav-text">4、深入理解epoll</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#4-1-epoll%E7%9A%84c%E8%AF%AD%E8%A8%80%E6%8E%A5%E5%8F%A3%E8%AF%A6%E8%A7%A3%EF%BC%9A"><span class="nav-number">4.1.</span> <span class="nav-text">4.1 epoll的c语言接口详解：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#4-2-epoll%E7%94%A8%E7%BA%A2%E9%BB%91%E6%A0%91%E7%AE%A1%E7%90%86%E6%89%80%E6%9C%89%E7%9B%91%E5%90%AC%E6%96%87%E4%BB%B6%E6%8F%8F%E8%BF%B0%E7%AC%A6"><span class="nav-number">4.2.</span> <span class="nav-text">4.2 epoll用红黑树管理所有监听文件描述符</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#%E7%94%A8python%E8%AE%BE%E8%AE%A1%E4%B8%80%E4%B8%AA%E4%BC%AAepoll%E6%A8%A1%E5%9E%8B%EF%BC%9F"><span class="nav-number">4.2.1.</span> <span class="nav-text">用python设计一个伪epoll模型？</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#%E7%9C%9Fepoll%E8%AE%BE%E8%AE%A1"><span class="nav-number">4.2.2.</span> <span class="nav-text">真epoll设计</span></a></li></ol></li><li class="nav-item nav-level-5"><a class="nav-link" href="#4-3-level-trigger%E5%92%8Cedge-trigger"><span class="nav-number">4.3.</span> <span class="nav-text">4.3 level trigger和edge trigger</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#4-4-%E6%B0%B4%E5%B9%B3%E8%A7%A6%E5%8F%91%E5%92%8C%E8%BE%B9%E7%BC%98%E8%A7%A6%E5%8F%91%E7%9A%84%E5%B0%8F%E7%BB%93"><span class="nav-number">4.4.</span> <span class="nav-text">4.4 水平触发和边缘触发的小结</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

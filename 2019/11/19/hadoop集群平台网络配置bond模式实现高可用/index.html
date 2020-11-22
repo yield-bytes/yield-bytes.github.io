@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在前面文章关于hadoop大数据项目开发中，每台服务器之间其实存在大量的IO，例如NameNode服务器和DataNode服务器同步fimag文件件，DataNode之间的数据IO，为压榨服务器对于超大数据的吞吐量，在服务器的网络层使用bond模式配置Linux网卡，可以将该服务器上多个物理网卡虚拟成一张网卡，由该虚拟网卡对外提供统一网络服务，实现多个网卡自适应负载均衡">
+<meta property="og:type" content="article">
+<meta property="og:title" content="hadoop集群平台网络配置bond模式实现高可用">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/11/19/hadoop%E9%9B%86%E7%BE%A4%E5%B9%B3%E5%8F%B0%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AEbond%E6%A8%A1%E5%BC%8F%E5%AE%9E%E7%8E%B0%E9%AB%98%E5%8F%AF%E7%94%A8/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在前面文章关于hadoop大数据项目开发中，每台服务器之间其实存在大量的IO，例如NameNode服务器和DataNode服务器同步fimag文件件，DataNode之间的数据IO，为压榨服务器对于超大数据的吞吐量，在服务器的网络层使用bond模式配置Linux网卡，可以将该服务器上多个物理网卡虚拟成一张网卡，由该虚拟网卡对外提供统一网络服务，实现多个网卡自适应负载均衡">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-11-19T12:54:57.000Z">
+<meta property="article:modified_time" content="2020-11-21T16:56:57.296Z">
+<meta property="article:tag" content="hadoop集群网络配置">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/11/19/hadoop%E9%9B%86%E7%BE%A4%E5%B9%B3%E5%8F%B0%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AEbond%E6%A8%A1%E5%BC%8F%E5%AE%9E%E7%8E%B0%E9%AB%98%E5%8F%AF%E7%94%A8/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>hadoop集群平台网络配置bond模式实现高可用 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/11/19/hadoop%E9%9B%86%E7%BE%A4%E5%B9%B3%E5%8F%B0%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AEbond%E6%A8%A1%E5%BC%8F%E5%AE%9E%E7%8E%B0%E9%AB%98%E5%8F%AF%E7%94%A8/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          hadoop集群平台网络配置bond模式实现高可用
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-11-19 20:54:57" itemprop="dateCreated datePublished" datetime="2019-11-19T20:54:57+08:00">2019-11-19</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-11-22 00:56:57" itemprop="dateModified" datetime="2020-11-22T00:56:57+08:00">2020-11-22</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Hadoop/" itemprop="url" rel="index"><span itemprop="name">Hadoop</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>5.3k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>5 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在前面文章关于hadoop大数据项目开发中，每台服务器之间其实存在大量的IO，例如NameNode服务器和DataNode服务器同步fimag文件件，DataNode之间的数据IO，为压榨服务器对于超大数据的吞吐量，在服务器的网络层使用bond模式配置Linux网卡，可以将该服务器上多个物理网卡虚拟成一张网卡，由该虚拟网卡对外提供统一网络服务，实现多个网卡自适应负载均衡以及提高数据的吞吐量，同时也实现链路双备份功能，保证服务器底层网络高可用性。bond虚拟网卡可以绑定多个网络，例如绑定2两个网卡，一般物理服务器有4个千兆网卡，所以也可以绑定4个网卡，绑定的网卡类型需要一致，否则无法进行bond模式配置。<br>&#8195;&#8195;以centos7.5 的两个网卡配成bond模式作为示例，其中在之前的hadoop的相关文章里，nn节点与dn2节点构成HA，dn节点作为DataNode，当这三个节点的底层网络都配成bond模式，将进一步提高本blog之前搭建大数据开发平台的高可用性。作为全栈开发者，这些涉及简单网络的配置，应该需要掌握。</p>
+<a id="more"></a>
+<h4 id="1、为测试服务器添加多个网卡"><a href="#1、为测试服务器添加多个网卡" class="headerlink" title="1、为测试服务器添加多个网卡"></a>1、为测试服务器添加多个网卡</h4><p>在VMware workstations中，给相应服务器新增一个网卡，选择NAT模式，这样这是基于虚拟机操作，实际生成环境中，我的开发项目会部署在真实服务器上，真实服务器不需要NAT模式。</p>
+<h4 id="2、查看测试服务器的网卡信息"><a href="#2、查看测试服务器的网卡信息" class="headerlink" title="2、查看测试服务器的网卡信息"></a>2、查看测试服务器的网卡信息</h4><p>原网卡ens33是配有IP的，新增的网卡ens37无IP绑定。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# ip a</span><br><span class="line"></span><br><span class="line">2: ens33: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.188.0.5/24 brd 192.188.0.255 scope global noprefixroute ens33</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">3: ens37: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f2 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet6 ***/64 scope link noprefixroute </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
+<p>可以看到两个网卡ens33和ens37，都是千兆网速，都为up状态</p>
+<h4 id="3、配置两个网卡"><a href="#3、配置两个网卡" class="headerlink" title="3、配置两个网卡"></a>3、配置两个网卡</h4><h5 id="3-1-这里需要先把原网卡配置拷贝一份作为备份。"><a href="#3-1-这里需要先把原网卡配置拷贝一份作为备份。" class="headerlink" title="3.1 这里需要先把原网卡配置拷贝一份作为备份。"></a>3.1 这里需要先把原网卡配置拷贝一份作为备份。</h5><p>备份网卡ens33的配置文件</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# pwd</span><br><span class="line">/etc/sysconfig/network-scripts</span><br><span class="line">[root@nn network-scripts]# cp ifcfg-ens33 ifcfg-ens33.bak</span><br></pre></td></tr></table></figure>
+<p>新增网卡ens37是没有对应配置文件，只需要从ens33拷贝一份即可</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# cp ifcfg-ens33 ifcfg-ens37</span><br></pre></td></tr></table></figure>
+<h5 id="3-2-将ens33和ens37配成slave模式"><a href="#3-2-将ens33和ens37配成slave模式" class="headerlink" title="3.2 将ens33和ens37配成slave模式"></a>3.2 将ens33和ens37配成slave模式</h5><p>这里不再需要配置ip和dns，mac地址也不需要配置，linux自动识别。</p>
+<p>配置ens33，</p>
+<p>注意该网卡已配置有IP，在改完该网卡配置后，请勿直接重启网卡，否则ssh无法远程连接，因为slave模式下，该网卡配置文件里面是无IP地址的。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=ens33</span><br><span class="line">NAME=ens33</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">ONBOOT=yes</span><br><span class="line">NM_CONTROLLED=yes</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line"><span class="meta">#</span><span class="bash"> bond网卡的名字</span></span><br><span class="line">MASTER=bond0</span><br><span class="line"><span class="meta">#</span><span class="bash"> ens33网卡启用slave模式</span></span><br><span class="line">SLAVE=yes</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>配置ens37 ，同上</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=ens37</span><br><span class="line">NAME=ens37</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">ONBOOT=yes</span><br><span class="line">NM_CONTROLLED=yes</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line"><span class="meta">#</span><span class="bash"> bond网卡的名字</span></span><br><span class="line">MASTER=bond0</span><br><span class="line"><span class="meta">#</span><span class="bash"> ens33网卡启用slave模式</span></span><br><span class="line">SLAVE=yes</span><br></pre></td></tr></table></figure>
+<p>若有更多的网卡需要绑定为bond0模式，则按以上配置改即可。</p>
+<h4 id="4、配置bond0虚拟网卡"><a href="#4、配置bond0虚拟网卡" class="headerlink" title="4、配置bond0虚拟网卡"></a>4、配置bond0虚拟网卡</h4><p>在 <code>/etc/sysconfig/network-scripts</code>下，需要创建一个<code>ifcfg-bond0</code>文件，用于配置名字为bond0的虚拟网卡，注意这里bond0只是一个名字，可以按需要命名，例如mybond。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# vi ifcfg-bond0</span><br></pre></td></tr></table></figure>
+<p>配置文件如下</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=bond0</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">NM_CONTROLLER=no</span><br><span class="line">BONDING_OPTS=&quot;miimon=100 mode=6&quot;</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line">ONBOOT=yes</span><br><span class="line">IPADDR=192.188.0.5</span><br><span class="line">NETMASK=255.255.255.0</span><br><span class="line">GATEWAY=192.188.0.1</span><br><span class="line">DNS1=114.114.114.114</span><br><span class="line">DNS2=114.114.114.115</span><br></pre></td></tr></table></figure>
+<p>若不想在bond0配置文件写入<code>BONDING_OPTS=&quot;miimon=100 mode=6&quot;</code></p>
+<p>也可以在/etc/modprobe.d/dist.conf</p>
+<p>新增如下两行：</p>
+<p><code>alias bond0 bonding
+options bond0 miimon=100 mode=6</code></p>
+<p>但个人建议直接在bond0网卡配置mod模式，方便后期查看和更改。</p>
+<h4 id="5、bond0的配置说明和工作原理"><a href="#5、bond0的配置说明和工作原理" class="headerlink" title="5、bond0的配置说明和工作原理"></a>5、bond0的配置说明和工作原理</h4><p>重点配置项为：BONDING_OPTS=”miimon=100 mode=6”</p>
+<p>该配置文件:miimon=100，意思是linux每100ms监测一次本服务器网络链路连接状态（这里说的网络连接，是指该服务器网卡与接入层交换机端口连接的状态），如果有其中网卡例如ens33中断，那么bond0会将网络连接切到可用ens37；</p>
+<p>mode的值表示工作模式，共有0，1，2，3，4，5，6六种模式，常用为0，6，1三种</p>
+<ul>
+<li>mode=0，表示load balancing (round-robin)为负载均衡方式，两块网卡都工作，但是与网卡相连的交换必须做特殊配置（ 这两个端口需要配置成聚合方式），因为做bonding的这两块网卡是使用同一个MAC地址</li>
+<li><p>mode=1，表示fault-tolerance (active-backup)提供冗余功能，工作方式是主备的工作方式，也就是说默认情况下只有一块网卡工作，另一块做备份 。</p>
+</li>
+<li><p>mode=6，表示load balancing (round-robin)为负载均衡方式，两块网卡都工作，该模式下无需配置交换机，因为做bonding的这两块网卡是使用不同的MAC地址。</p>
+<p>mode6因为可以做负载均衡，因此实际场景使用效果好，mode6的工作原理：bond0虚拟网卡的mac地址为两张网卡mac地址其中的一个，bond0通过更改自身与某个网卡一样的Mac地址，以达到随时切换转发数据包到相应正常工作的网卡中。从外部交换机来看，交换机只看到bond0这个网卡，bond0就像Nginx，都是代理角色，代理后面有多个实体。</p>
+<p>mode6负载均衡的是这么实现的：</p>
+<p>假设测试服务器的网卡ens33连接交换机33号端口，ens37连接交换机37端口。</p>
+<p>当bond0检测到ens33流量超过阈值时，则bond0会将自己Mac地址切换到en37的mac地址，所以交换机通过发arp广播包，找到37端口就是连接ens37网卡，所以网络流量就从交换机37端口转发到ens37网卡。</p>
+</li>
+</ul>
+<h4 id="6、-加载内核bond模块-modprobe-bonding"><a href="#6、-加载内核bond模块-modprobe-bonding" class="headerlink" title="6、 加载内核bond模块 modprobe bonding"></a>6、 加载内核bond模块 modprobe bonding</h4><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# modprobe bonding</span><br><span class="line">[root@nn network-scripts]# lsmod |grep bond </span><br><span class="line">bonding               152656  0 </span><br></pre></td></tr></table></figure>
+<p>重启网络</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# service network restart</span><br><span class="line">Restarting network (via systemctl):                        [  OK  ]</span><br></pre></td></tr></table></figure>
+<h4 id="7、查看bond0虚拟网卡状态并测试主备网卡切换"><a href="#7、查看bond0虚拟网卡状态并测试主备网卡切换" class="headerlink" title="7、查看bond0虚拟网卡状态并测试主备网卡切换"></a>7、查看bond0虚拟网卡状态并测试主备网卡切换</h4><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# cat /proc/net/bonding/bond0 </span><br><span class="line">Ethernet Channel Bonding Driver: v3.7.1 (April 27, 2011)</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 负载均衡模式</span></span><br><span class="line">Bonding Mode: adaptive load balancing</span><br><span class="line">Primary Slave: None</span><br><span class="line"><span class="meta">#</span><span class="bash"> 当前对外连接网络额度是网卡ens33</span></span><br><span class="line">Currently Active Slave: ens33</span><br><span class="line"><span class="meta">#</span><span class="bash"> 状态up</span></span><br><span class="line">MII Status: up</span><br><span class="line">MII Polling Interval (ms): 100</span><br><span class="line">Up Delay (ms): 0</span><br><span class="line">Down Delay (ms): 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens33</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f1</span><br><span class="line">Slave queue ID: 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f2</span><br><span class="line">Slave queue ID: 0</span><br></pre></td></tr></table></figure>
+<p>查看bond0的mac地址，跟ens33的mac地址一样：12:1d:21:fg:43:f1 </p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# ip a</span><br><span class="line"></span><br><span class="line">2: ens33: &lt;BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast master bond0 state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">3: ens37: &lt;BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast master bond0 state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f2 brd ff:ff:ff:ff:ff:ff</span><br><span class="line"></span><br><span class="line">191: bond0: &lt;BROADCAST,MULTICAST,MASTER,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.142.4/24 brd 192.168.142.255 scope global noprefixroute bond0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
+<p>关闭ens33网卡，看看bond0是否会切换到ens37</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# ifdown ens33</span><br><span class="line">Device &#x27;ens33&#x27; successfully disconnected.</span><br><span class="line"></span><br><span class="line">[root@localhost network-scripts]# cat /proc/net/bonding/bond0 </span><br><span class="line">Ethernet Channel Bonding Driver: v3.7.1 (April 27, 2011)</span><br><span class="line"></span><br><span class="line">Bonding Mode: adaptive load balancing</span><br><span class="line">Primary Slave: None</span><br><span class="line"><span class="meta">#</span><span class="bash"> 可以看到当ens33不工作后，网络连接已经切换到ens37</span></span><br><span class="line">Currently Active Slave: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">MII Polling Interval (ms): 100</span><br><span class="line">Up Delay (ms): 0</span><br><span class="line">Down Delay (ms): 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f2</span><br><span class="line">Slave queue ID: 0</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/hadoop%E9%9B%86%E7%BE%A4%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AE/" rel="tag"># hadoop集群网络配置</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/11/18/Python%E5%BC%80%E5%8F%91%E5%B8%B8%E7%94%A8%E7%9A%84%E8%99%9A%E6%8B%9F%E7%8E%AF%E5%A2%83%E7%AE%A1%E7%90%86%E9%85%8D%E7%BD%AE/" rel="prev" title="Python开发常用的虚拟环境管理配置">
+      <i class="fa fa-chevron-left"></i> Python开发常用的虚拟环境管理配置
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/" rel="next" title="在hadoopHA节点上部署flume高可用组件">
+      在hadoopHA节点上部署flume高可用组件 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#1%E3%80%81%E4%B8%BA%E6%B5%8B%E8%AF%95%E6%9C%8D%E5%8A%A1%E5%99%A8%E6%B7%BB%E5%8A%A0%E5%A4%9A%E4%B8%AA%E7%BD%91%E5%8D%A1"><span class="nav-number">1.</span> <span class="nav-text">1、为测试服务器添加多个网卡</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2%E3%80%81%E6%9F%A5%E7%9C%8B%E6%B5%8B%E8%AF%95%E6%9C%8D%E5%8A%A1%E5%99%A8%E7%9A%84%E7%BD%91%E5%8D%A1%E4%BF%A1%E6%81%AF"><span class="nav-number">2.</span> <span class="nav-text">2、查看测试服务器的网卡信息</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3%E3%80%81%E9%85%8D%E7%BD%AE%E4%B8%A4%E4%B8%AA%E7%BD%91%E5%8D%A1"><span class="nav-number">3.</span> <span class="nav-text">3、配置两个网卡</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#3-1-%E8%BF%99%E9%87%8C%E9%9C%80%E8%A6%81%E5%85%88%E6%8A%8A%E5%8E%9F%E7%BD%91%E5%8D%A1%E9%85%8D%E7%BD%AE%E6%8B%B7%E8%B4%9D%E4%B8%80%E4%BB%BD%E4%BD%9C%E4%B8%BA%E5%A4%87%E4%BB%BD%E3%80%82"><span class="nav-number">3.1.</span> <span class="nav-text">3.1 这里需要先把原网卡配置拷贝一份作为备份。</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#3-2-%E5%B0%86ens33%E5%92%8Cens37%E9%85%8D%E6%88%90slave%E6%A8%A1%E5%BC%8F"><span class="nav-number">3.2.</span> <span class="nav-text">3.2 将ens33和ens37配成slave模式</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4%E3%80%81%E9%85%8D%E7%BD%AEbond0%E8%99%9A%E6%8B%9F%E7%BD%91%E5%8D%A1"><span class="nav-number">4.</span> <span class="nav-text">4、配置bond0虚拟网卡</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5%E3%80%81bond0%E7%9A%84%E9%85%8D%E7%BD%AE%E8%AF%B4%E6%98%8E%E5%92%8C%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="nav-number">5.</span> <span class="nav-text">5、bond0的配置说明和工作原理</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#6%E3%80%81-%E5%8A%A0%E8%BD%BD%E5%86%85%E6%A0%B8bond%E6%A8%A1%E5%9D%97-modprobe-bonding"><span class="nav-number">6.</span> <span class="nav-text">6、 加载内核bond模块 modprobe bonding</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#7%E3%80%81%E6%9F%A5%E7%9C%8Bbond0%E8%99%9A%E6%8B%9F%E7%BD%91%E5%8D%A1%E7%8A%B6%E6%80%81%E5%B9%B6%E6%B5%8B%E8%AF%95%E4%B8%BB%E5%A4%87%E7%BD%91%E5%8D%A1%E5%88%87%E6%8D%A2"><span class="nav-number">7.</span> <span class="nav-text">7、查看bond0虚拟网卡状态并测试主备网卡切换</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

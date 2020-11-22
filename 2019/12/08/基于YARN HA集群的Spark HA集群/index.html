@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在前面的《基于hadoop3.1.2分布式平台上部署spark HA集群》，这篇是基于非HA模式下hadoop集群的spark集群HA配置，而本文将给出基于HA模式下hadoop集群的spark集群HA配置，并将yarn HA集群映入到spark中，做资源管理。为何要做些环境的配置呢？因为到本篇文章为止，已经完成hadoop HA集群、hbaseHA集群，hive集群（">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于YARN HA集群的Spark HA集群">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/12/08/%E5%9F%BA%E4%BA%8EYARN%20HA%E9%9B%86%E7%BE%A4%E7%9A%84Spark%20HA%E9%9B%86%E7%BE%A4/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在前面的《基于hadoop3.1.2分布式平台上部署spark HA集群》，这篇是基于非HA模式下hadoop集群的spark集群HA配置，而本文将给出基于HA模式下hadoop集群的spark集群HA配置，并将yarn HA集群映入到spark中，做资源管理。为何要做些环境的配置呢？因为到本篇文章为止，已经完成hadoop HA集群、hbaseHA集群，hive集群（">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191208110757819.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191208111208596.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191208111547983.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191208111947653.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191208120528893.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-12-08T10:06:08.000Z">
+<meta property="article:modified_time" content="2020-02-03T07:04:38.000Z">
+<meta property="article:tag" content="YARN集群">
+<meta property="article:tag" content="Spark集群">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191208110757819.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/12/08/%E5%9F%BA%E4%BA%8EYARN%20HA%E9%9B%86%E7%BE%A4%E7%9A%84Spark%20HA%E9%9B%86%E7%BE%A4/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于YARN HA集群的Spark HA集群 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/12/08/%E5%9F%BA%E4%BA%8EYARN%20HA%E9%9B%86%E7%BE%A4%E7%9A%84Spark%20HA%E9%9B%86%E7%BE%A4/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于YARN HA集群的Spark HA集群
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-12-08 18:06:08" itemprop="dateCreated datePublished" datetime="2019-12-08T18:06:08+08:00">2019-12-08</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 15:04:38" itemprop="dateModified" datetime="2020-02-03T15:04:38+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Spark/" itemprop="url" rel="index"><span itemprop="name">Spark</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>17k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>15 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在前面的<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102536716">《基于hadoop3.1.2分布式平台上部署spark HA集群》</a>，这篇是基于非HA模式下hadoop集群的spark集群HA配置，而本文将给出基于HA模式下hadoop集群的spark集群HA配置，并将yarn HA集群映入到spark中，做资源管理。为何要做些环境的配置呢？因为到本篇文章为止，已经完成hadoop HA集群、hbaseHA集群，hive集群（非HA）、sparkHA集群、flumeHA集群、kafka HA集群，实现实时数据流动，接下的文章重点探讨spark streaming、spark以及pyspark相关知识，这将涉及多个计算任务以及相关计算资源的分配，因此需要借助yarn HA集群强大的资源管理服务来管理spark的计算任务，从而实现完整的、接近生产环境的、HA模式下的大数据实时分析项目的架构。</p>
+<a id="more"></a>
+<p>服务器资源分配表(仅列出yarn和spark)：</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th>节点</th>
+<th>yarn 角色</th>
+<th>spark 角色</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>nn</td>
+<td>ResourceManager， NodeManager</td>
+<td>Master，Worker</td>
+</tr>
+<tr>
+<td>dn1</td>
+<td>NodeManager</td>
+<td>Worker</td>
+</tr>
+<tr>
+<td>dn2</td>
+<td>ResourceManager， NodeManager</td>
+<td>Master，Worker</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>&#8195;&#8195;这里再提下yarn管理大数据集群计算中对资源有效管理（主要指CPU、物理内存以及虚拟内存）的重要性：</p>
+<blockquote>
+<p>&#8195;&#8195;整个集群的计算任务由ResourceManager和NodeManager共同完成，其中，ResourceManager中的调度器负责资源的分配，而NodeManager则负责资源的供给和隔离。ResourceManager将某个NodeManager上资源分配给任务（这就是所谓的“资源调度”）后，NodeManager需按照要求为计算任务提供相应的资源，甚至保证这些资源应具有独占性，为任务运行提供基础的保证，这就是所谓的资源隔离。</p>
+</blockquote>
+<p>&#8195;&#8195;因为spark就是负责计算，有大量计算任务要运行，每个任务总得分配cpu和内存给它用，否则某些计算任务会被“饿死”（巧妇难为无米之炊），这种比喻比较形象。</p>
+<h3 id="YARN-HA模式的配置"><a href="#YARN-HA模式的配置" class="headerlink" title="YARN HA模式的配置"></a>YARN HA模式的配置</h3><p>&#8195;&#8195;yarn HA模式的运行是于hadoop HA模式运行的，关于hadoop HA部署和测试可以参考本博客文章<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102635656">《基于Hadoop HA集群部署HBase HA集群（详细版）》</a>的第6章内容，考虑到后面文章将会给出各种spark计算任务，结合测试服务器本身cpu和内存资源有限，这里主要重点介绍yarn-site.xml和mapred-site.xml配置文件说明。</p>
+<h4 id="完整-yarn-site-xml配置"><a href="#完整-yarn-site-xml配置" class="headerlink" title="完整 yarn-site.xml配置"></a>完整 yarn-site.xml配置</h4><p>&#8195;&#8195;yarn-site的配置其实分为两大块：第一部分为yarn HA集群的配置，第二部分为根据现有测试服务器资源来优化yarn配置。<br>==yarn-site.xml在三个节点上都使用相同配置，无需更改==<br>第一部分：yarn HA集群的配置<br>（注意这里仅给出property，若复制该配置内容，需在xml文件里面加入<code>&lt;configuration&gt;&lt;/configuration&gt;</code>）</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br></pre></td><td class="code"><pre><span class="line">&lt;!-- 启用yarn HA高可用性 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.ha.enabled&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;true&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 指定resourcemanager的名字，自行命名，跟服务器hostname无关 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.cluster-id&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;hayarn&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 使用了2个resourcemanager,分别指定Resourcemanager的地址 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.ha.rm-ids&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;rm1,rm2&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 指定nn节点为rm1 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.hostname.rm1&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;nn&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 指定dn2节点为rm2  --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.hostname.rm2&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;dn2&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 指定当前机器nn作为主rm1 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.ha.id&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;rm1&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- 指定zookeeper集群机器 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.resourcemanager.zk-address&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;nn:2181,dn1:2181,dn2:2181&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;!-- NodeManager上运行的附属服务，默认是mapreduce_shuffle --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;yarn.nodemanager.aux-services&lt;/name&gt;</span><br><span class="line">  &lt;value&gt;mapreduce_shuffle&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>以上将nn和dn2作为yarn集群主备节点，对应的id为rm1、rm2</p>
+<p>第二部分：yarn的优化配置<br>A、禁止检查每个任务正使用的物理内存量、虚拟内存量是否可用<br>若任务超出分配值，则将其杀掉。考虑到作为测试环境，希望看到每个job都能正常运行，以便记录其他观测事项，这里将其关闭。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line"> 	&lt;name&gt;yarn.nodemanager.pmem-check-enabled&lt;/name&gt;</span><br><span class="line"> 	&lt;value&gt;false&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line"> 	&lt;name&gt;yarn.nodemanager.vmem-check-enabled&lt;/name&gt;</span><br><span class="line"> 	&lt;value&gt;false&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br></pre></td></tr></table></figure>
+<p>B、配置RM针对单个Container能申请的最大资源或者RM本身能配置的最大内存<br>配置解释：单个容器可申请的最小与最大内存，Application在运行申请内存时不能超过最大值，小于最小值则分配最小值，例如在本文测试中，因计算任务较为简单，无需太多资源，故最小值设为512M，最大值设为1024M。注意最大最不小于1G，因为yarn给一个executor分配512M时，还需要另外动态的384M内存（Required executor memory (512), overhead (384 MB)）。<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.scheduler.minimum-allocation-mb&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;512&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.scheduler.maximum-allocation-mb&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;1024&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br></pre></td></tr></table></figure><br>若将yarn.scheduler.maximum-allocation-mb设为例如512M，spark on yarn就会启动失败。</p>
+<p>C、NM的内存资源配置，主要是通过下面两个参数进行的</p>
+<p>第一个参数：每个节点可用的最大内存，默认值为-1，代表着yarn的NodeManager占总内存的80%，本文中，物理内存为1G</p>
+<p>第二个参数：NM的虚拟内存和物理内存的比率，默认为2.1倍<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.nodemanager.resource.memory-mb&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;1024&lt;/value&gt;</span><br><span class="line">    &lt;description&gt;nm向本机申请的最大物理内存，默认8G&lt;/description&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.nodemanager.vmem-pmem-ratio&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;3&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br></pre></td></tr></table></figure><br>vmem-pmem-ratio的默认值为2.1，由于本机器中，每个节点的物理内存为1G，因此单个RM拿到最大虚拟内存为2.1G，例如在跑spark任务，会出现<code>2.5 GB of 2.1 GB virtual memory used. Killing container</code>的提示，Container申请的资源为2.5G，已经超过默认值2.1G，当改为3倍时，虚拟化够用，故解决可该虚拟不足的情况。</p>
+<h4 id="mapred-site-xml的配置文件说明"><a href="#mapred-site-xml的配置文件说明" class="headerlink" title="mapred-site.xml的配置文件说明"></a>mapred-site.xml的配置文件说明</h4><p>mapred-site的配置其实分为两大块：第一部分为mapreduce的基本配置，第二部分为根据现有测试服务器资源来优化mapreduce计算资源分配的优化配置。<br>==mapred-site.xml在三个节点上都需要配置，只需把nn主机名改为当前节点的主机名即可==<br>第一部分：mapreduce的基本配置<br>（注意这里仅给出property，若复制该配置内容，需在xml文件里面加入<code>&lt;configuration&gt;&lt;/configuration&gt;</code>）</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br></pre></td><td class="code"><pre><span class="line"> &lt;!-- 使用yarn框架来管理MapReduce --&gt;</span><br><span class="line">  &lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.framework.name&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;yarn&lt;/value&gt;</span><br><span class="line">  &lt;/property&gt;</span><br><span class="line"></span><br><span class="line"> &lt;!-- mp所需要hadoop环境 --&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;yarn.app.mapreduce.am.env&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME=$&#123;HADOOP_HOME&#125;&lt;/value&gt;</span><br><span class="line">    &lt;/property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.map.env&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME=$&#123;HADOOP_HOME&#125;&lt;/value&gt;</span><br><span class="line">    &lt;/property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.reduce.env&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME=$&#123;HADOOP_HOME&#125;&lt;/value&gt;</span><br><span class="line">    &lt;/property&gt;</span><br><span class="line"></span><br><span class="line">   &lt;!-- 打开Jobhistory --&gt;</span><br><span class="line">	&lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.jobhistory.address&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;nn:10020&lt;/value&gt;</span><br><span class="line">	&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!-- 指定nn作为jobhistory服务器 --&gt;</span><br><span class="line">	&lt;property&gt;</span><br><span class="line">  		&lt;name&gt;mapreduce.jobhistory.webapp.address&lt;/name&gt;</span><br><span class="line"> 		 &lt;value&gt;nn:19888&lt;/value&gt;</span><br><span class="line">	&lt;/property&gt;</span><br><span class="line"></span><br><span class="line"> &lt;!--存放已完成job的历史日志 --&gt;</span><br><span class="line">  &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.jobhistory.done-dir&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;/history/done&lt;/value&gt;</span><br><span class="line">  &lt;/property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!--存放正在运行job的历史日志 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.jobhistory.intermediate-done-dir&lt;/name&gt;</span><br><span class="line">        &lt;value&gt;/history/done_intermediate&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!--存放yarn stage的日志 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">&lt;name&gt;yarn.app.mapreduce.am.staging-dir&lt;/name&gt;</span><br><span class="line">&lt;value&gt;/history/staging&lt;/value&gt;</span><br><span class="line">&lt;/property&gt;</span><br></pre></td></tr></table></figure>
+<p>这里主要配置开启jobhistory服务以及MapReduce多种日志存放</p>
+<p>第二部分：mapreduce的优化项<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.map.memory.mb&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;100&lt;/value&gt;</span><br><span class="line">    &lt;description&gt;每个mapper任务的物理内存限制&lt;/description&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.reduce.memory.mb&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;200&lt;/value&gt;</span><br><span class="line">    &lt;description&gt;每个reducer任务的物理内存限制&lt;/description&gt;</span><br><span class="line">&lt;/property&gt;</span><br><span class="line"> </span><br><span class="line">  &lt;property&gt;</span><br><span class="line">      &lt;name&gt;mapreduce.map.cpu.vcores&lt;/name&gt;</span><br><span class="line">      &lt;value&gt;1&lt;/value&gt;</span><br><span class="line">      &lt;description&gt;每个mapper任务申请的虚拟cpu核心数，默认1&lt;/description&gt; </span><br><span class="line"> &lt;/property&gt; </span><br><span class="line"> </span><br><span class="line"> &lt;property&gt;</span><br><span class="line">      &lt;name&gt;mapreduce.reduce.cpu.vcores&lt;/name&gt;</span><br><span class="line">      &lt;value&gt;1&lt;/value&gt;</span><br><span class="line">      &lt;description&gt;每个reducer任务申请的虚拟cpu核心数，默认1&lt;/description&gt; </span><br><span class="line"> &lt;/property&gt; </span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.map.java.opts&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;-Xmx100m&lt;/value&gt;</span><br><span class="line">    &lt;description&gt;mapper阶段的JVM的堆大小&lt;/description&gt;     </span><br><span class="line">&lt;/property&gt;</span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.reduce.java.opts&lt;/name&gt;</span><br><span class="line">    &lt;value&gt;-Xmx200m&lt;/value&gt;</span><br><span class="line">    &lt;description&gt;reduce阶段的JVM的堆大小&lt;/description&gt; </span><br><span class="line">&lt;/property&gt;</span><br></pre></td></tr></table></figure><br>根据当前服务器物理配置资源，在内存和CPU方面给mapper和reducer任务进行调优。</p>
+<h4 id="yarn-HA的启动"><a href="#yarn-HA的启动" class="headerlink" title="yarn HA的启动"></a>yarn HA的启动</h4><p>首先确保hadoop HA集群已正常启动<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# hdfs haadmin -getServiceState nn</span><br><span class="line">active</span><br><span class="line">[root@nn sbin]# hdfs haadmin -getServiceState dn2</span><br><span class="line">standby</span><br></pre></td></tr></table></figure><br>启动yarn HA服务，只需在nn节点启动yarn后，其他节点会自动启动相应服务。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# start-yarn.sh </span><br><span class="line">[root@nn sbin]# yarn rmadmin -getServiceState rm1</span><br><span class="line">active</span><br><span class="line">[root@nn sbin]# yarn rmadmin -getServiceState rm2</span><br><span class="line">standby</span><br></pre></td></tr></table></figure><br>以上完成yarn HA配置，因为涉及hadoop HA和调优，因此不建议刚入门的同学就按此配置继续测试，建议从最原始、最简单的非HA hadoop开始着手。<br>下面开始配置spark。</p>
+<h3 id="spark-HA-集群及其基本测试"><a href="#spark-HA-集群及其基本测试" class="headerlink" title="spark HA 集群及其基本测试"></a>spark HA 集群及其基本测试</h3><h4 id="修改spark配置"><a href="#修改spark配置" class="headerlink" title="修改spark配置"></a>修改spark配置</h4><p>&#8195;&#8195;经历第1章节繁琐的yarn HA配置后， 当资源管理问题得到妥善解决，那么接下的计算任务将实现的非常流畅。<br>spark HA集群详细的部署和测试，请参考<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102536716">《基于hadoop3.1.2分布式平台上部署spark HA集群》</a>的第8章节，本文不再累赘。<br>&#8195;&#8195;把spark 的任务交给yarn管理还需要在HA集群上再加入部分配置，改动也简单 ，只需在spark-defaults.conf和spark-env.sh改动。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@nn conf]# vi spark-defaults.conf</span><br><span class="line"></span><br><span class="line">#spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"></span><br><span class="line"># spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;hdapp&#x2F;directory</span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line">spark.driver.memory              512m</span><br><span class="line">spark.driver.cores               1</span><br><span class="line">spark.yarn.jars                  hdfs:&#x2F;&#x2F;hdapp&#x2F;spark_jars&#x2F;*</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure><br>重点配置项目说明：</p>
+<p>原standalone模式下：spark.master设为 spark://nn:7077</p>
+<p>因为spark已经配成HA模式，因此无需指定master是谁，交由zookeeper管理。</p>
+<p>spark.eventLog.dir              hdfs://hdapp/directory<br>这里hdfs路径从nn:9000改为hdapp，是因为hadoop已经配置为HA模式，注意集群模式下是不需要加上端口： hdfs://hdapp:9000/directory，这会导致NameNode无法解析host部分。</p>
+<p>spark.yarn.jars                  hdfs://hdapp/spark_jars/*<br>这里需要将spark跟目录下的jar包都上传到hdfs指定的spark_jars目录下，若不这么处理，每次提交spark job时，客户端每次得先上传这些jar包到hdfs，然后再分发到每个NodeManager，导致任务启动很慢。而且启动spark也会提示：<br>==WARN yarn.Client: Neither spark.yarn.jars nor spark.yarn.archive is set, falling back to uploading libraries under SPARK_HOME.==</p>
+<p>解决办法：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7</span><br><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# hdfs dfs -mkdir  &#x2F;spark_jars</span><br><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# hdfs dfs -put  jars&#x2F;*  &#x2F;spark_jars</span><br></pre></td></tr></table></figure><br>spark-defaults.conf在三个节点上使用相同配置。</p>
+<p>spark-env.sh的配置：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@nn conf]# vi spark-env.sh</span><br><span class="line"># 基本集群配置</span><br><span class="line">export SCALA_HOME&#x3D;&#x2F;opt&#x2F;scala-2.12.8</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line">export SPARK_DAEMON_JAVA_OPTS&#x3D;&quot;-Dspark.deploy.recoveryMode&#x3D;ZOOKEEPER</span><br><span class="line">-Dspark.deploy.zookeeper.url&#x3D;nn:2181,dn1:2181,dn2:2181 -Dspark.deploy.zookeeper.dir&#x3D;&#x2F;spark&quot;</span><br><span class="line">export HADOOP_CONF_DIR&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br><span class="line"></span><br><span class="line"># yarn模式下的调优配置</span><br><span class="line"># Options read in YARN client&#x2F;cluster mode</span><br><span class="line">export SPARK_WORKER_MEMORY&#x3D;512M</span><br><span class="line"># - SPARK_CONF_DIR, Alternate conf dir. (Default: $&#123;SPARK_HOME&#125;&#x2F;conf) 无需设置，使用默认值</span><br><span class="line"># - HADOOP_CONF_DIR, to point Spark towards Hadoop configuration files</span><br><span class="line">export HADOOP_CONF_DIR&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br><span class="line"># - YARN_CONF_DIR, to point Spark towards YARN configuration files when you use YARN 上面HADOOP_CONF_DIR以已设置即可</span><br><span class="line"># - SPARK_EXECUTOR_CORES, Number of cores for the executors (Default: 1). 无需设置，默认使用1个vcpu</span><br><span class="line"># - SPARK_EXECUTOR_MEMORY, Memory per Executor (e.g. 1000M, 2G) (Default: 1G)</span><br><span class="line">export SPARK_EXECUTOR_MEMORY&#x3D;512M</span><br><span class="line"># - SPARK_DRIVER_MEMORY, Memory for Driver (e.g. 1000M, 2G) (Default: 1G)</span><br><span class="line">export SPARK_EXECUTOR_MEMORY&#x3D;512M</span><br><span class="line"></span><br><span class="line"># 存放计算过程的日志</span><br><span class="line">export SPARK_HISTORY_OPTS&#x3D;&quot;</span><br><span class="line">-Dspark.history.ui.port&#x3D;9001</span><br><span class="line">-Dspark.history.retainedApplications&#x3D;5</span><br><span class="line">-Dspark.history.fs.logDirectory&#x3D;hdfs:&#x2F;&#x2F;hdapp&#x2F;directory&quot;</span><br></pre></td></tr></table></figure><br>以上的driver和executor的可用内存设为512M，考虑到测试服务器内存有限的调优。若生产服务器，一般32G或者更大的内存，则可以任性设置。</p>
+<h4 id="启动spark集群"><a href="#启动spark集群" class="headerlink" title="启动spark集群"></a>启动spark集群</h4><p>在nn节点上，启动wokers： start-slaves.sh，该命令自动启动其他节点的worker<br>在nn节点和dn2节点启动master进程：start-master.sh<br>查看nn:8080和dn2:8080的spark web UI是否有active以及standby模式。<br>跑一个wordcount例子，测试spark集群能否正常计算结果。<br>创建一个本地文件<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]#  vi &#x2F;opt&#x2F;foo.txt</span><br><span class="line">spark on yarn</span><br><span class="line">yarn </span><br><span class="line">spark HA</span><br></pre></td></tr></table></figure><br>启动pyspark，连接到spark集群<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]#  .&#x2F;bin&#x2F;pyspark --name bar --driver-memory 512M   --master  spark:&#x2F;&#x2F;nn:7077</span><br><span class="line"># 读取本地文件&#x2F;opt&#x2F;foo.txt</span><br><span class="line">&gt;&gt;&gt; df&#x3D;sc.textFile(&quot;file:&#x2F;&#x2F;&#x2F;opt&#x2F;foo.txt&quot;)</span><br><span class="line"># 切分单词，过滤空值</span><br><span class="line">&gt;&gt;&gt; words &#x3D; df.flatMap(lambda line: line.split(&#39; &#39;)).filter(lambda x: x !&#x3D;&quot;&quot;)</span><br><span class="line">&gt;&gt;&gt; words.collect()</span><br><span class="line">[u&#39;spark&#39;, u&#39;on&#39;, u&#39;yarn&#39;, u&#39;yarn&#39;,u&#39;spark&#39;, u&#39;HA&#39;]</span><br><span class="line"># 将个word映射为（word，1）这样的元组，在reduce汇总。</span><br><span class="line">&gt;&gt;&gt; counts &#x3D; words.map(lambda word: (word, 1)).reduceByKey(lambda a, b: a + b)</span><br><span class="line">&gt;&gt;&gt; counts.collect()</span><br><span class="line">[(u&#39;spark&#39;, 2), (u&#39;yarn&#39;, 2), (u&#39;on&#39;, 1), (u&#39;HA&#39;, 1)]   </span><br></pre></td></tr></table></figure><br>以上完成spark HA集群和测试。</p>
+<h3 id="spark-on-yarn"><a href="#spark-on-yarn" class="headerlink" title="spark on yarn"></a>spark on yarn</h3><p>spark on yarn意思是将spark计算人任务提交到yarn集群上运行。</p>
+<h4 id="spark集群跑在yarn上的两种方式"><a href="#spark集群跑在yarn上的两种方式" class="headerlink" title="spark集群跑在yarn上的两种方式"></a>spark集群跑在yarn上的两种方式</h4><p>根据spark官网的<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/running-on-yarn.html">文档说明</a>，这里引用其内容：</p>
+<blockquote>
+<p>There are two deploy modes that can be used to launch Spark applications on YARN. In cluster mode, the Spark driver runs inside an application master process which is managed by YARN on the cluster, and the client can go away after initiating the application. In client mode, the driver runs in the client process, and the application master is only used for requesting resources from YARN.</p>
+</blockquote>
+<p>cluster模式下，spark driver 在 AM里运行，客户端（或者应用程序）在提交完任务（初始化）后可直接退出，作业会继续在 YARN 上运行。显然cluster 模式不适合交互式操作。cluster模式的spark计算结果可以保持到<br>外部数据库，例如hbase。这部分内容将是spark streaming可以完成的环境，spark streaming以yarn cluster模式运行，实时将处理结果存到hbase里，web BI 应用再从hbase取数据。</p>
+<p>client模式下，spark driver是在本地环境运行，AM仅负责向yarn请求计算资源（Executor 容器），例如交互式运行基本的操作。</p>
+<p>在前面第2节的word count例子里，用下面的启动命令：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# pyspark --name bar --driver-memory 512M   --master  spark:&#x2F;&#x2F;nn:7077</span><br></pre></td></tr></table></figure><br>该命令启动是一个spark shell进程，没有引入yarn管理其资源，因此在yarn集群的管理页面<code>http://nn:8088/cluster/apps/RUNNING</code>，将不会 bar这个application。</p>
+<h4 id="测试spark-on-yarn"><a href="#测试spark-on-yarn" class="headerlink" title="测试spark on yarn"></a>测试spark on yarn</h4><p>只需在启动spark shell时，将<code>--master spark://nn:7077</code> 改为<br><code>--master yarn --deploy-mode cluster</code>或者<code>--master yarn --deploy-mode client</code>，那么spark提交的任务就会交由yarn集群管理<br>还是以word count为例，使用yarn client模式启动spark<br>创建测试文件：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">vi &#x2F;opt&#x2F;yarn-word-count.txt</span><br><span class="line">spark on yarn </span><br><span class="line">spark HA </span><br><span class="line">yarn HA</span><br></pre></td></tr></table></figure><br>启动driver<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]#  pyspark --name client_app	 --driver-memory 512M  --executor-memory 512M  --master yarn --deploy-mode client</span><br><span class="line">Python 2.7.5 (default, Oct 30 2018, 23:45:53) </span><br><span class="line">[GCC 4.8.5 20150623 (Red Hat 4.8.5-36)] on linux2</span><br><span class="line">Welcome to</span><br><span class="line">      ____              __</span><br><span class="line">     &#x2F; __&#x2F;__  ___ _____&#x2F; &#x2F;__</span><br><span class="line">    _\ \&#x2F; _ \&#x2F; _ &#96;&#x2F; __&#x2F;  &#39;_&#x2F;</span><br><span class="line">   &#x2F;__ &#x2F; .__&#x2F;\_,_&#x2F;_&#x2F; &#x2F;_&#x2F;\_\   version 2.4.4</span><br><span class="line">      &#x2F;_&#x2F;</span><br><span class="line"></span><br><span class="line">Using Python version 2.7.5 (default, Oct 30 2018 23:45:53)</span><br><span class="line">SparkSession available as &#39;spark&#39;.</span><br><span class="line">&gt;&gt;&gt; sc</span><br><span class="line">&lt;SparkContext master&#x3D;yarn appName&#x3D;client_app	&gt;</span><br></pre></td></tr></table></figure></p>
+<p>这里driver和executor都是以最小可用内存512来启动spark-shell<br>因为该spark 任务是提交到yarn 上运行，所以在spark web ui后台：<code>http://nn:8080</code>，running application 为0<br><img src="https://img-blog.csdnimg.cn/20191208110757819.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">这是需要去yarn后台入口：<code>http://nn:8088</code>，可以看到刚提交的计算任务：<br><img src="https://img-blog.csdnimg.cn/20191208111208596.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">可以看到该application（计算任务）分配了3个Container<br><img src="https://img-blog.csdnimg.cn/20191208111547983.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">通过查看该applicationMaster管理页面，可以看到client-yarn这个app更为详细的计算过程，例如该wordcount在reduceByKey DAG可视化过程。<br><img src="https://img-blog.csdnimg.cn/20191208111947653.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>yarn cluster模式下，因为它不是打开一个spark shell让你交互式输入数据处理逻辑，所以需先把处理逻辑封装成一个py模块。<br>以上面的word count为例：<br>word_count.py</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> pyspark <span class="keyword">import</span> SparkConf, SparkContext</span><br><span class="line">	<span class="function"><span class="keyword">def</span> <span class="title">word_count</span>():</span></span><br><span class="line">	    conf = SparkConf().setMaster(<span class="string">&quot;local[*]&quot;</span>).setAppName(<span class="string">&#x27;cluster-yarn&#x27;</span>)</span><br><span class="line">	    sc = SparkContext(conf=conf)</span><br><span class="line">	    <span class="comment"># 统计文件中包含mape的行数，并打印第一行</span></span><br><span class="line">	    df = sc.textFile(<span class="string">&quot;/tmp/words.txt&quot;</span>)</span><br><span class="line">	    words = df.flatMap(<span class="keyword">lambda</span> line: line.split(<span class="string">&#x27; &#x27;</span>)).<span class="built_in">filter</span>(<span class="keyword">lambda</span> x: x !=<span class="string">&quot;&quot;</span>)</span><br><span class="line">	    <span class="built_in">print</span> words.collect()</span><br><span class="line">	    counts = words.<span class="built_in">map</span>(<span class="keyword">lambda</span> word: (word, <span class="number">1</span>)).reduceByKey(<span class="keyword">lambda</span> a, b: a + b)</span><br><span class="line">	    <span class="built_in">print</span> counts.collect()</span><br><span class="line">	    sc.stop</span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line">	word_count()</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>需要使用spark-submit 提交到yarn<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 spark-2.4.4-bin-hadoop2.7]#  ./bin/spark-submit  --driver-memory 512M  --executor-memory 512M  --master yarn  --deploy-mode cluster  --py-files word_count.py</span><br></pre></td></tr></table></figure><br>在yarn管理也可以看到该app，application的命名好像直接用脚本名字，而不是指定的cluster-yarn<br><img src="https://img-blog.csdnimg.cn/20191208120528893.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">关于如何提交py文件，官方也给出指引：</p>
+<blockquote>
+<p>For Python, you can use the —py-files argument of spark-submit to add .py, .zip or .egg files to be distributed with your application. If you depend on multiple Python files we recommend packaging them into a .zip or .egg.</p>
+</blockquote>
+<p>如有多个py文件（例如1.py依赖2.py和3.py），需要通过将其打包为.zip或者.egg包： —py-files tasks.zip</p>
+<h4 id="提交spark-application的多种方式"><a href="#提交spark-application的多种方式" class="headerlink" title="提交spark application的多种方式"></a>提交spark application的多种方式</h4><p>spark运行有standalone模式（分local、cluster）、on yarn模式（分client、cluster）还有on k8s，而且可以附带jar包或者py包，多种提交的方式的命令模板怎么写？网上其实很多类似文章，但都是给的某个模式的某种文件的提交方式，其实在spark官网的<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/submitting-applications.html">submitting-applications</a>章节给出详细的多种相关命令模板。这里统一汇总：<br><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> Run application locally on 8 cores 本地模式</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master local[8] \</span><br><span class="line">  /path/to/examples.jar \</span><br><span class="line">  100</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash">  standalone 集群下的client模式</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run on a Spark standalone cluster <span class="keyword">in</span> client deploy mode</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master spark://207.184.161.138:7077 \</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --total-executor-cores 100 \</span><br><span class="line">  /path/to/examples.jar \</span><br><span class="line">  1000</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash">  standalone 集群下的cluster模式</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run on a Spark standalone cluster <span class="keyword">in</span> cluster deploy mode with supervise</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master spark://207.184.161.138:7077 \</span><br><span class="line">  --deploy-mode cluster \</span><br><span class="line">  --supervise \</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --total-executor-cores 100 \</span><br><span class="line">  /path/to/examples.jar \</span><br><span class="line">  1000</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> on yarn 集群，且用的class文件和jar包</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run on a YARN cluster</span></span><br><span class="line">export HADOOP_CONF_DIR=XXX</span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master yarn \</span><br><span class="line">  --deploy-mode cluster \  # can be client for client mode</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --num-executors 50 \</span><br><span class="line">  /path/to/examples.jar \</span><br><span class="line">  1000</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 这里给出如何传入py文件，可以不写 --py-files 选项</span></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run a Python application on a Spark standalone cluster</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --master spark://207.184.161.138:7077 \</span><br><span class="line">  examples/src/main/python/pi.py \</span><br><span class="line">  1000</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run on a Mesos cluster <span class="keyword">in</span> cluster deploy mode with supervise</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master mesos://207.184.161.138:7077 \</span><br><span class="line">  --deploy-mode cluster \</span><br><span class="line">  --supervise \</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --total-executor-cores 100 \</span><br><span class="line">  http://path/to/examples.jar \</span><br><span class="line">  1000</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> Run on a Kubernetes cluster <span class="keyword">in</span> cluster deploy mode</span></span><br><span class="line">./bin/spark-submit \</span><br><span class="line">  --class org.apache.spark.examples.SparkPi \</span><br><span class="line">  --master k8s://xx.yy.zz.ww:443 \</span><br><span class="line">  --deploy-mode cluster \</span><br><span class="line">  --executor-memory 20G \</span><br><span class="line">  --num-executors 50 \</span><br><span class="line">  http://path/to/examples.jar \</span><br><span class="line">  1000</span><br></pre></td></tr></table></figure></p>
+<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>&#8195;&#8195;本文内容主要为后面的文章——spark streaming 与kafka集群的实时数据计算做铺垫，考虑到测试环境环境资源有限，在做spark streaming的时候，将不会以spark HA模式运行，也不会将任务提交到yarn集群上，而是用一节点作为spark streaming计算节点，具体规划参考该文。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/YARN%E9%9B%86%E7%BE%A4/" rel="tag"># YARN集群</a>
+              <a href="/blog/tags/Spark%E9%9B%86%E7%BE%A4/" rel="tag"># Spark集群</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/12/05/flume%E9%9B%86%E7%BE%A4%E9%AB%98%E5%8F%AF%E7%94%A8%E8%BF%9E%E6%8E%A5kafka%E9%9B%86%E7%BE%A4/" rel="prev" title="flume集群高可用连接kafka集群">
+      <i class="fa fa-chevron-left"></i> flume集群高可用连接kafka集群
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/12/18/%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90Python%E5%85%83%E7%B1%BB%E4%BD%9C%E7%94%A8/" rel="next" title="深入解析Python元类作用">
+      深入解析Python元类作用 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#YARN-HA%E6%A8%A1%E5%BC%8F%E7%9A%84%E9%85%8D%E7%BD%AE"><span class="nav-number">1.</span> <span class="nav-text">YARN HA模式的配置</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%AE%8C%E6%95%B4-yarn-site-xml%E9%85%8D%E7%BD%AE"><span class="nav-number">1.1.</span> <span class="nav-text">完整 yarn-site.xml配置</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#mapred-site-xml%E7%9A%84%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6%E8%AF%B4%E6%98%8E"><span class="nav-number">1.2.</span> <span class="nav-text">mapred-site.xml的配置文件说明</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#yarn-HA%E7%9A%84%E5%90%AF%E5%8A%A8"><span class="nav-number">1.3.</span> <span class="nav-text">yarn HA的启动</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#spark-HA-%E9%9B%86%E7%BE%A4%E5%8F%8A%E5%85%B6%E5%9F%BA%E6%9C%AC%E6%B5%8B%E8%AF%95"><span class="nav-number">2.</span> <span class="nav-text">spark HA 集群及其基本测试</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BF%AE%E6%94%B9spark%E9%85%8D%E7%BD%AE"><span class="nav-number">2.1.</span> <span class="nav-text">修改spark配置</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%90%AF%E5%8A%A8spark%E9%9B%86%E7%BE%A4"><span class="nav-number">2.2.</span> <span class="nav-text">启动spark集群</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#spark-on-yarn"><span class="nav-number">3.</span> <span class="nav-text">spark on yarn</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#spark%E9%9B%86%E7%BE%A4%E8%B7%91%E5%9C%A8yarn%E4%B8%8A%E7%9A%84%E4%B8%A4%E7%A7%8D%E6%96%B9%E5%BC%8F"><span class="nav-number">3.1.</span> <span class="nav-text">spark集群跑在yarn上的两种方式</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95spark-on-yarn"><span class="nav-number">3.2.</span> <span class="nav-text">测试spark on yarn</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%8F%90%E4%BA%A4spark-application%E7%9A%84%E5%A4%9A%E7%A7%8D%E6%96%B9%E5%BC%8F"><span class="nav-number">3.3.</span> <span class="nav-text">提交spark application的多种方式</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B0%8F%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">小结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

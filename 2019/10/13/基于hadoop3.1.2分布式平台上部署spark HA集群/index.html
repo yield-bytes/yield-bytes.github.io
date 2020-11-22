@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/blog/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="&amp;#8195;&amp;#8195;在此文章《基于Centos7.5完整部署分布式Hadoop3.1.2》里，已经给出详细的hadoop和yarn的部署过程，既然已经解决了大数据开发中“hdfs”的数据存储部署，那么就要考虑如何基于底层分布式文件基础上运行计算框架，以便进行更高层次的应用开发。在本篇文章中，将给出完整部署spark计算框架集群。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于hadoop3.1.2分布式平台上部署spark HA集群">
+<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/10/13/%E5%9F%BA%E4%BA%8Ehadoop3.1.2%E5%88%86%E5%B8%83%E5%BC%8F%E5%B9%B3%E5%8F%B0%E4%B8%8A%E9%83%A8%E7%BD%B2spark%20HA%E9%9B%86%E7%BE%A4/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;在此文章《基于Centos7.5完整部署分布式Hadoop3.1.2》里，已经给出详细的hadoop和yarn的部署过程，既然已经解决了大数据开发中“hdfs”的数据存储部署，那么就要考虑如何基于底层分布式文件基础上运行计算框架，以便进行更高层次的应用开发。在本篇文章中，将给出完整部署spark计算框架集群。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013195910122.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2019101320274522.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013203133344.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013203738203.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2019101321104720.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013214149503.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/2019101322183877.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013222359342.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013222504141.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013222734564.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191013222849671.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191205225822814.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191205230110964.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191205230256782.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/20191205230624602.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+<meta property="article:published_time" content="2019-10-13T14:36:48.000Z">
+<meta property="article:modified_time" content="2020-02-03T10:29:44.000Z">
+<meta property="article:tag" content="spark集群">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191013195910122.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
+
+<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/10/13/%E5%9F%BA%E4%BA%8Ehadoop3.1.2%E5%88%86%E5%B8%83%E5%BC%8F%E5%B9%B3%E5%8F%B0%E4%B8%8A%E9%83%A8%E7%BD%B2spark%20HA%E9%9B%86%E7%BE%A4/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>基于hadoop3.1.2分布式平台上部署spark HA集群 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/blog/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/10/13/%E5%9F%BA%E4%BA%8Ehadoop3.1.2%E5%88%86%E5%B8%83%E5%BC%8F%E5%B9%B3%E5%8F%B0%E4%B8%8A%E9%83%A8%E7%BD%B2spark%20HA%E9%9B%86%E7%BE%A4/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于hadoop3.1.2分布式平台上部署spark HA集群
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2019-10-13 22:36:48" itemprop="dateCreated datePublished" datetime="2019-10-13T22:36:48+08:00">2019-10-13</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-02-03 18:29:44" itemprop="dateModified" datetime="2020-02-03T18:29:44+08:00">2020-02-03</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/blog/categories/Spark/" itemprop="url" rel="index"><span itemprop="name">Spark</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>15k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>14 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>&#8195;&#8195;在此文章<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102490212">《基于Centos7.5完整部署分布式Hadoop3.1.2》</a>里，已经给出详细的hadoop和yarn的部署过程，既然已经解决了大数据开发中“hdfs”的数据存储部署，那么就要考虑如何基于底层分布式文件基础上运行计算框架，以便进行更高层次的应用开发。在本篇文章中，将给出完整部署spark计算框架集群。</p>
+<a id="more"></a>
+<h3 id="1、spark版本（仅列出spark相关）"><a href="#1、spark版本（仅列出spark相关）" class="headerlink" title="1、spark版本（仅列出spark相关）"></a>1、spark版本（仅列出spark相关）</h3><p>spark-2.4.4-bin-hadoop2.7，该版本的spark支持hadoop2.7以及之后的版本</p>
+<p>scala-2.13.1：使用Scala语言开发数据处理逻辑，当然也可使用python进行spark数据处理逻辑开发，官网有给出pyspark相关指导教程。</p>
+<p>三台节点都需要配置，目录放置路径：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# ls</span><br><span class="line">hadoop-3.1.2    jdk1.8.0_161  scala-2.13.1  spark-2.4.4-bin-hadoop2.7</span><br></pre></td></tr></table></figure>
+<p>spark HA集群规划，这里只列出spark HA集群的有关进程，hadoop的进程不再列出</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th>IP，hostname</th>
+<th>spark集群中负责的角色</th>
+<th>Spark 路径</th>
+<th>Scala路径</th>
+<th>物理内存</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>192.188.0.4，nn</td>
+<td>master，worker，spark-history-server</td>
+<td>/opt/spark-2.4.4-bin-hadoop2.7</td>
+<td>/opt/scala-2.13.1</td>
+<td>2G</td>
+</tr>
+<tr>
+<td>192.188.0.5，dn1</td>
+<td>master，worker</td>
+<td>/opt/spark-2.4.4-bin-hadoop2.7</td>
+<td>/opt/scala-2.13.1</td>
+<td>1G</td>
+</tr>
+<tr>
+<td>192.188.0.6，dn2</td>
+<td>master，worker</td>
+<td>/opt/spark-2.4.4-bin-hadoop2.7</td>
+<td>/opt/scala-2.13.1</td>
+<td>1G</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>这里spark master节点nn的物理内存给了2G，因为该节点不仅仅启动了spark相关主服务，还得启动hadoop相关主服务，如果物理内存不足，在后面章节中启动spark-shell或者跑application都无法正常启动，提示资源不足。</p>
+<h3 id="2、设置path环境"><a href="#2、设置path环境" class="headerlink" title="2、设置path环境"></a>2、设置path环境</h3><p>三个节点都需要设置</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# vi /etc/profile</span><br><span class="line">export JAVA_HOME=/opt/jdk1.8.0_161</span><br><span class="line">export HADOOP_HOME=/opt/hadoop-3.1.2</span><br><span class="line">export SCALA_HOME=/opt/scala-2.13.1</span><br><span class="line">export SPARK_HOME=/opt/spark-2.4.4-bin-hadoop2.7/</span><br><span class="line">export PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$SCALA_HOME/bin:</span><br><span class="line">export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar</span><br></pre></td></tr></table></figure>
+<h3 id="3、配置spark集群的相关文件"><a href="#3、配置spark集群的相关文件" class="headerlink" title="3、配置spark集群的相关文件"></a>3、配置spark集群的相关文件</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> 拷贝一份spark-env.sh文件用于配置spark环境</span></span><br><span class="line">[root@dn1 ~]# cp /opt/spark-2.4.4-bin-hadoop2.7/conf/spark-env.sh.template /opt/spark-2.4.4-bin-hadoop2.7/conf/spark-env.sh</span><br><span class="line">[root@dn1 ~]# cd /opt/spark-2.4.4-bin-hadoop2.7/</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# ls conf/</span><br><span class="line">docker.properties.template   slaves.template</span><br><span class="line">fairscheduler.xml.template   spark-defaults.conf.template</span><br><span class="line">log4j.properties.template    spark-env.sh</span><br><span class="line">metrics.properties.template  spark-env.sh.template</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# vi conf/spark-env.sh</span><br></pre></td></tr></table></figure>
+<p>只需在spark-env.sh文件头部加入以下环境变量</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">export SCALA_HOME=/opt/scala-2.12.8</span><br><span class="line">export JAVA_HOME=/opt/jdk1.8.0_161</span><br><span class="line"><span class="meta">#</span><span class="bash"> 设定192.188.0.4，nn节点为spark master</span></span><br><span class="line">export SPARK_MASTER_IP=nn</span><br><span class="line">export SPARK_WORKER_MEMORY=1g</span><br><span class="line"><span class="meta">#</span><span class="bash"> hadoop的配置文件**site.xml所在目录</span></span><br><span class="line">export HADOOP_CONF_DIR=/opt/hadoop-3.1.2/etc/hadoop</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>修改conf目录下的slaves文件</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@dn1 conf]# cp slaves.template slaves</span><br><span class="line">[root@dn1 conf]# vi slaves</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure>
+<p>为减少spark主节点nn的内存资源消耗，这里不再将nn设为Worker角色</p>
+<p>将修改过的两个文件拷贝到其他两个节点</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# scp -r conf&#x2F; dn1:&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# scp -r conf&#x2F; dn2:&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;</span><br></pre></td></tr></table></figure>
+<h3 id="4、启动spark集群进程"><a href="#4、启动spark集群进程" class="headerlink" title="4、启动spark集群进程"></a>4、启动spark集群进程</h3><h4 id="4-1-启动spark-master进程"><a href="#4-1-启动spark-master进程" class="headerlink" title="4.1 启动spark-master进程"></a>4.1 启动spark-master进程</h4><p>spark的进程启动是有步骤的，需先启动master服务，再启动worker进程，因为worker启动需要通过spark://nn:7077 spark协议的7077端口与master节点通信，否则master节点和worker之间无法形成集群。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# .&#x2F;start-master.sh </span><br><span class="line">starting org.apache.spark.deploy.master.Master, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.master.Master-1-nn.out</span><br><span class="line"></span><br><span class="line"># nn节点上</span><br><span class="line">[root@nn sbin]# jps</span><br><span class="line">24292 DataNode</span><br><span class="line">24155 NameNode</span><br><span class="line">25339 NodeManager</span><br><span class="line">30638 Master</span><br><span class="line">30750 Jps</span><br><span class="line"></span><br><span class="line"># dn1节点上：</span><br><span class="line">[root@dn1 ~]# jps</span><br><span class="line">18480 Jps</span><br><span class="line">12805 ResourceManager</span><br><span class="line">12365 DataNode</span><br><span class="line">12942 NodeManager</span><br><span class="line"># dn2节点上：</span><br><span class="line">[root@dn2 ~]# jps</span><br><span class="line">13144 DataNode</span><br><span class="line">13244 SecondaryNameNode</span><br><span class="line">19437 Jps</span><br><span class="line">13599 NodeManager</span><br></pre></td></tr></table></figure>
+<p>以上表示主节点已经启动Master进程，其他节点dn1和dn2还未启动Worker进程。可以通过log日志文件内容看到其启动过程，这里不再给出，当然更直观的方式是在web端查看：页面<code>http://nn:8080/</code>或者<code>http://192.188.0.4:8080</code>可以直观看到master状态，此时workers还未启动,可以按到显示workers数量为0</p>
+<h4 id="4-2-在spark-master启动后，启动Worker节点"><a href="#4-2-在spark-master启动后，启动Worker节点" class="headerlink" title="4.2 在spark master启动后，启动Worker节点"></a>4.2 在spark master启动后，启动Worker节点</h4><p>在spark主节点上nn，启动workers，这些workers的对应的节点就是路径<code>/opt/spark-2.4.4-bin-hadoop2.7/conf</code>下slaves文件配置到2个节点：dn1,dn2。</p>
+<ul>
+<li>启动spark集群上所有的workers节点命令：start-slaves.sh</li>
+<li><p>启动本节点上的work进程：start-slave.sh</p>
+</li>
+<li><p>可以对比其shell脚本的差别，在start-slaves.sh脚本后面可以看到</p>
+</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&quot;$&#123;SPARK_HOME&#125;&#x2F;sbin&#x2F;start-slave.sh&quot; &quot;spark:&#x2F;&#x2F;$SPARK_MASTER_HOST:$SPARK_MASTER_PORT&quot;</span><br></pre></td></tr></table></figure>
+<p>start-slaves.sh其实是在其他节点运行<code>./start-slave.sh spark://nn:7077</code>实现批量启动其他work节点</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;sbin</span><br><span class="line">[root@nn sbin]# .&#x2F;start-slaves.sh </span><br><span class="line">dn1: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn1.out</span><br><span class="line">dn2: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn2.out</span><br><span class="line"></span><br><span class="line"># # nn节点上spark Master</span><br><span class="line">[root@nn sbin]# jps</span><br><span class="line">24292 DataNode</span><br><span class="line">24155 NameNode</span><br><span class="line">25339 NodeManager</span><br><span class="line">30638 Master</span><br><span class="line">30750 Jps</span><br><span class="line"></span><br><span class="line"># dn1节点上spark Worker进程</span><br><span class="line">[root@dn1 ~]# jps</span><br><span class="line">12805 ResourceManager</span><br><span class="line">23045 Jps</span><br><span class="line">23000 Worker</span><br><span class="line">12365 DataNode</span><br><span class="line">12942 NodeManager</span><br><span class="line"></span><br><span class="line"># dn2节点上spark Worker进程</span><br><span class="line">[root@dn2 ~]# jps</span><br><span class="line">24789 Worker</span><br><span class="line">24837 Jps</span><br><span class="line">13144 DataNode</span><br><span class="line">13244 SecondaryNameNode</span><br><span class="line">13599 NodeManager</span><br></pre></td></tr></table></figure>
+<p>在spark的master web端:<code>http://nn:8080</code>或者<code>http://192.188.0.4:8080</code>可以看到2个worker均active<br><img src="https://img-blog.csdnimg.cn/20191013195910122.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">每个worker的最大可用内存512m，vCPU 1颗</p>
+<h3 id="5、设置启动spark-shell的默认环境（非常关键的配置）"><a href="#5、设置启动spark-shell的默认环境（非常关键的配置）" class="headerlink" title="5、设置启动spark-shell的默认环境（非常关键的配置）"></a>5、设置启动spark-shell的默认环境（非常关键的配置）</h3><h4 id="5-1-配置spark-defaults-conf"><a href="#5-1-配置spark-defaults-conf" class="headerlink" title="5.1 配置spark-defaults.conf"></a>5.1 配置spark-defaults.conf</h4><p>注意，在启动spark-shell之前，如果需要对/opt/spark-2.4.4-bin-hadoop2.7/conf目录下的配置文件：<code>spark-defaults.conf.template</code>相关参数进行修改，例如需要结合spark-history-server的配置，那么除了新建一份<code>spark-defaults.conf</code>，还需要对里面参数正确，否则启动spark-shell会提示出错并退出</p>
+<p>因为本文测试使用2G内存，所以需要对配置文件里面做修改，修改如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# cp spark-defaults.conf.template spark-defaults.conf</span><br><span class="line">[root@nn conf] spark-defaults.conf</span><br><span class="line"></span><br><span class="line"># spark集群主节点的入口</span><br><span class="line">spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"># 在hadoop core-site.xml设置的hdfs入口地址，directory需自行在hdfs文件系统上创建</span><br><span class="line"># 通过命令可创建：hdfs dfs -mkdir &#x2F;directory</span><br><span class="line"># 同时日志目录作为spark-history-server的日志目录</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line"></span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line"># spark主节点driver内存，默认为5G，这里设为1g</span><br><span class="line">spark.driver.memory              1g</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure>
+<p>如果以上入口地址设错，或者未在namenode节点的hdfs文件系统上创建directory目录，都会导致无法启动spark-shell</p>
+<p>==若不对spark-defaults.conf.template参数修改，例如不需要启动history服务，则无需创建spark-defaults.conf文件，也无需进行上述设置，可以直接启动spark-shell==</p>
+<h4 id="5-2-spark-defaults-conf的详细的设置"><a href="#5-2-spark-defaults-conf的详细的设置" class="headerlink" title="5.2  spark-defaults.conf的详细的设置"></a>5.2  spark-defaults.conf的详细的设置</h4><p>参考<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/configuration.html">官网配置指引</a><br>其实该配置就是用来spark集群调优的关键配置</p>
+<p>主要分为几大部分的参数配置：</p>
+<ul>
+<li>Application Properties</li>
+<li>Runtime Environment</li>
+<li>Spark UI</li>
+<li>Compression and Serialization</li>
+<li>Memory Management</li>
+<li>Execution Behavior</li>
+<li>Networking</li>
+<li>Scheduling</li>
+<li>Dynamic Allocation</li>
+</ul>
+<h4 id="5-3-启动spark-shell"><a href="#5-3-启动spark-shell" class="headerlink" title="5.3 启动spark-shell"></a>5.3 启动spark-shell</h4><p>首次启动spark-shell时，会出现‘WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform’的提示，参考文章提示：centos预装的glibc库是2.17版本，而hadoop期望是2.14版本，可以忽略该警告，在hadoop日志配置文件设置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 ~]# vi &#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop&#x2F;log4j.properties </span><br><span class="line"># 新增以下内容</span><br><span class="line">log4j.logger.org.apache.hadoop.util.NativeCodeLoader&#x3D;ERROR</span><br></pre></td></tr></table></figure>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"># 启动成功提示</span><br><span class="line">[root@nn bin]# spark-shell                </span><br><span class="line">Setting default log level to &quot;WARN&quot;.</span><br><span class="line">To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).</span><br><span class="line">Spark context Web UI available at http:&#x2F;&#x2F;nn:4040</span><br><span class="line">Spark context available as &#39;sc&#39; (master &#x3D; spark:&#x2F;&#x2F;nn:7077, app id &#x3D; app-2019*****-0004).</span><br><span class="line">Spark session available as &#39;spark&#39;.</span><br><span class="line">Welcome to</span><br><span class="line">      ____              __</span><br><span class="line">     &#x2F; __&#x2F;__  ___ _____&#x2F; &#x2F;__</span><br><span class="line">    _\ \&#x2F; _ \&#x2F; _ &#96;&#x2F; __&#x2F;  &#39;_&#x2F;</span><br><span class="line">   &#x2F;___&#x2F; .__&#x2F;\_,_&#x2F;_&#x2F; &#x2F;_&#x2F;\_\   version 2.4.4</span><br><span class="line">      &#x2F;_&#x2F;</span><br><span class="line">         </span><br><span class="line">Using Scala version 2.11.12 (Java HotSpot(TM) 64-Bit Server VM, Java 1.8.0_161)</span><br><span class="line">Type in expressions to have them evaluated.</span><br><span class="line">Type :help for more information.</span><br><span class="line"></span><br><span class="line">scala&gt; </span><br></pre></td></tr></table></figure>
+<p>可以在<code>http://nn:4040</code>查看，若有计算任务提交，可以直观查看spark job 、excutors等进度，参考官方说明：</p>
+<blockquote>
+<p>Every SparkContext launches a web UI, by default on port 4040, that displays useful information about the application. This includes:</p>
+<ul>
+<li>A list of scheduler stages and tasks</li>
+<li>A summary of RDD sizes and memory usage</li>
+<li>Environmental information.</li>
+<li>Information about the running executors</li>
+</ul>
+</blockquote>
+<p>但以上启动是有问题的，表面上看，spark-shell已正常启动，但测试机器最大内存为2G，启动spark-shell若不限定executor-memory内存使用（默认值1G）那么在执行计算任务时，spark-shell会一直提示 scheduler资源不足：</p>
+<blockquote>
+<p>WARN scheduler.TaskSchedulerImpl: Initial job has not accepted any resources; check your cluster UI to ensure that workers are registered and have sufficient memory</p>
+</blockquote>
+<p>导致job一直waiting状态<br>解决办法：<br>启动spark-shell限制相关资源的使用:</p>
+<p><code>spark-shell --executor-memory 512m  --total-executor-cores 3 --executor-cores 1</code></p>
+<h3 id="6、在spark-shell交互式计算words"><a href="#6、在spark-shell交互式计算words" class="headerlink" title="6、在spark-shell交互式计算words"></a>6、在spark-shell交互式计算words</h3><h4 id="6-1-存放words的文件已经上传到hdfs文件系统上的-app目录下"><a href="#6-1-存放words的文件已经上传到hdfs文件系统上的-app目录下" class="headerlink" title="6.1 存放words的文件已经上传到hdfs文件系统上的/app目录下"></a>6.1 存放words的文件已经上传到hdfs文件系统上的/app目录下</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# hdfs dfs -ls &#x2F;app</span><br><span class="line">Found 2 items</span><br><span class="line">-rw-r--r--   3 root supergroup         41 ** &#x2F;app&#x2F;title.txt</span><br><span class="line">-rw-r--r--   3 root supergroup         76 ** &#x2F;app&#x2F;words.txt</span><br><span class="line"></span><br><span class="line"># title.txt内容：</span><br><span class="line">hadoop spark zookeeper</span><br><span class="line"> spark zookeeper</span><br><span class="line"></span><br><span class="line"># words.txt内容：</span><br><span class="line">foo is foo</span><br><span class="line">bar is not bar</span><br><span class="line">hadoop file system is the infrastructure of big data </span><br></pre></td></tr></table></figure>
+<h4 id="6-2带参数启动spark-shell"><a href="#6-2带参数启动spark-shell" class="headerlink" title="6.2带参数启动spark-shell"></a>6.2带参数启动spark-shell</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 ~]# spark-shell --master spark:&#x2F;&#x2F;nn:7077 --executor-memory 512m  --total-executor-cores 3 --executor-cores 1  --num-executors 2</span><br><span class="line"></span><br><span class="line"># SparkContext,也可以在web端查看http:&#x2F;&#x2F;nn:4040</span><br><span class="line">scala&gt; sc</span><br><span class="line">res2: org.apache.spark.SparkContext &#x3D; org.apache.spark.SparkContext@e71bd92</span><br><span class="line"></span><br><span class="line"># 统计hdfs目录&#x2F;app下所有文件里面words，scala语言的链式调用</span><br><span class="line">scala&gt; sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false).collect</span><br><span class="line"></span><br><span class="line"># 统计结果返回一个scala数组</span><br><span class="line">res0: Array[(String, Int)] &#x3D; Array((is,3), (&quot;&quot;,2), (bar,2), (foo,2), (spark,2), (hadoop,2), (zookeeper,2), (not,1), (system,1), (big,1), (infrastructure,1), (the,1), (data,1), (file,1))</span><br></pre></td></tr></table></figure>
+<p>或者在此spark-shell上交互式使用Scala写简单的统计语句</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">scala&gt; val file&#x3D;sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;)</span><br><span class="line">file: org.apache.spark.rdd.RDD[String] &#x3D; hdfs:&#x2F;&#x2F;nn:9000&#x2F;app MapPartitionsRDD[21] at textFile at &lt;console&gt;:24</span><br><span class="line"></span><br><span class="line">scala&gt; val rdd &#x3D; file.flatMap(line &#x3D;&gt; line.split(&quot; &quot;)).map(word &#x3D;&gt; (word,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br><span class="line">rdd: org.apache.spark.rdd.RDD[(String, Int)] &#x3D; MapPartitionsRDD[29] at sortBy at &lt;console&gt;:25</span><br><span class="line"></span><br><span class="line">scala&gt; rdd.collect()</span><br><span class="line">res6: Array[(String, Int)] &#x3D; Array((is,3), (&quot;&quot;,2), (bar,2), (foo,2), (hadoop,2), (zookeeper,2), (spark,2), (not,1), (system,1), (data,1), (file,1), (big,1), (infrastructure,1), (the,1))</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<h3 id="7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）"><a href="#7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）" class="headerlink" title="7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）"></a>7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）</h3><p>下面以一个Application 执行job前和执行job后的页面来说明application，job，task等内容</p>
+<p>==<strong>Application 执行job前</strong>==</p>
+<p><strong>A、查看application执行的详情页面</strong></p>
+<p>在nn节点上，启动一个名字为word-count的application：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# spark-shell --executor-memory 512m  --total-executor-cores 3 --executor-cores 1  --num-executors 2 --name word-count</span><br></pre></td></tr></table></figure>
+<p>在spark-shell启动后，会提示：<br>Spark context Web UI available at <code>http://nn:4040</code><br>Spark context available as ‘sc’ (master = spark://nn:7077, app id = app-2019*<em>**</em>-0002).</p>
+<p><code>http://nn:4040</code>针对当前运行application的job详情，如果执行统计命令后退出spark-shell，那么web服务退出，<code>http://nn:4040</code>将无法访问，也即无法查看当前application执行过程的情况，所有需要配置application 的spark-history-server，用来查看之前已经完成或者未完成的application情况的历史记录<br><code>http://nn:4040</code>页面：<br>app id = app-2019*<strong><strong>-0002Jobs栏目内容：<br>可以看到目前该application没有job需要执行<br><img src="https://img-blog.csdnimg.cn/2019101320274522.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">app id = app-2019*</strong></strong>-0002的executor内容：<br>该application分配了两个executor，分别为dn1节点和dn2节点，nn节点则作为driver<br><img src="https://img-blog.csdnimg.cn/20191013203133344.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><strong>B、查看所有正在完成、已完成的application管理页面：spark master：</strong><code>http://nn:8080</code><br>该页面可以看到spark集群的资源分配情况、worker情况、正在runing的application以及已经完成的application<br><img src="https://img-blog.csdnimg.cn/20191013203738203.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br><strong>C、在A部分提到如果要回看已经完成application运行情况，则需要启动spark-history-server，这里给出配置文件说明</strong><br>==配置Spark History Server服务==<br>history只需在spark主节点上配置，无需在其他两个节点上配置。<br>spark-history-server其实就是一个web服务，spark.eventLog.dir存放所有application事件日志，web服务通过把这些application运行日志内容以web UI提供查看</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# vi spark-env.sh</span><br><span class="line"># 从配置说明可以看出，所有配置hisory服务的属性值可由以下属性设定</span><br><span class="line"># - SPARK_HISTORY_OPTS, to set config properties only for the history server (e.g. &quot;-Dx&#x3D;y&quot;)</span><br><span class="line"></span><br><span class="line"># 配置history日志存放目录，可以配置多个属性值</span><br><span class="line"></span><br><span class="line">SPARK_HISTORY_OPTS&#x3D;&quot;</span><br><span class="line">-Dspark.history.ui.port&#x3D;9001 </span><br><span class="line">-Dspark.history.retainedApplications&#x3D;5</span><br><span class="line">-Dspark.history.fs.logDirectory&#x3D;hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory&quot;</span><br></pre></td></tr></table></figure>
+<p>web访问端口为9001，保留最近5个application的日志，application的日志存放在<code>hdfs://nn:9000/directory</code></p>
+<p>其他配置项</p>
+<p>其他相关参数:</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th style="text-align:center">Property Name</th>
+<th style="text-align:center">Default</th>
+<th style="text-align:center">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">spark.history.fs.update.interval</td>
+<td style="text-align:center">10s</td>
+<td style="text-align:center">文件系统历史提供程序在日志目录中检查新日志或更新日志的周期。较短的间隔可以更快地检测新应用程序，但代价是需要更多的服务器负载重新读取更新的应用程序。一旦更新完成，已完成和未完成的应用程序的清单将反映更改</td>
+</tr>
+<tr>
+<td style="text-align:center">spark.history.retainedApplications</td>
+<td style="text-align:center">50</td>
+<td style="text-align:center">在缓存中保留UI数据的应用程序数量。如果超过这个上限，那么最老的应用程序将从缓存中删除。如果应用程序不在缓存中，则必须从磁盘加载它(如果是从UI访问它)</td>
+</tr>
+<tr>
+<td style="text-align:center">spark.history.fs.cleaner.enabled</td>
+<td style="text-align:center">false</td>
+<td style="text-align:center">是否周期性的删除storage中的event log(生产必定是true)</td>
+</tr>
+<tr>
+<td style="text-align:center">spark.history.fs.cleaner.interval</td>
+<td style="text-align:center">1d</td>
+<td style="text-align:center">多久删除一次</td>
+</tr>
+<tr>
+<td style="text-align:center">spark.history.fs.cleaner.maxAge</td>
+<td style="text-align:center">7d</td>
+<td style="text-align:center">每次删除多久的event log，配合上一个参数就是每天删除前七天的数据</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>spark-history页面截图：<br><img src="https://img-blog.csdnimg.cn/2019101321104720.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">==<strong>Application 执行job后</strong>==<br>当application开始runing后，可以看到相关job运行情况<br><strong>A、application的jobs图示</strong><br>该word-count app启动了两个job<br><img src="https://img-blog.csdnimg.cn/20191013214149503.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>job-0主要负责作业中Transformation链操作：<br><code>sc.textFile(&quot;hdfs://nn:9000/app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</code><br>job-0分解</p>
+<p>job-1负责作业最后阶段Action操作：<br><code>.collect</code></p>
+<p>application、job、stage、task构成关系<br>这里job-1的stage2是skip的，因为job-0已经完成了同样的操作，其他job无法重复执行。<br><img src="https://img-blog.csdnimg.cn/2019101322183877.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><strong>B、job-0、job-1对于的stage图</strong><br>job-0：stage-0和stage-1<br><img src="https://img-blog.csdnimg.cn/20191013222359342.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">job-1：stage-2、stage-3、stage-4<br><img src="https://img-blog.csdnimg.cn/20191013222504141.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br><strong>C、以job-0为例：stage-0和stage-1的具体任务执行图DAG调度过程</strong><br>==job-0：stage-0，其实就是map阶段，对应shuffle write==<br><img src="https://img-blog.csdnimg.cn/20191013222734564.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>==job-1：stage-1，其实就是reduce阶段，对应shuffle read==<br><img src="https://img-blog.csdnimg.cn/20191013222849671.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<h3 id="8、启动spark-HA集群"><a href="#8、启动spark-HA集群" class="headerlink" title="8、启动spark HA集群"></a>8、启动spark HA集群</h3><p>前面的测试都是基于一个master带2个slave节点的集群，若nn节点上的master进程挂了，显然无法达到高可用集群，因此本章节也给出其配置过程，后面多篇文章会有大数据实时项目相关组件的部署，全部组件都基于HA方式运行，近可能贴近生产环境。<br>spark HA集群基于zookeeper集群实现，因此需要环境配置好并启动zookeeper服务，这里不再累赘，可以参考本人blog中有关zk集群的配置过程。</p>
+<h4 id="8-1-配置文件"><a href="#8-1-配置文件" class="headerlink" title="8.1 配置文件"></a>8.1 配置文件</h4><p>spark HA配置相对简单，改动三个文件： spark-defaults.conf，slaves，spark-env.sh</p>
+<p>将三个节点spark-defaults.conf都做以下配置：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@nn conf] vi  spark-defaults.conf</span><br><span class="line"># 因为spark要配成HA模式，因此不再指定nn节点为active节点</span><br><span class="line">#spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"># 注意这里eventLog.dir，因为本文中hadoop 集群还不是HA模式，NameNode主节点仅有nn节点，因此设为nn:9000。若hadoop集群为HA模式，这里的路径需要设为  ：hdfs:&#x2F;&#x2F;hdapp&#x2F;directory。在后面的spark on yarn 文章也还会提到这一点。</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line">spark.driver.memory              512m</span><br><span class="line">spark.driver.cores               1</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure></p>
+<p>将3个节点都为加入到slaves文件，每个节点都需配置该slaves文件。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@dn1 conf]# cp slaves.template slaves</span><br><span class="line">[root@dn1 conf]# vi slaves</span><br><span class="line">nn</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure><br>更改spark-env.sh<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">export SCALA_HOME&#x3D;&#x2F;opt&#x2F;scala-2.12.8</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line"># spark HA配置里，不再指定某个节点为master</span><br><span class="line">#export SPARK_MASTER_IP&#x3D;182.10.0.4</span><br><span class="line">export SPARK_WORKER_MEMORY&#x3D;512m</span><br><span class="line"># 加入zookeeper集群，由zk统一管理</span><br><span class="line">export SPARK_DAEMON_JAVA_OPTS&#x3D;&quot;-Dspark.deploy.recoveryMode&#x3D;ZOOKEEPER</span><br><span class="line">-Dspark.deploy.zookeeper.url&#x3D;nn:2181,dn1:2181,dn2:2181 -Dspark.deploy.zookeeper.dir&#x3D;&#x2F;spark&quot;</span><br><span class="line">#hadoop的配置文件**site.xml所在目录</span><br><span class="line">export HADOOP_CONF_DIR&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br></pre></td></tr></table></figure><br>在三个节点上都需按以上内容做相同配置。</p>
+<h4 id="8-2-启动和测试spark-HA"><a href="#8-2-启动和测试spark-HA" class="headerlink" title="8.2 启动和测试spark HA"></a>8.2 启动和测试spark HA</h4><p>首先启动nn节点上slaves进程,此时三个节点都是worker角色<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-slaves.sh </span><br><span class="line">nn: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-nn.out</span><br><span class="line">dn1: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn1.out</span><br><span class="line">dn2: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn2.out</span><br></pre></td></tr></table></figure><br>接着在nn节点上启动master进程，此时nn节点将被选举为active状态<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-master.sh </span><br><span class="line">starting org.apache.spark.deploy.master.Master, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.master.Master-1-nn.out</span><br></pre></td></tr></table></figure><br>最后，分别在dn1和dn2节点上启动master进程，此时因nn节点已经优先成为active角色，故这两个节点虽然启动master，但会处于standby模式<br>通过spark web UI查看以上集群情况：<br>首先访问<code>http://nn:8080</code>，可以看到当前nn节点为active状态且有3个alive workers<br><img src="https://img-blog.csdnimg.cn/20191205225822814.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn1:8080</code>，dn1节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230110964.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn2:8080</code>，dn2节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230256782.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">kill掉nn上master进程，观测spark 集群的master切换情况。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# jps</span><br><span class="line">7094 Master</span><br><span class="line">7322 Jps</span><br><span class="line">7019 Worker</span><br><span class="line">4892 QuorumPeerMain</span><br><span class="line">5853 NameNode</span><br><span class="line">5933 DataNode</span><br><span class="line">6253 DFSZKFailoverController</span><br><span class="line">6062 JournalNode</span><br><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# kill -9 7094</span><br></pre></td></tr></table></figure></p>
+<p>访问<code>http://dn1:8080</code>，dn1节点由standby变为active模式且有3个alive workers，而dn2仍然standby模式，说明HA部署正常。<br><img src="https://img-blog.csdnimg.cn/20191205230624602.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
+<h3 id="9、结束"><a href="#9、结束" class="headerlink" title="9、结束"></a>9、结束</h3><p>本文详细讨论了基于hadoop上搭建spark HA集群，并对执行的application做了简单的介绍，注意到，这里spark HA集群并没有引入yarn资源调度服务，后面的文章会给出配置过程。同时本文没有对spark架构及其原理做更多的探讨，相关文章也在之后给出。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/blog/tags/spark%E9%9B%86%E7%BE%A4/" rel="tag"># spark集群</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/10/%E5%9F%BA%E4%BA%8ECentos7.5%E5%AE%8C%E6%95%B4%E9%83%A8%E7%BD%B2%E5%88%86%E5%B8%83%E5%BC%8FHadoop3.1.2/" rel="prev" title="基于Centos7.5完整部署分布式Hadoop3.1.2">
+      <i class="fa fa-chevron-left"></i> 基于Centos7.5完整部署分布式Hadoop3.1.2
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/blog/2019/10/15/%E7%90%86%E8%A7%A3HDFS%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E5%92%8C%E5%8E%9F%E7%90%86/" rel="next" title="理解HDFS文件系统架构和原理">
+      理解HDFS文件系统架构和原理 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#1%E3%80%81spark%E7%89%88%E6%9C%AC%EF%BC%88%E4%BB%85%E5%88%97%E5%87%BAspark%E7%9B%B8%E5%85%B3%EF%BC%89"><span class="nav-number">1.</span> <span class="nav-text">1、spark版本（仅列出spark相关）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2%E3%80%81%E8%AE%BE%E7%BD%AEpath%E7%8E%AF%E5%A2%83"><span class="nav-number">2.</span> <span class="nav-text">2、设置path环境</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3%E3%80%81%E9%85%8D%E7%BD%AEspark%E9%9B%86%E7%BE%A4%E7%9A%84%E7%9B%B8%E5%85%B3%E6%96%87%E4%BB%B6"><span class="nav-number">3.</span> <span class="nav-text">3、配置spark集群的相关文件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4%E3%80%81%E5%90%AF%E5%8A%A8spark%E9%9B%86%E7%BE%A4%E8%BF%9B%E7%A8%8B"><span class="nav-number">4.</span> <span class="nav-text">4、启动spark集群进程</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#4-1-%E5%90%AF%E5%8A%A8spark-master%E8%BF%9B%E7%A8%8B"><span class="nav-number">4.1.</span> <span class="nav-text">4.1 启动spark-master进程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-2-%E5%9C%A8spark-master%E5%90%AF%E5%8A%A8%E5%90%8E%EF%BC%8C%E5%90%AF%E5%8A%A8Worker%E8%8A%82%E7%82%B9"><span class="nav-number">4.2.</span> <span class="nav-text">4.2 在spark master启动后，启动Worker节点</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5%E3%80%81%E8%AE%BE%E7%BD%AE%E5%90%AF%E5%8A%A8spark-shell%E7%9A%84%E9%BB%98%E8%AE%A4%E7%8E%AF%E5%A2%83%EF%BC%88%E9%9D%9E%E5%B8%B8%E5%85%B3%E9%94%AE%E7%9A%84%E9%85%8D%E7%BD%AE%EF%BC%89"><span class="nav-number">5.</span> <span class="nav-text">5、设置启动spark-shell的默认环境（非常关键的配置）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#5-1-%E9%85%8D%E7%BD%AEspark-defaults-conf"><span class="nav-number">5.1.</span> <span class="nav-text">5.1 配置spark-defaults.conf</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5-2-spark-defaults-conf%E7%9A%84%E8%AF%A6%E7%BB%86%E7%9A%84%E8%AE%BE%E7%BD%AE"><span class="nav-number">5.2.</span> <span class="nav-text">5.2  spark-defaults.conf的详细的设置</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5-3-%E5%90%AF%E5%8A%A8spark-shell"><span class="nav-number">5.3.</span> <span class="nav-text">5.3 启动spark-shell</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6%E3%80%81%E5%9C%A8spark-shell%E4%BA%A4%E4%BA%92%E5%BC%8F%E8%AE%A1%E7%AE%97words"><span class="nav-number">6.</span> <span class="nav-text">6、在spark-shell交互式计算words</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#6-1-%E5%AD%98%E6%94%BEwords%E7%9A%84%E6%96%87%E4%BB%B6%E5%B7%B2%E7%BB%8F%E4%B8%8A%E4%BC%A0%E5%88%B0hdfs%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E4%B8%8A%E7%9A%84-app%E7%9B%AE%E5%BD%95%E4%B8%8B"><span class="nav-number">6.1.</span> <span class="nav-text">6.1 存放words的文件已经上传到hdfs文件系统上的&#x2F;app目录下</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#6-2%E5%B8%A6%E5%8F%82%E6%95%B0%E5%90%AF%E5%8A%A8spark-shell"><span class="nav-number">6.2.</span> <span class="nav-text">6.2带参数启动spark-shell</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7%E3%80%81%E4%BD%BF%E7%94%A8spark%E7%9A%84%E7%9B%B8%E5%85%B3web%E6%9C%8D%E5%8A%A1%E9%A1%B5%E9%9D%A2%E6%9F%A5%E7%9C%8Bapplication%E6%89%A7%E8%A1%8C%E8%AE%A1%E7%AE%97%E4%BD%9C%E4%B8%9A%E7%9A%84%E8%AF%A6%E7%BB%86%E8%BF%87%E7%A8%8B%EF%BC%88%E9%9D%9E%E5%B8%B8%E9%87%8D%E8%A6%81%EF%BC%89"><span class="nav-number">7.</span> <span class="nav-text">7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8%E3%80%81%E5%90%AF%E5%8A%A8spark-HA%E9%9B%86%E7%BE%A4"><span class="nav-number">8.</span> <span class="nav-text">8、启动spark HA集群</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#8-1-%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6"><span class="nav-number">8.1.</span> <span class="nav-text">8.1 配置文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-2-%E5%90%AF%E5%8A%A8%E5%92%8C%E6%B5%8B%E8%AF%95spark-HA"><span class="nav-number">8.2.</span> <span class="nav-text">8.2 启动和测试spark HA</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9%E3%80%81%E7%BB%93%E6%9D%9F"><span class="nav-number">9.</span> <span class="nav-text">9、结束</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/blog/archives/">
+        
+          <span class="site-state-item-count">46</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/blog/categories/">
+          
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/blog/tags/">
+          
+        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">554k</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">8:23</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/blog/lib/anime.min.js"></script>
+  <script src="/blog/lib/pjax/pjax.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.min.js"></script>
+  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/blog/js/utils.js"></script>
+
+<script src="/blog/js/motion.js"></script>
+
+
+<script src="/blog/js/schemes/pisces.js"></script>
+
+
+<script src="/blog/js/next-boot.js"></script>
+
+<script src="/blog/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/blog/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>
