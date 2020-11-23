@@ -5,25 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
 <meta name="theme-color" content="#222">
 <meta name="generator" content="Hexo 5.2.0">
-  <link rel="apple-touch-icon" sizes="180x180" href="/blog/images/apple-touch-icon-next.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/blog/images/favicon-32x32-next.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/blog/images/favicon-16x16-next.png">
-  <link rel="mask-icon" href="/blog/images/logo.svg" color="#222">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
 
-<link rel="stylesheet" href="/blog/css/main.css">
+<link rel="stylesheet" href="/css/main.css">
 
 <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
-<link rel="stylesheet" href="/blog/lib/font-awesome/css/all.min.css">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
 
 <script id="hexo-configurations">
     var NexT = window.NexT || {};
-    var CONFIG = {"hostname":"yield-bytes.gitee.io","root":"/blog/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
   </script>
 
   <meta name="description" content="&amp;#8195;&amp;#8195;前面的blog已实现了hadoopHA的项目环境，本文继续为该hadoop环境引入flume组件，用于实时大数据项目的开发。考虑到项目已经使用了hadoopHA，那么flume的组件也相应的部署成HA模式">
 <meta property="og:type" content="article">
 <meta property="og:title" content="在hadoopHA节点上部署flume高可用组件">
-<meta property="og:url" content="https://yield-bytes.gitee.io/blog/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/index.html">
+<meta property="og:url" content="https://yield-bytes.github.io/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/index.html">
 <meta property="og:site_name" content="yield-bytes">
 <meta property="og:description" content="&amp;#8195;&amp;#8195;前面的blog已实现了hadoopHA的项目环境，本文继续为该hadoop环境引入flume组件，用于实时大数据项目的开发。考虑到项目已经使用了hadoopHA，那么flume的组件也相应的部署成HA模式">
 <meta property="og:locale" content="zh_CN">
@@ -35,7 +35,7 @@
 <meta name="twitter:card" content="summary">
 <meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191123154225919.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
 
-<link rel="canonical" href="https://yield-bytes.gitee.io/blog/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/">
+<link rel="canonical" href="https://yield-bytes.github.io/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/">
 
 
 <script id="page-configurations">
@@ -79,7 +79,7 @@
   </style>
 </noscript>
 
-<link rel="alternate" href="/blog/atom.xml" title="yield-bytes" type="application/atom+xml">
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
 </head>
 
 <body itemscope itemtype="http://schema.org/WebPage">
@@ -98,7 +98,7 @@
 
   <div class="site-meta">
 
-    <a href="/blog/" class="brand" rel="start">
+    <a href="/" class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
@@ -120,22 +120,22 @@
   <ul id="menu" class="main-menu menu">
         <li class="menu-item menu-item-home">
 
-    <a href="/blog/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
 
   </li>
         <li class="menu-item menu-item-tags">
 
-    <a href="/blog/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
 
   </li>
         <li class="menu-item menu-item-categories">
 
-    <a href="/blog/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
 
   </li>
         <li class="menu-item menu-item-archives">
 
-    <a href="/blog/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
 
   </li>
       <li class="menu-item menu-item-search">
@@ -193,7 +193,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="https://yield-bytes.gitee.io/blog/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2019/11/24/%E5%9C%A8hadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2flume%E9%AB%98%E5%8F%AF%E7%94%A8%E7%BB%84%E4%BB%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
@@ -231,7 +231,7 @@
               </span>
               <span class="post-meta-item-text">分类于</span>
                 <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/blog/categories/Flume/" itemprop="url" rel="index"><span itemprop="name">Flume</span></a>
+                  <a href="/categories/Flume/" itemprop="url" rel="index"><span itemprop="name">Flume</span></a>
                 </span>
             </span>
 
@@ -371,7 +371,7 @@
 
       <footer class="post-footer">
           <div class="post-tags">
-              <a href="/blog/tags/flume%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="tag"># flume高可用</a>
+              <a href="/tags/flume%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="tag"># flume高可用</a>
           </div>
 
         
@@ -380,11 +380,11 @@
         
     <div class="post-nav">
       <div class="post-nav-item">
-    <a href="/blog/2019/11/19/hadoop%E9%9B%86%E7%BE%A4%E5%B9%B3%E5%8F%B0%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AEbond%E6%A8%A1%E5%BC%8F%E5%AE%9E%E7%8E%B0%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="prev" title="hadoop集群平台网络配置bond模式实现高可用">
+    <a href="/2019/11/19/hadoop%E9%9B%86%E7%BE%A4%E5%B9%B3%E5%8F%B0%E7%BD%91%E7%BB%9C%E9%85%8D%E7%BD%AEbond%E6%A8%A1%E5%BC%8F%E5%AE%9E%E7%8E%B0%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="prev" title="hadoop集群平台网络配置bond模式实现高可用">
       <i class="fa fa-chevron-left"></i> hadoop集群平台网络配置bond模式实现高可用
     </a></div>
       <div class="post-nav-item">
-    <a href="/blog/2019/11/28/%E5%9C%A8HadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2kafka%E9%9B%86%E7%BE%A4%E7%BB%84%E4%BB%B6/" rel="next" title="在HadoopHA节点上部署Kafka集群组件">
+    <a href="/2019/11/28/%E5%9C%A8HadoopHA%E8%8A%82%E7%82%B9%E4%B8%8A%E9%83%A8%E7%BD%B2kafka%E9%9B%86%E7%BE%A4%E7%BB%84%E4%BB%B6/" rel="next" title="在HadoopHA节点上部署Kafka集群组件">
       在HadoopHA节点上部署Kafka集群组件 <i class="fa fa-chevron-right"></i>
     </a></div>
     </div>
@@ -459,20 +459,20 @@
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
-          <a href="/blog/archives/">
+          <a href="/archives/">
         
           <span class="site-state-item-count">48</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
-            <a href="/blog/categories/">
+            <a href="/categories/">
           
         <span class="site-state-item-count">18</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
-            <a href="/blog/tags/">
+            <a href="/tags/">
           
         <span class="site-state-item-count">48</span>
         <span class="site-state-item-name">标签</span></a>
@@ -536,22 +536,22 @@
   </div>
 
   
-  <script src="/blog/lib/anime.min.js"></script>
-  <script src="/blog/lib/pjax/pjax.min.js"></script>
-  <script src="/blog/lib/velocity/velocity.min.js"></script>
-  <script src="/blog/lib/velocity/velocity.ui.min.js"></script>
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
 
-<script src="/blog/js/utils.js"></script>
+<script src="/js/utils.js"></script>
 
-<script src="/blog/js/motion.js"></script>
-
-
-<script src="/blog/js/schemes/pisces.js"></script>
+<script src="/js/motion.js"></script>
 
 
-<script src="/blog/js/next-boot.js"></script>
+<script src="/js/schemes/pisces.js"></script>
 
-<script src="/blog/js/bookmark.js"></script>
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
 
   <script>
 var pjax = new Pjax({
@@ -621,7 +621,7 @@ window.addEventListener('pjax:success', () => {
 
 
   
-<script src="/blog/js/local-search.js"></script>
+<script src="/js/local-search.js"></script>
 
 
 
