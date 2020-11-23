@@ -210,10 +210,16 @@
                 <i class="far fa-calendar"></i>
               </span>
               <span class="post-meta-item-text">发表于</span>
-              
 
-              <time title="创建时间：2020-11-22 00:00:00 / 修改时间：23:42:14" itemprop="dateCreated datePublished" datetime="2020-11-22T00:00:00+08:00">2020-11-22</time>
+              <time title="创建时间：2020-11-22 00:00:00" itemprop="dateCreated datePublished" datetime="2020-11-22T00:00:00+08:00">2020-11-22</time>
             </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-11-23 22:50:47" itemprop="dateModified" datetime="2020-11-23T22:50:47+08:00">2020-11-23</time>
+              </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
                 <i class="far fa-folder"></i>
@@ -230,14 +236,14 @@
                 <i class="far fa-file-word"></i>
               </span>
                 <span class="post-meta-item-text">本文字数：</span>
-              <span>8.2k</span>
+              <span>8.4k</span>
             </span>
             <span class="post-meta-item" title="阅读时长">
               <span class="post-meta-item-icon">
                 <i class="far fa-clock"></i>
               </span>
                 <span class="post-meta-item-text">阅读时长 &asymp;</span>
-              <span>7 分钟</span>
+              <span>8 分钟</span>
             </span>
 
         </div>
@@ -249,8 +255,8 @@
     <div class="post-body" itemprop="articleBody">
 
       
-          <p>&#8195;&#8195;本文的使用场景相对常见，尤其来了一份含几千上万行Excel表（或者长报告里需要插入表格数据），需要将某列的单元格长字符串展开展开为多行，或者将groupby后将同组的多行记录拼接为单个字符串，使用pandas可以快速完成。（文章由jupyter notebook导出的Markdown文件生成）</p>
-<h3 id="groupby后将同组的多行值连接为一个长字符串"><a href="#groupby后将同组的多行值连接为一个长字符串" class="headerlink" title="groupby后将同组的多行值连接为一个长字符串"></a>groupby后将同组的多行值连接为一个长字符串</h3><h4 id="使用df-groupby、apply、pd-merge"><a href="#使用df-groupby、apply、pd-merge" class="headerlink" title="使用df.groupby、apply、pd.merge"></a>使用df.groupby、apply、pd.merge</h4><p>（在mysql中，可以直接使用GROUP_CONCAT(字段 SEPARATOR ‘、’)方法实现）</p>
+          <p>&#8195;&#8195;本文的使用场景相对常见，例如需要解析一份含几千上万行Excel表（或者长报告里需要插入表格数据），需要将某列的一个单元格长字符串对应展开为多行且索引号不变，或者groupby后将同组的多行值拼接为单个长字符串，使用pandas可以快速完成。（文章由jupyter notebook导出的Markdown文件生成）</p>
+<h3 id="groupby后将同组的多行值连接为一个长字符串"><a href="#groupby后将同组的多行值连接为一个长字符串" class="headerlink" title="groupby后将同组的多行值连接为一个长字符串"></a>groupby后将同组的多行值连接为一个长字符串</h3><h4 id="使用df-groupby、apply、pd-merge"><a href="#使用df-groupby、apply、pd-merge" class="headerlink" title="使用df.groupby、apply、pd.merge"></a>使用df.groupby、apply、pd.merge</h4><p>（在mysql中可以直接使用GROUP_CONCAT(字段 SEPARATOR ‘、’)方法完成）</p>
 <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> pandas <span class="keyword">as</span> pd</span><br><span class="line">data=&#123;</span><br><span class="line">    <span class="string">&#x27;省份&#x27;</span>:[<span class="string">&#x27;上海&#x27;</span>,<span class="string">&#x27;广东&#x27;</span>,<span class="string">&#x27;上海&#x27;</span>,<span class="string">&#x27;广东&#x27;</span>,<span class="string">&#x27;上海&#x27;</span>],</span><br><span class="line">    <span class="string">&#x27;大学名称&#x27;</span>:[<span class="string">&#x27;复旦大学&#x27;</span>,<span class="string">&#x27;中山大学&#x27;</span>,<span class="string">&#x27;同济大学&#x27;</span>,<span class="string">&#x27;华南理工大学&#x27;</span>,<span class="string">&#x27;上海交通大学&#x27;</span>]</span><br><span class="line">&#125;</span><br><span class="line">df=pd.DataFrame(data)</span><br><span class="line">df</span><br></pre></td></tr></table></figure>
           <!--noindex-->
             <div class="post-button">
@@ -301,10 +307,16 @@
                 <i class="far fa-calendar"></i>
               </span>
               <span class="post-meta-item-text">发表于</span>
-              
 
-              <time title="创建时间：2020-11-22 00:00:00 / 修改时间：19:12:22" itemprop="dateCreated datePublished" datetime="2020-11-22T00:00:00+08:00">2020-11-22</time>
+              <time title="创建时间：2020-11-22 00:00:00" itemprop="dateCreated datePublished" datetime="2020-11-22T00:00:00+08:00">2020-11-22</time>
             </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2020-11-23 22:53:20" itemprop="dateModified" datetime="2020-11-23T22:53:20+08:00">2020-11-23</time>
+              </span>
             <span class="post-meta-item">
               <span class="post-meta-item-icon">
                 <i class="far fa-folder"></i>
@@ -341,7 +353,7 @@
 
       
           <p>&#8195;&#8195;本blog用于归档如何在GitHub搭建个人博客的过程，内容参考来自本篇文章<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/sXH031TVK8-ZVG4KLVYyog">《如何用 GitHub 从零开始搭建一个博客》</a> 以及hexo中文官网的<a target="_blank" rel="noopener" href="https://hexo.io/zh-cn/docs/">文档</a>。</p>
-<p>更新：这篇文章写于今年年初，个人博客在年初已使用GitHub Pages搭建开源博客主页，今年下半年GitHub Pages所有以github.io为尾的博客地址在国内都无法正常访问，因此将其切换到国内Gitee才是正确选择，确实也需支持国内开源平台。</p>
+<p>更新：这篇文章写于今年年初，个人博客在年初已使用GitHub Pages搭建开源博客主页，今年下半年GitHub Pages在国内出现了某一时期无法正常访问，因此将其切换到国内Gitee Pages以保证主页正常访问，确实也需支持国内开源平台。</p>
 <p><img src="https://img-blog.csdnimg.cn/2020112219074494.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"></p>
           <!--noindex-->
             <div class="post-button">
