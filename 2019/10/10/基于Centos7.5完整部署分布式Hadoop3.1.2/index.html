@@ -20,12 +20,12 @@
     var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
   </script>
 
-  <meta name="description" content="&amp;#8195;&amp;#8195;本文基于虚拟机以及有限的计算资源搭建了非HA模式下分布式的hadoop集群，主要是为了后续开发基于大数据的实时计算项目提供hadoop服务。 1、相关安装包以及规划考虑本地测试使用，这里所使用的三台服务器均有虚拟机创建，每台配置：1个vCPU+1G内存+9G硬盘，基本组件版本    Ip 角色 hadoop路径 Hostname jdk路径 linux版本    192">
+  <meta name="description" content="&amp;#8195;&amp;#8195;本文基于虚拟机以及有限的计算资源搭建了非HA模式下分布式的hadoop集群，主要是为了后续开发基于大数据的实时计算项目提供hadoop服务。 1、相关安装包以及规划考虑本地测试使用，这里所使用的三台服务器均有虚拟机创建，每台配置：1个vCPU+1G内存+9G硬盘，基本组件版本     Ip 角色 hadoop路径 Hostname jdk路径 linux版本     1">
 <meta property="og:type" content="article">
 <meta property="og:title" content="基于Centos7.5完整部署分布式Hadoop3.1.2">
 <meta property="og:url" content="https://yield-bytes.github.io/2019/10/10/%E5%9F%BA%E4%BA%8ECentos7.5%E5%AE%8C%E6%95%B4%E9%83%A8%E7%BD%B2%E5%88%86%E5%B8%83%E5%BC%8FHadoop3.1.2/index.html">
 <meta property="og:site_name" content="yield-bytes">
-<meta property="og:description" content="&amp;#8195;&amp;#8195;本文基于虚拟机以及有限的计算资源搭建了非HA模式下分布式的hadoop集群，主要是为了后续开发基于大数据的实时计算项目提供hadoop服务。 1、相关安装包以及规划考虑本地测试使用，这里所使用的三台服务器均有虚拟机创建，每台配置：1个vCPU+1G内存+9G硬盘，基本组件版本    Ip 角色 hadoop路径 Hostname jdk路径 linux版本    192">
+<meta property="og:description" content="&amp;#8195;&amp;#8195;本文基于虚拟机以及有限的计算资源搭建了非HA模式下分布式的hadoop集群，主要是为了后续开发基于大数据的实时计算项目提供hadoop服务。 1、相关安装包以及规划考虑本地测试使用，这里所使用的三台服务器均有虚拟机创建，每台配置：1个vCPU+1G内存+9G硬盘，基本组件版本     Ip 角色 hadoop路径 Hostname jdk路径 linux版本     1">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://img-blog.csdnimg.cn/20191010210825857.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
 <meta property="og:image" content="https://img-blog.csdnimg.cn/20191010205253651.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
@@ -105,7 +105,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -200,7 +200,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -264,6 +264,7 @@
       
         <p>&#8195;&#8195;本文基于虚拟机以及有限的计算资源搭建了非HA模式下分布式的hadoop集群，主要是为了后续开发基于大数据的实时计算项目提供hadoop服务。</p>
 <h3 id="1、相关安装包以及规划"><a href="#1、相关安装包以及规划" class="headerlink" title="1、相关安装包以及规划"></a>1、相关安装包以及规划</h3><p>考虑本地测试使用，这里所使用的三台服务器均有虚拟机创建，每台配置：1个vCPU+1G内存+9G硬盘，基本组件版本</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -275,7 +276,8 @@
 <th>linux版本</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td>192.188.0.4</td>
 <td>NameNode,Datanode,NodeManager</td>
 <td>/opt/hadoop-3.1.2</td>
@@ -299,9 +301,10 @@
 <td>/opt/jdk1.8.0_161</td>
 <td>Centos7.5</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <a id="more"></a>
-
 <p>这里列出节点服务的基础介绍：</p>
 <p>hadoop平台相关：</p>
 <p>NameNode：</p>
@@ -330,22 +333,16 @@
 </blockquote>
 <h3 id="2、设置hostname"><a href="#2、设置hostname" class="headerlink" title="2、设置hostname"></a>2、设置hostname</h3><p>分别对三个节点更改对应的hostname</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# vi /etc/hostname </span><br><span class="line">nn</span><br><span class="line">[root@dn1 ~]# vi /etc/hostname </span><br><span class="line">dn1</span><br><span class="line">[root@dn2 ~]# vi /etc/hostname </span><br><span class="line">dn2</span><br></pre></td></tr></table></figure>
-
-
-
 <p>配置域名解析，三个节点都需要配置</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 ~]# vi /etc/hosts</span><br><span class="line">127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4</span><br><span class="line">::1         localhost localhost.localdomain localhost6 localhost6.localdomain6</span><br><span class="line">192.188.0.4  nn</span><br><span class="line">192.188.0.5 dn1</span><br><span class="line">192.188.0.6 dn2</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 无需重启，直接ping主机名称</span></span><br><span class="line">[root@dn2 ~]# ping nn</span><br><span class="line">PING nn (192.188.0.4) 56(84) bytes of data.</span><br><span class="line">64 bytes from nn (192.188.0.4): icmp_seq=1 ttl=64 time=0.322 ms</span><br><span class="line">64 bytes from nn (192.188.0.4): icmp_seq=2 ttl=64 time=0.347 ms</span><br></pre></td></tr></table></figure>
-
 <h3 id="3、配置免密ssh"><a href="#3、配置免密ssh" class="headerlink" title="3、配置免密ssh"></a>3、配置免密ssh</h3><h4 id="3-1-对三台服务器设置ssh公钥"><a href="#3-1-对三台服务器设置ssh公钥" class="headerlink" title="3.1 对三台服务器设置ssh公钥"></a>3.1 对三台服务器设置ssh公钥</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@nn &#x2F;]# ssh-keygen -t rsa</span><br><span class="line"># 手动创建 authorized_keys文件</span><br><span class="line">[root@nn .ssh]# ls</span><br><span class="line">id_rsa  id_rsa.pub</span><br><span class="line">[root@nn .ssh]# cp id_rsa.pub authorized_keys</span><br></pre></td></tr></table></figure>
 <p>其他两个节点同样操作</p>
 <h4 id="3-2-在nn节点将自己公钥拷贝到其他两个节"><a href="#3-2-在nn节点将自己公钥拷贝到其他两个节" class="headerlink" title="3.2  在nn节点将自己公钥拷贝到其他两个节"></a>3.2  在nn节点将自己公钥拷贝到其他两个节</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># 三个节点都需要操作</span><br><span class="line">[root@nn ~]# ssh-copy-id nn</span><br><span class="line">[root@nn ~]# ssh-copy-id dn1</span><br><span class="line">[root@nn ~]# ssh-copy-id dn2</span><br></pre></td></tr></table></figure>
-
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># 测试免密登录</span><br><span class="line">[root@nn ~]# ssh dn1</span><br><span class="line">[root@nn ~]# ssh dn2</span><br></pre></td></tr></table></figure>
-
 <h3 id="4、配置Java环境"><a href="#4、配置Java环境" class="headerlink" title="4、配置Java环境"></a>4、配置Java环境</h3><p>本项目中，java包、hadoop包、spark包都放在/opt目录下，三个节点都需配置</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"># java包路径</span><br><span class="line">[root@nn jdk1.8.0_161]# pwd</span><br><span class="line">&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line"></span><br><span class="line"># 配置环境变量</span><br><span class="line"># vi &#x2F;etc&#x2F;profile</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line">export CLASSPATH&#x3D;.:$JAVA_HOME&#x2F;lib&#x2F;dt.jar:$JAVA_HOME&#x2F;lib&#x2F;tools.jar</span><br><span class="line">export PATH&#x3D;$PATH:$JAVA_HOME&#x2F;bin</span><br><span class="line"></span><br><span class="line"># 生效配置</span><br><span class="line">source &#x2F;etc&#x2F;profile</span><br><span class="line"></span><br><span class="line"># 查看版本</span><br><span class="line">[root@nn jdk1.8.0_161]# java -version</span><br><span class="line">java version &quot;1.8.0_161&quot;</span><br><span class="line">Java(TM) SE Runtime Environment (build 1.8.0_161-b12)</span><br><span class="line">Java HotSpot(TM) 64-Bit Server VM (build 25.161-b12, mixed mode)</span><br></pre></td></tr></table></figure>
-
 <h3 id="5、配置Hadoop环境"><a href="#5、配置Hadoop环境" class="headerlink" title="5、配置Hadoop环境"></a>5、配置Hadoop环境</h3><p>Hadoop路径<code>/opt/hadoop-3.1.2</code>，以下为hadoop文件目录的简要说明</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -353,7 +350,8 @@
 <th>Hadoop最基本的管理脚本和使用脚本的目录，这些脚本是sbin目录下管理脚本的基础实现 。用户可以直接使用这些脚本管理和使用Hadoop</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td>include</td>
 <td>对外提供的编程库头文件（具体动态库和静态库在lib目录中），这些头文件均是用C++定义的，通常用于C++程序访问HDFS或者编写MapReduce程序。</td>
 </tr>
@@ -389,99 +387,61 @@
 <td>datanode_dir</td>
 <td>在hdfs-site.xml配置后，hadoop首次启动会创建该目录：存放数据文件</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <h4 id="5-1-配置hadoop-env-sh"><a href="#5-1-配置hadoop-env-sh" class="headerlink" title="5.1 配置hadoop-env.sh"></a>5.1 配置hadoop-env.sh</h4><p>给hadoop配置Java路径，三个节点都需要配置，但无需每台去设置，因为后面会把整个/opt/hadoop-3.1.2/etc/hadoop拷贝到另外两个dn节点</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop]# pwd</span><br><span class="line">&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br><span class="line">vi hadoop-env.sh</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br></pre></td></tr></table></figure>
-
 <h4 id="5-2-core-site-xml"><a href="#5-2-core-site-xml" class="headerlink" title="5.2 core-site.xml"></a>5.2 core-site.xml</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">&lt;configuration&gt;</span><br><span class="line">    &lt;!-- namenode用9000根datanode通信 --&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;fs.defaultFS&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;hdfs:&#x2F;&#x2F;nn:9000&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;!--hadoop临时文件路径 --&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;hadoop.tmp.dir&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;tmp&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line">&lt;&#x2F;configuration&gt;</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="5-2-hdfs-site-xml"><a href="#5-2-hdfs-site-xml" class="headerlink" title="5.2 hdfs-site.xml"></a>5.2 hdfs-site.xml</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">&lt;configuration&gt;</span><br><span class="line">    &lt;!-把dn2 设为secondary namenode，端口不能缺少 --&gt;</span><br><span class="line">          &lt;property&gt;</span><br><span class="line">                  &lt;name&gt;dfs.namenode.secondary.http-address&lt;&#x2F;name&gt;</span><br><span class="line">                 &lt;value&gt;dn2:50090&lt;&#x2F;value&gt;</span><br><span class="line">        &lt;&#x2F;property&gt;    </span><br><span class="line">    &lt;!-- namenode 上存储 hdfs 名字空间元数据--&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;dfs.namenode.name.dir&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;namenode&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;!-- datanode 上数据块的物理存储位置--&gt;  </span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;dfs.datanode.data.dir&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;datanode&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;!-- 设置 hdfs 副本数量 --&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;dfs.replication&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;3&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;configuration&gt;</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="5-3-mapred-site-xml"><a href="#5-3-mapred-site-xml" class="headerlink" title="5.3 mapred-site.xml"></a>5.3 mapred-site.xml</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">&lt;configuration&gt;</span><br><span class="line">    &lt;!-- 指定Yyarn运行--&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.framework.name&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;Yyarn&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">   &lt;!-- 打开Jobhistory --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">	&lt;name&gt;mapreduce.jobhistory.address&lt;&#x2F;name&gt;</span><br><span class="line">	&lt;value&gt;dn1:10020&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!-- 指定dn1作为jobhistory服务器 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">  &lt;name&gt;mapreduce.jobhistory.webapp.address&lt;&#x2F;name&gt;</span><br><span class="line">  &lt;value&gt;dn1:19888&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!-- 注意这里的路径不是Linux文件路径，而是hdfs文件系统上的路径 --&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.jobhistory.done-dir&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;&#x2F;history&#x2F;done&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.jobhistory.intermediate-done-dir&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;&#x2F;history&#x2F;done_intermediate&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">  &lt;!-- mp所需要hadoop环境 --&gt;</span><br><span class="line"></span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;Yyarn.app.mapreduce.am.env&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.map.env&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;mapreduce.reduce.env&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;HADOOP_MAPRED_HOME&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;configuration&gt;</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="5-4-yarn-site-xm"><a href="#5-4-yarn-site-xm" class="headerlink" title="5.4 yarn-site.xm;"></a>5.4 yarn-site.xm;</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">&lt;configuration&gt;</span><br><span class="line">&lt;!-- Site specific yarn configuration properties --&gt;</span><br><span class="line">    &lt;!-- 指定ResourceManager的地址 --&gt;</span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;yarn.resourcemanager.hostname&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;dn1&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">    &lt;!-- reducer取数据的方式是mapreduce_shuffle --&gt;  </span><br><span class="line">    &lt;property&gt;</span><br><span class="line">        &lt;name&gt;yarn.nodemanager.aux-services&lt;&#x2F;name&gt;</span><br><span class="line">        &lt;value&gt;mapreduce_shuffle&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">&lt;&#x2F;configuration&gt;</span><br></pre></td></tr></table></figure>
-
-
-
-<h4 id="5-5-workers"><a href="#5-5-workers" class="headerlink" title="5.5 workers"></a>5.5 workers</h4><p>三个节点都设为datanode，当然也生产环境中，负责数据物理文件存储DD不要跟DN放在同一台服务器</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop-3.1.2]# vi etc&#x2F;hadoop&#x2F;workers </span><br><span class="line">nn</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure>
-
+<h4 id="5-5-workers"><a href="#5-5-workers" class="headerlink" title="5.5 workers"></a>5.5 workers</h4><p>三个节点都设为datanode，当然也生产环境中，负责数据物理文件存储DD不要跟DN放在同一台服务器<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop-3.1.2]# vi etc&#x2F;hadoop&#x2F;workers </span><br><span class="line">nn</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure></p>
 <h4 id="5-6-设置start-dfs-sh-和-stop-dfs-sh"><a href="#5-6-设置start-dfs-sh-和-stop-dfs-sh" class="headerlink" title="5.6 设置start-dfs.sh 和 stop-dfs.sh"></a>5.6 设置start-dfs.sh 和 stop-dfs.sh</h4><p>在/opt/hadoop-3.1.2/sbin/start-dfs.sh 文件开头</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop-3.1.2]# vi sbin/start-dfs.sh</span><br><span class="line">HDFS_DATANODE_USER=root</span><br><span class="line">HADOOP_SECURE_DN_USER=hdfs</span><br><span class="line">HDFS_NAMENODE_USER=root</span><br><span class="line">HDFS_SECONDARYNAMENODE_USER=root</span><br></pre></td></tr></table></figure>
-
 <h4 id="5-7-设置start-yarn-sh-和-stop-yarn-sh"><a href="#5-7-设置start-yarn-sh-和-stop-yarn-sh" class="headerlink" title="5.7 设置start-yarn.sh 和 stop-yarn.sh"></a>5.7 设置start-yarn.sh 和 stop-yarn.sh</h4><p>都是在文件开头处添加</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop-3.1.2]# vi sbin/start-yarn.sh </span><br><span class="line">yarn_RESOURCEMANAGER_USER=root</span><br><span class="line">HADOOP_SECURE_DN_USER=yarn</span><br><span class="line">yarn_NODEMANAGER_USER=root</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="5-8-将hadoop包添加到linux环境变量，三个节点都需要加这个hadoop环境设置"><a href="#5-8-将hadoop包添加到linux环境变量，三个节点都需要加这个hadoop环境设置" class="headerlink" title="5.8 将hadoop包添加到linux环境变量，三个节点都需要加这个hadoop环境设置"></a>5.8 将hadoop包添加到linux环境变量，三个节点都需要加这个hadoop环境设置</h4><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">vi /etc/profile</span><br><span class="line">export HADOOP_HOME=/opt/hadoop-3.1.2</span><br><span class="line">export PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin</span><br></pre></td></tr></table></figure>
-
-
-
 <p><strong>直接将以上的配置文件所在目录拷贝到另外两个节点上，避免繁琐配置</strong></p>
 <p>[root@nn hadoop-3.1.2]# scp -r /opt/hadoop-3.1.2/etc/hadoop/   dn1:/opt/hadoop-3.1.2/etc/</p>
 <p>[root@nn hadoop-3.1.2]# scp -r /opt/hadoop-3.1.2/sbin   dn1:/opt/hadoop-3.1.2/</p>
 <h4 id="5-9-初始化hadoop文件系统"><a href="#5-9-初始化hadoop文件系统" class="headerlink" title="5.9 初始化hadoop文件系统"></a>5.9 初始化hadoop文件系统</h4><p>因为nn是作为namenode管理节点，因此只需在nn节点进行相应的格式化</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@nn bin]# pwd</span><br><span class="line">&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;bin</span><br><span class="line">[root@nn bin]# hdfs namenode -format</span><br><span class="line">****</span><br><span class="line">*** INFO common.Storage: Storage directory &#x2F;opt&#x2F;hadoop-3.1.2&#x2F;namenode has been successfully formatted.</span><br><span class="line">&#x2F;************************************************************</span><br><span class="line">SHUTDOWN_MSG: Shutting down NameNode at nn&#x2F;192.188.0.4</span><br></pre></td></tr></table></figure>
-
 <p>以上说明namenode格式化成功</p>
 <h3 id="6-启动hadoop服务"><a href="#6-启动hadoop服务" class="headerlink" title="6 启动hadoop服务"></a>6 启动hadoop服务</h3><h4 id="6-1-在namenode上启动服务"><a href="#6-1-在namenode上启动服务" class="headerlink" title="6.1 在namenode上启动服务"></a>6.1 在namenode上启动服务</h4><p>一键启动所有：如果使用start-all.sh，表示把集群的所有配置的服务都启动，它会调用start-dfs.sh和start-yarn.sh</p>
 <p>单个节点启动：使用start-dfs.sh和start-yarn.sh，这里要注意，比如nn节点是作为namenode节点，那么在nn节点执行start-dfs.sh，无需执行start-yarn.sh</p>
 <p>网上绝大部分教程会教你用start-all.sh启用集群服务，但这不是官方的推荐方式，个人推荐在每个节点启动相应服务</p>
 <p>nn节点：NameNode,Datanode,NodeManager，只需运行start-dfs.sh</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# start-dfs.sh</span><br></pre></td></tr></table></figure>
-
 <p>dn1节点：DataNode,ResourceManager,NodeManager，因为需要使用yarn服务，且作为ResourceManager节点（本身也是NodeManager）,需运行start-yarn.sh</p>
-<p>此外：dn1节点还是作为yarn主节点的JobHistoryServer服务，还需通过命令<code>mapred --daemon start historyserver </code>启动之，启动JobHistoryServer后，可以在yarn的web服务直观查看每个job的运行历史，后面会给截图</p>
+<p>此外：dn1节点还是作为yarn主节点的JobHistoryServer服务，还需通过命令<code>mapred --daemon start historyserver</code>启动之，启动JobHistoryServer后，可以在yarn的web服务直观查看每个job的运行历史，后面会给截图</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 ~]# start-yarn.sh </span><br><span class="line">[root@dn1 sbin]# pwd</span><br><span class="line">&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;sbin</span><br><span class="line">[root@dn1 sbin]# mapred --daemon start historyserver </span><br></pre></td></tr></table></figure>
-
-
-
 <p>dn2节点：DataNode,Secondarynode,NodeManager，因为nn节点的hdfs-site.xml已经配置了dn2节点作为sn节点，那么nn节点启动服务时，就已经自动在dn2节点启动了Secondarynode进程。</p>
 <p>查看各个节点服务进程：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# jps</span><br><span class="line">9957 NameNode</span><br><span class="line">10553 Jps</span><br><span class="line">10092 DataNode</span><br><span class="line">10430 NodeManager</span><br><span class="line"></span><br><span class="line">[root@dn1 ~]# jps</span><br><span class="line">31792 DataNode</span><br><span class="line">32133 NodeManager</span><br><span class="line">32492 Jps</span><br><span class="line">31998 ResourceManager</span><br><span class="line">17428 JobHistoryServer</span><br><span class="line"></span><br><span class="line">[root@dn2 ~]# jps</span><br><span class="line">31105 NodeManager</span><br><span class="line">30898 DataNode</span><br><span class="line">31235 Jps</span><br><span class="line">31005 SecondaryNameNode</span><br></pre></td></tr></table></figure>
-
 <p>也可通过查看web服务来确认NameNode服务和yarn服务<br>NN入口：<code>http://192.188.0.4:9870/</code><br><img src="https://img-blog.csdnimg.cn/20191010210825857.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <p>yarn入口：<code>http://192.188.0.5:8088</code><br><img src="https://img-blog.csdnimg.cn/20191010205253651.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <p>也可通过起一个python http服务查看hadoop自带的手册，手册html文件在</p>
 <p><code>/opt/hadoop-3.1.2/share/doc/hadoop</code>，里面有index.html,故只需在该目录下，开启一个后台web 服务，即可在 浏览器打开其网页</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn hadoop]# ls</span><br><span class="line">api                                  hadoop-fs2img</span><br><span class="line">css                                  hadoop-gridmix</span><br><span class="line">dependency-analysis.html             hadoop-hdfs-httpfs</span><br><span class="line">***</span><br><span class="line">***</span><br><span class="line">hadoop-dist                          images</span><br><span class="line">hadoop-distcp                        index.html</span><br><span class="line">hadoop-extras                        project-reports.html</span><br><span class="line"></span><br><span class="line">[root@nn hadoop]# python -m SimpleHTTPServer 8000 &amp;</span><br></pre></td></tr></table></figure>
-
 <h3 id="7、跑个wordcount-测试"><a href="#7、跑个wordcount-测试" class="headerlink" title="7、跑个wordcount 测试"></a>7、跑个wordcount 测试</h3><h4 id="7-1-在namenode节点上的hadoop文件系统的根目录路上创建一个目录"><a href="#7-1-在namenode节点上的hadoop文件系统的根目录路上创建一个目录" class="headerlink" title="7.1 在namenode节点上的hadoop文件系统的根目录路上创建一个目录"></a>7.1 在namenode节点上的hadoop文件系统的根目录路上创建一个目录</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"># 创建测试目录,可以使用</span><br><span class="line">[root@nn hadoop-3.1.2]# hadoop fs -mkdir &#x2F;app</span><br><span class="line"># 或者</span><br><span class="line">[root@nn hadoop-3.1.2]# hdfs dfs -mkdir &#x2F;app</span><br><span class="line"># 查看hadoop文件系统的根目录下的结构</span><br><span class="line">[root@nn hadoop-3.1.2]# hadoop fs -ls &#x2F;</span><br><span class="line">Found 2 items</span><br><span class="line">drwxr-xr-x   - root supergroup          ** &#x2F;app</span><br><span class="line">drwxr-xr-x   - root supergroup          ** &#x2F;word-count-app</span><br></pre></td></tr></table></figure>
-
 <p>以上目录的创建，也会在datanode同步创建</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 ~]# hadoop fs -ls &#x2F;</span><br><span class="line">Found 2 items</span><br><span class="line">drwxr-xr-x   - root supergroup          0 ** &#x2F;app</span><br><span class="line">drwxr-xr-x   - root supergroup          0 ** &#x2F;word-count-app</span><br></pre></td></tr></table></figure>
-
-
-
-
-
 <h4 id="7-2-hdfs常用命令"><a href="#7-2-hdfs常用命令" class="headerlink" title="7.2  hdfs常用命令"></a>7.2  hdfs常用命令</h4><p>具体详细命令用户，官网给出非常仔细的说明：</p>
 <p><code>http://hadoop.apache.org/docs/r3.1.2/hadoop-project-dist/hadoop-hdfs/HDFSCommands.html</code></p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">列出 hdfs 下的文件</span><br><span class="line">$ hdfs dfs -ls</span><br><span class="line">列出 hdfs &#x2F; 路径下的所有文件，文件夹  </span><br><span class="line">$ hdfs dfs -ls -R &#x2F;</span><br><span class="line">创建目录 &#x2F;app</span><br><span class="line">$ hdfs dfs -mkdir &#x2F;app</span><br><span class="line">列出 hsfs 名为 input 的文件夹中的文件</span><br><span class="line">$ hadoop dfs -ls app</span><br><span class="line">将 words.txt 上传到 hdfs 中</span><br><span class="line">$ hdfs dfs -put &#x2F;hadoop_test&#x2F;words.txt &#x2F;app</span><br><span class="line"></span><br><span class="line">将 hsdf 中的 words.txt 文件保存到本地</span><br><span class="line">$ hdfs dfs -get &#x2F;app&#x2F;words.txt &#x2F;hadoop_test&#x2F;words.txt</span><br><span class="line"></span><br><span class="line">删除 hdfs 上的 test.txt 文件</span><br><span class="line">$ hadoop dfs -rmr &#x2F;hadoop_test&#x2F;words.txt</span><br><span class="line"></span><br><span class="line">查看 hdfs 下 app 文件夹中的内容</span><br><span class="line">$ hadoop fs -cat app&#x2F;*</span><br><span class="line">进入安全模式</span><br><span class="line">$ hadoop dfsadmin –safemode enter</span><br><span class="line">退出安全模式</span><br><span class="line">$ hadoop dfsadmin -safemode leave</span><br><span class="line">报告 hdfs 的基本统计情况</span><br><span class="line">$ hadoop dfsadmin -report</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="7-1-将测试文件添加到hadoop系统的指定目录"><a href="#7-1-将测试文件添加到hadoop系统的指定目录" class="headerlink" title="7.1 将测试文件添加到hadoop系统的指定目录"></a>7.1 将测试文件添加到hadoop系统的指定目录</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# cat hadoop_example&#x2F;words.txt </span><br><span class="line">foo is foo</span><br><span class="line">bar is not bar</span><br><span class="line">hadoop file system is the infrastructure of bigdata </span><br><span class="line"></span><br><span class="line">[root@nn opt]# hdfs dfs -put hadoop_example&#x2F;words.txt &#x2F;app</span><br><span class="line"></span><br><span class="line">[root@nn opt]# hdfs dfs -ls &#x2F;app      </span><br><span class="line">Found 1 items</span><br><span class="line">-rw-r--r--   3 root supergroup         76 ** &#x2F;app&#x2F;words.txt</span><br></pre></td></tr></table></figure>
 <p>也可以通过web端查看fs目录结构和文件内容，直观易用</p>
 <p><img src="https://img-blog.csdnimg.cn/20191010204829139.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <h4 id="7-2-运行word-count-java示例程序"><a href="#7-2-运行word-count-java示例程序" class="headerlink" title="7.2 运行word count java示例程序"></a>7.2 运行word count java示例程序</h4><p>例程序在此路径：<code>/opt/hadoop-3.1.2/share/hadoop/mapreduce</code></p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@nn mapreduce]# hadoop jar hadoop-mapreduce-examples-3.1.2.jar wordcount &#x2F;app &#x2F;result</span><br><span class="line"></span><br><span class="line">**,500 INFO mapreduce.Job:  map 50% reduce 0%</span><br><span class="line">**,653 INFO mapreduce.Job:  map 100% reduce 0%</span><br><span class="line">**,685 INFO mapreduce.Job:  map 100% reduce 100%</span><br><span class="line">**,715 INFO mapreduce.Job: Job job_1***** completed successfully</span><br><span class="line">**,837 INFO mapreduce.Job: Counters: 55</span><br></pre></td></tr></table></figure>
-
 <p>以上表示成功运行一个计算实例</p>
 <p>查看计算结果，计算放在hdfs文件系统/result目录下,其中 /result/part-r-00000为计算结果，可以查看其输出内容：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# hdfs dfs -cat &#x2F;result&#x2F;part-r-00000</span><br><span class="line">bar     2</span><br><span class="line">big     1</span><br><span class="line">data    1</span><br><span class="line">file    1</span><br><span class="line">foo     2</span><br><span class="line">hadoop  2</span><br><span class="line">infrastructure  1</span><br><span class="line">is      3</span><br><span class="line">not     1</span><br><span class="line">spark   2</span><br><span class="line">system  1</span><br><span class="line">the     1</span><br><span class="line">zookeeper       2</span><br></pre></td></tr></table></figure>
-
 <p>当然，因为我们引入yarn调度框架，并且有dn1节点提供yarn服务，当然可以对此次map-reduce计算任务job在web端查看。<br><img src="https://img-blog.csdnimg.cn/20191010211317781.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <h3 id="最后"><a href="#最后" class="headerlink" title="最后"></a>最后</h3><p>以上为完整的基于hadoop3.1.2真实集群并引入yarn管理的文章讨论，给出了完整部署流程和测试案例，保证本次部署过程的可行性。注意到本文的hadoop集群中还不是HA模式，生产环境需要部署HA模式，后面的文章中我们将引入Zookeeper，给出HA模式的部署过程（zk文章在本博客已经有深入的探讨，目的也是为了后面大数据架构部署）</p>
 <h3 id="Trouble-shooting"><a href="#Trouble-shooting" class="headerlink" title="Trouble shooting"></a>Trouble shooting</h3><p>1、运行word count时，yarn提示任务虚拟运行内存不足</p>
-<p>Container [pid=17786,containerID=container_****002_01_000003] is running 459045376B beyond the ‘VIRTUAL’ memory limit. Current usage: 61.8 MB of 1 GB physical memory used; 2.5 GB of 2.1 GB virtual memory used. Killing container</p>
+<p>Container [pid=17786,containerID=container_<em>**</em>002_01_000003] is running 459045376B beyond the ‘VIRTUAL’ memory limit. Current usage: 61.8 MB of 1 GB physical memory used; 2.5 GB of 2.1 GB virtual memory used. Killing container</p>
 <p>回答这个问题前，首先要理解yarn集群中Container的概念</p>
 <ul>
 <li><p>在yarn的NodeManager节点上，会将集群中所有节点的CPU和内存的一定值抽离出来，组成一个“资源池”，例如资源池是100，这个资源池根据配置（例如设置大哥容器申请的资源最大值为10）可以分成多个Container（100/10=10个可供Job使用的容器），当Application（在MapReduce时期叫Job）提出申请时，就会分配相应的Container资源，因此Container其实是yarn中的一个动态资源分配的概念，其拥有一定的内存，核数，由RM分配给ApplicationMaster或者MapTask或者ReduceTask使用，这些task就在Container为基础的容器中运行起来。</p>
@@ -494,36 +454,18 @@
 <p>解决办法有两种</p>
 <p>A、降低Mapper或者Reducer所需内存资源配置值，在mapred-site.xml 进行配置</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.map.memory.mb&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;100&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;description&gt;每个Map任务的物理内存限制&lt;&#x2F;description&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.reduce.memory.mb&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;200&lt;&#x2F;value&gt;</span><br><span class="line">    &lt;description&gt;每个Reduce任务的物理内存限制&lt;&#x2F;description&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.map.java.opts&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;-Xmx100m&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"> </span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.reduce.java.opts&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;-Xmx200m&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;mapreduce.framework.name&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;yarn&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br></pre></td></tr></table></figure>
-
-
-
-
-
 <p>B、配置RM针对单个Container能申请的最大资源或者RM本身能配置的最大内存</p>
 <p>配置解释：单个容器可申请的最小与最大内存，Application在运行申请内存时不能超过最大值，小于最小值则分配最小值，例如在本文测试中，因计算任务较为简单，无需太多资源，故最小值设为50M，最大值设为100M</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.scheduler.minimum-allocation-mb&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;50&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.scheduler.maximum-allocation-mb&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;100&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-
-
 <p>配置解释：NM的内存资源配置，主要是通过下面两个参数进行的</p>
 <p>第一个参数：每个节点可用的最大内存，默认值为-1，代表着yarn的NodeManager占总内存的80%，本文中，物理内存为1G</p>
 <p>第二个参数：NM的虚拟内存和物理内存的比率，默认为2.1倍</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.nodemanager.resource.memory-mb&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;1024&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br><span class="line"></span><br><span class="line">&lt;property&gt;</span><br><span class="line">    &lt;name&gt;yarn.nodemanager.vmem-pmem-ratio&lt;&#x2F;name&gt;</span><br><span class="line">    &lt;value&gt;3&lt;&#x2F;value&gt;</span><br><span class="line">&lt;&#x2F;property&gt;</span><br></pre></td></tr></table></figure>
-
 <p>vmem-pmem-ratio的默认值为2.1，由于本机器中，每个节点的物理内存为1G，因此单个RM拿到最大虚拟内存为2.1G，从<code>2.5 GB of 2.1 GB virtual memory used. Killing container</code>,可知，Container申请的资源为2.5G，已经超过默认值2.1G，当改为3倍时，虚拟化够用，故解决了问题。</p>
 <p>2、org.apache.hadoop.yarn.exceptions.yarnException:Unauthorized request to start container</p>
 <p>出错原因：Hadoop集群（本文也包含yarn集群）中多个节点的时间不同步导致.</p>
 <p>解决：修改多个节点的时间为相同的时间</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"> # 将硬件时间写到系统时间</span><br><span class="line">[root@dn1 ~]# hwclock -s </span><br><span class="line">保存时钟</span><br><span class="line">[root@dn1 ~]# clock -w</span><br></pre></td></tr></table></figure>
-
-
-
-
-
-
-
-
-
 
     </div>
 
@@ -616,27 +558,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -667,7 +609,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -676,12 +618,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

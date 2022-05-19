@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="在单线程场景下，HashMap适用于key为无序的键值对存放场景，而TreeMap适用于key为有序的键值对存放场景。 在高并发场景下，ConcurrentHashMap适用于key为无序的键值对存场景，但对于高并发且要求key有序的场景下，TreeMap非线程安全显然无法满足此场景， 在Concurrent包里面只有跳表：ConcurrentSkipListMap可以满足”基于乐观锁高性能的并发">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（上）">
+<meta property="og:url" content="https://yield-bytes.github.io/2022/01/07/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E9%AB%98%E5%B9%B6%E5%8F%91%E8%B7%B3%E8%A1%A8%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84ConcurrentSkipListMap%E7%9A%84%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%EF%BC%88%E4%B8%8A%EF%BC%89/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="在单线程场景下，HashMap适用于key为无序的键值对存放场景，而TreeMap适用于key为有序的键值对存放场景。 在高并发场景下，ConcurrentHashMap适用于key为无序的键值对存场景，但对于高并发且要求key有序的场景下，TreeMap非线程安全显然无法满足此场景， 在Concurrent包里面只有跳表：ConcurrentSkipListMap可以满足”基于乐观锁高性能的并发">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/0eb498c68cbb4bf1999927e150db78b1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/0933286e19b245f29e6f9067fedf6ae2.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/65f7be0bca5246dfa5f518aa5a4898a2.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/7f2a17ac64e2460386eb38952646841e.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/0eb498c68cbb4bf1999927e150db78b1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/0bbafd8d861a46d08af5e813c9a13562.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/aa0ae26faa314d75bec56d81b08fd0ac.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+<meta property="article:published_time" content="2022-01-06T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-10T03:35:54.918Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/0eb498c68cbb4bf1999927e150db78b1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2022/01/07/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E9%AB%98%E5%B9%B6%E5%8F%91%E8%B7%B3%E8%A1%A8%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84ConcurrentSkipListMap%E7%9A%84%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%EF%BC%88%E4%B8%8A%EF%BC%89/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（上） | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2022/01/07/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E9%AB%98%E5%B9%B6%E5%8F%91%E8%B7%B3%E8%A1%A8%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84ConcurrentSkipListMap%E7%9A%84%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%EF%BC%88%E4%B8%8A%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（上）
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2022-01-07 00:00:00" itemprop="dateCreated datePublished" datetime="2022-01-07T00:00:00+08:00">2022-01-07</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-10 11:35:54" itemprop="dateModified" datetime="2022-05-10T11:35:54+08:00">2022-05-10</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>27k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>25 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>在单线程场景下，HashMap适用于key为无序的键值对存放场景，而TreeMap适用于key为有序的键值对存放场景。</p>
+<p>在高并发场景下，ConcurrentHashMap适用于key为无序的键值对存场景，但对于高并发且要求key有序的场景下，TreeMap非线程安全显然无法满足此场景， 在Concurrent包里面只有跳表：ConcurrentSkipListMap可以满足”基于乐观锁高性能的并发读写、key有序”的需求，而且其设计不会像ConcurrentHashMap这么复杂，但确有着恰当的应用场景，例如对于时序流式数据的存放（最近比较热门的物联网大数据引擎TDengine），可以将乱序的记录以时间戳作为key插入到跳表中，跳表内部处理插入时会比较key的hash值大小以找到节点合适的插入位置，那么在读取时跳表返回的记录就是有序了。</p>
+<p>jdk1.8的ConcurrentSkipListMap在本文简写为CSM，Dung Lea在源代码开头的注释详细介绍了CSM总体设计思路并给出字符型展示的CSM结构图，如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">* Head nodes          Index nodes</span><br><span class="line">* +-+    right        +-+                      +-+</span><br><span class="line">* |<span class="number">2</span>|----------------&gt;| |---------------------&gt;| |-&gt;<span class="keyword">null</span></span><br><span class="line">* +-+                 +-+                      +-+</span><br><span class="line">*  | down              |                        |</span><br><span class="line">*  v                   v                        v</span><br><span class="line">* +-+            +-+  +-+       +-+            +-+       +-+</span><br><span class="line">* |<span class="number">1</span>|-----------&gt;| |-&gt;| |------&gt;| |-----------&gt;| |------&gt;| |-&gt;<span class="keyword">null</span></span><br><span class="line">* +-+            +-+  +-+       +-+            +-+       +-+</span><br><span class="line">*  v              |    |         |              |         |</span><br><span class="line">* Nodes  next     v    v         v              v         v</span><br><span class="line">* +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+</span><br><span class="line">* | |-&gt;|A|-&gt;|B|-&gt;|C|-&gt;|D|-&gt;|E|-&gt;|F|-&gt;|G|-&gt;|H|-&gt;|I|-&gt;|J|-&gt;|K|-&gt;<span class="keyword">null</span></span><br><span class="line">* +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+  +-+</span><br></pre></td></tr></table></figure>
+<p>CSM源代码解析文章说明：由于CSM解析内容较多，因此全文分为“深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（上）”和“深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（下）”两篇文章<br>上篇关注的重点：CSM数据结构设计原理、doGet、doPut核心方法解析<br>下篇关注的中断：doRemove核心方法解析、总结</p>
+<p><img src="https://img-blog.csdnimg.cn/0eb498c68cbb4bf1999927e150db78b1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"></p>
+<p>《gitee 博客文章封面》</p>
+<a id="more"></a>
+<h4 id="CSM的基本用法"><a href="#CSM的基本用法" class="headerlink" title="CSM的基本用法"></a>CSM的基本用法</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.ArrayList;</span><br><span class="line"><span class="keyword">import</span> java.util.Comparator;</span><br><span class="line"><span class="keyword">import</span> java.util.List;</span><br><span class="line"><span class="keyword">import</span> java.util.Objects;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.ConcurrentSkipListMap;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">SkipListDemo</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">        <span class="comment">// ConcurrentHashMap&lt;String,Integer&gt; sm= new ConcurrentHashMap&lt;&gt;();     </span></span><br><span class="line">        ConcurrentSkipListMap&lt;String,Integer&gt; sm=<span class="keyword">new</span> ConcurrentSkipListMap&lt;&gt;();</span><br><span class="line">        List&lt;Thread&gt; list=<span class="keyword">new</span> ArrayList&lt;&gt;();</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt;<span class="number">10</span> ; i++) &#123;</span><br><span class="line">            Thread t=<span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">                <span class="meta">@Override</span></span><br><span class="line">                <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                    sm.put(Thread.currentThread().getName(),(<span class="keyword">int</span>)Thread.currentThread().getId());</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;);</span><br><span class="line">            list.add(t);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">for</span> (Thread thread : list) &#123;</span><br><span class="line">           thread.start();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">for</span> (Thread thread : list) &#123;</span><br><span class="line">           thread.join();</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(sm);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>使用CHM输出的结果为无序结果：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;Thread-3&#x3D;12, Thread-4&#x3D;13, Thread-5&#x3D;14, Thread-6&#x3D;15, Thread-7&#x3D;16, Thread-8&#x3D;17, Thread-9&#x3D;18, Thread-0&#x3D;9, Thread-1&#x3D;10, Thread-2&#x3D;11&#125;</span><br></pre></td></tr></table></figure>
+<p>使用CSM输出的结果为有序结果：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;Thread-0&#x3D;9, Thread-1&#x3D;10, Thread-2&#x3D;11, Thread-3&#x3D;12, Thread-4&#x3D;13, Thread-5&#x3D;14, Thread-6&#x3D;15, Thread-7&#x3D;16, Thread-8&#x3D;17, Thread-9&#x3D;18&#125;</span><br></pre></td></tr></table></figure>
+<h4 id="CSM-数据结构图"><a href="#CSM-数据结构图" class="headerlink" title="CSM 数据结构图"></a>CSM 数据结构图</h4><p><img src="https://img-blog.csdnimg.cn/0933286e19b245f29e6f9067fedf6ae2.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"></p>
+<p>这个跳表结构有四层，其中base-level层是完整的数据节点链表，在base-level层上面的三层都是索引节点构成的索引链，从图中可以直观看到：上层的索引链表是下层索引链表的“快车道”</p>
+<p>从这种图也可以总结出跳表（这里是泛指跳表结构不是指Java的CSM）的基本特征：</p>
+<ul>
+<li>由最底层的完整数据节点链表层+上面的多层索引层组成。</li>
+<li>每一层都是一个有序的链表</li>
+<li>如果一个key出现在第n层中，则它在最底层以及1到第n-1层也都会出现</li>
+</ul>
+<p>而对于jdk1.8实现的功能完整的ConcurrentSikpListMap，可按上面的结构图进行简单说明各个元素的构成（最底层到最顶层）：</p>
+<ul>
+<li><p>Node节点：存放数据的节点，只在最底层的数据层链表出现，在插入操作时，可能会被随机算法选中上升为“index索引节点”</p>
+</li>
+<li><p>base-level：指代数据层链表的位置，此层存放的是完整数据节点链表，该层的所有节点都是Node类型，不含有Index类型节点！</p>
+</li>
+<li><p>BASE_HEADER：这个节点不是数据层链表的第一个数据节点，它是辅助节点，可以看做是数据层链表的“索引节点”，但它是Node类型：<code>new Node&lt;K,V&gt;(null, BASE_HEADER, null)</code></p>
+</li>
+<li><p>Index节点：位于索引层的节点，采用随机算法把它插入在数据层上方的索引层链表上。</p>
+</li>
+<li>HeadIndex节点：作为辅助节点，非数据节点，是当前索引层链表的头节点，它也会指向下一层index节点索引链表的头节点。Dung Lea称它是dummy node</li>
+<li>level：索引节点所在层序号，从level=1开始计数，最高不超过31（含31层），文章后面给出了计算解释。</li>
+<li>right指针：HeadIndex、Index节点专有字段，可以使得遍历链表的方向向右移动</li>
+<li>down指针：HeadIndex、Index节点专有字段，可以使得遍历链表的方向向下移动</li>
+<li>head节点：所有线程的读写操作都是这个头节点开始作为遍历入口，就像“迷宫的入口点，然后根据向右边还是向下移动，直到走到适合索引节点位置”，它指向最顶层索引层的HeadIndex节点。</li>
+<li>node指针：此指针最特殊！！ 因为每个数据节点，它垂直上方的所有索引节点的node指针都指向数据节点本身，<code>new Index&lt;K,V&gt;(node=新插入的数据节点,down=下一层索引节点, right=当前索引节点的后继索引节点)</code>，注意到上图结构图中，level=1层的索引节点与base-level数据层的数据节点之间不是通过down指针连接的，而是通过node指针连接的，这点务必在后面源码分析反复想起，否则理解错了CSM结构图，那么就无法正确解析源代码设计。</li>
+</ul>
+<p>还有marker标记型节点，它在删除节点的时机会被使用。</p>
+<h4 id="相关节点的定义："><a href="#相关节点的定义：" class="headerlink" title="相关节点的定义："></a>相关节点的定义：</h4><h5 id="数据节点："><a href="#数据节点：" class="headerlink" title="数据节点："></a>数据节点：</h5><p>Node类除了构造器，还定义了一些基本读写方法，具体如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/** node是数据节点，内部存放了key和value，node节点能构成有序链表</span></span><br><span class="line"><span class="comment"> * Nodes hold keys and values, and are singly linked in sorted</span></span><br><span class="line"><span class="comment"> * order, possibly with some intervening marker nodes. The list is</span></span><br><span class="line"><span class="comment"> * headed by a dummy node accessible as head.node. The value field</span></span><br><span class="line"><span class="comment"> * is declared only as Object because it takes special non-V</span></span><br><span class="line"><span class="comment"> * values for marker and header nodes.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="class"><span class="keyword">class</span> <span class="title">Node</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    <span class="keyword">final</span> K key; <span class="comment">// 注意final修饰</span></span><br><span class="line">    <span class="keyword">volatile</span> Object value;  <span class="comment">// 注意volatile修饰，因为cas会操作它</span></span><br><span class="line">    <span class="keyword">volatile</span> Node&lt;K,V&gt; next;<span class="comment">// 注意volatile修饰，因为cas会操作它</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 用于创建正常的数据节点，可以看到它没有right字段和down字段，因为它就是位于底层的数据链表中，是最熟悉链表普通节点</span></span><br><span class="line"><span class="comment">     * Creates a new regular node.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    Node(K key, Object value, Node&lt;K,V&gt; next) &#123;</span><br><span class="line">        <span class="keyword">this</span>.key = key;</span><br><span class="line">        <span class="keyword">this</span>.value = value;</span><br><span class="line">        <span class="keyword">this</span>.next = next;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Creates a new marker node. A marker is distinguished by</span></span><br><span class="line"><span class="comment">     * having its value field point to itself.  Marker nodes also</span></span><br><span class="line"><span class="comment">     * have null keys, a fact that is exploited in a few places,</span></span><br><span class="line"><span class="comment">     * but this doesn&#x27;t distinguish markers from the base-level</span></span><br><span class="line"><span class="comment">     * header node (head.node), which also has a null key.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">  	<span class="comment">// 使用Node类型创建marker节点（在删除操作会被使用），和数据节点的区别：无key，且value指向自己。</span></span><br><span class="line">    Node(Node&lt;K,V&gt; next) &#123;</span><br><span class="line">        <span class="keyword">this</span>.key = <span class="keyword">null</span>;</span><br><span class="line">        <span class="keyword">this</span>.value = <span class="keyword">this</span>;</span><br><span class="line">        <span class="keyword">this</span>.next = next;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 使用cas更改当前节点value的值</span></span><br><span class="line"><span class="comment">     * compareAndSet value field</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">boolean</span> <span class="title">casValue</span><span class="params">(Object cmp, Object val)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> UNSAFE.compareAndSwapObject(<span class="keyword">this</span>, valueOffset, cmp, val);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 使用cas更改当前节点的next指向</span></span><br><span class="line"><span class="comment">     * compareAndSet next field</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">boolean</span> <span class="title">casNext</span><span class="params">(Node&lt;K,V&gt; cmp, Node&lt;K,V&gt; val)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> UNSAFE.compareAndSwapObject(<span class="keyword">this</span>, nextOffset, cmp, val);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Returns true if this node is a marker. This method isn&#x27;t</span></span><br><span class="line"><span class="comment">     * actually called in any current code checking for markers</span></span><br><span class="line"><span class="comment">     * because callers will have already read value field and need</span></span><br><span class="line"><span class="comment">     * to use that read (not another done here) and so directly</span></span><br><span class="line"><span class="comment">     * test if value points to node.</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> true if this node is a marker node</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">  	<span class="comment">//因为HeadIndex的key也null，因此使用value==this才能唯一区别出这是marker节点</span></span><br><span class="line">    <span class="function"><span class="keyword">boolean</span> <span class="title">isMarker</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> value == <span class="keyword">this</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 用于判断node节点是否就是base-level的HeadIndex节点</span></span><br><span class="line"><span class="comment">     * Returns true if this node is the header of base-level list.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> true if this node is header node</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">boolean</span> <span class="title">isBaseHeader</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> value == BASE_HEADER;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 使用cas将一个marker节点放在当前节点的后面,其中f节点是当前节点的后继节点</span></span><br><span class="line"><span class="comment">    将：</span></span><br><span class="line"><span class="comment">    node-&gt;f-&gt;...</span></span><br><span class="line"><span class="comment">    变成：</span></span><br><span class="line"><span class="comment">    node-&gt;marker-&gt;f-&gt;...</span></span><br><span class="line"><span class="comment">     * Tries to append a deletion marker to this node.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> f the assumed current successor of this node</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> true if successful</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    </span><br><span class="line">    <span class="function"><span class="keyword">boolean</span> <span class="title">appendMarker</span><span class="params">(Node&lt;K,V&gt; f)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> casNext(f, <span class="keyword">new</span> Node&lt;K,V&gt;(f));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 当前节点通过添加marker节点来帮助删除操作或者用于将当前节点脱离前驱节点。</span></span><br><span class="line"><span class="comment">     * Helps out a deletion by appending marker or unlinking from</span></span><br><span class="line"><span class="comment">     * predecessor. This is called during traversals when value</span></span><br><span class="line"><span class="comment">     * field seen to be null.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> b predecessor  </span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> f successor</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">  	<span class="comment">// 如果在这里不能理解其含义，可在后面的删除操作中关于(b,n,f)三个节点调整解析中得到回答。</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">helpDelete</span><span class="params">(Node&lt;K,V&gt; b, Node&lt;K,V&gt; f)</span> </span>&#123;</span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Rechecking links and then doing only one of the</span></span><br><span class="line"><span class="comment">         * help-out stages per call tends to minimize CAS</span></span><br><span class="line"><span class="comment">         * interference among helping threads.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">if</span> (f == next &amp;&amp; <span class="keyword">this</span> == b.next) &#123;</span><br><span class="line">            <span class="keyword">if</span> (f == <span class="keyword">null</span> || f.value != f) <span class="comment">// not already marked</span></span><br><span class="line">                casNext(f, <span class="keyword">new</span> Node&lt;K,V&gt;(f));</span><br><span class="line">            <span class="keyword">else</span></span><br><span class="line">                b.casNext(<span class="keyword">this</span>, f.next);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 返回数据节点key对应的value，如果当前节点value字段指向自己说明是一个mark节点，则返回null，如果当前节点value字段BASE_HEADER，说明是底层的HeadIndex节点也是返回null</span></span><br><span class="line"><span class="comment">     * Returns value if this node contains a valid key-value pair,</span></span><br><span class="line"><span class="comment">     * else null.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> this node&#x27;s value if it isn&#x27;t a marker or header or</span></span><br><span class="line"><span class="comment">     * is deleted, else null</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function">V <span class="title">getValidValue</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        Object v = value;</span><br><span class="line">        <span class="keyword">if</span> (v == <span class="keyword">this</span> || v == BASE_HEADER)</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">        <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span> V vv = (V)v;</span><br><span class="line">        <span class="keyword">return</span> vv;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<h5 id="索引节点Index"><a href="#索引节点Index" class="headerlink" title="索引节点Index"></a>索引节点Index</h5><p>Index节点位于“快车道——索引层链表”</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">  <span class="comment">/* ---------------- Indexing -------------- */</span></span><br><span class="line"></span><br><span class="line">  <span class="comment">/**</span></span><br><span class="line"><span class="comment">   * Index nodes represent the levels of the skip list.  Note that</span></span><br><span class="line"><span class="comment">   * even though both Nodes and Indexes have forward-pointing</span></span><br><span class="line"><span class="comment">   * fields, they have different types and are handled in different</span></span><br><span class="line"><span class="comment">   * ways, that can&#x27;t nicely be captured by placing field in a</span></span><br><span class="line"><span class="comment">   * shared abstract class.</span></span><br><span class="line"><span class="comment">   */</span></span><br><span class="line"><span class="comment">// 可以看到Index索引节点的下一个节点指针不是next字段而是right字段，但他们作用都是指向后继节点，取用不同的名称是为了区别Node的next字段、方便理解和阅读。</span></span><br><span class="line">  <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Index</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    <span class="comment">/*  相关指针的局部指向示意图：</span></span><br><span class="line"><span class="comment">          this → right → indexNode  → indexNode → null  </span></span><br><span class="line"><span class="comment">          ↓</span></span><br><span class="line"><span class="comment">          down (Index&lt;K,V&gt;类型)</span></span><br><span class="line"><span class="comment">          ↓</span></span><br><span class="line"><span class="comment">          node (最底层的数据节点)</span></span><br><span class="line"><span class="comment">    */</span></span><br><span class="line">      <span class="keyword">final</span> Node&lt;K,V&gt; node;  <span class="comment">//索引节点在垂直方向上指向的最底层的对应数据节点，Node类型</span></span><br><span class="line">      <span class="keyword">final</span> Index&lt;K,V&gt; down; <span class="comment">//注意 down指针是Index索引节点类型，不是数据节点Node类型</span></span><br><span class="line">      <span class="keyword">volatile</span> Index&lt;K,V&gt; right;<span class="comment">//注意 right指针是Index索引节点类型，不是数据节点类型</span></span><br><span class="line"></span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">       * Creates index node with given values.</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">    	<span class="comment">// Index位于索引层的链表，那么它的down字段指向下层的Index节点（或者最底层的node数据节点），right字段指向后继索引节点</span></span><br><span class="line">      Index(Node&lt;K,V&gt; node, Index&lt;K,V&gt; down, Index&lt;K,V&gt; right) &#123;</span><br><span class="line">          <span class="keyword">this</span>.node = node;</span><br><span class="line">          <span class="keyword">this</span>.down = down;</span><br><span class="line">          <span class="keyword">this</span>.right = right;</span><br><span class="line">      &#125;</span><br><span class="line"></span><br><span class="line">      <span class="comment">/** 使用cas设置Index节点的right节点：在插入操作和删除操作使用</span></span><br><span class="line"><span class="comment">       * compareAndSet right field</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">      <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">casRight</span><span class="params">(Index&lt;K,V&gt; cmp, Index&lt;K,V&gt; val)</span> </span>&#123;</span><br><span class="line">          <span class="keyword">return</span> UNSAFE.compareAndSwapObject(<span class="keyword">this</span>, rightOffset, cmp, val);</span><br><span class="line">      &#125;</span><br><span class="line"></span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">       * Returns true if the node this indexes has been deleted.</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@return</span> true if indexed node is known to be deleted</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">      <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">indexesDeletedNode</span><span class="params">()</span> </span>&#123;</span><br><span class="line">          <span class="keyword">return</span> node.value == <span class="keyword">null</span>;</span><br><span class="line">      &#125;</span><br><span class="line"></span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">      参考后文</span></span><br><span class="line"><span class="comment">       * Tries to CAS newSucc as successor.  To minimize races with</span></span><br><span class="line"><span class="comment">       * unlink that may lose this index node, if the node being</span></span><br><span class="line"><span class="comment">       * indexed is known to be deleted, it doesn&#x27;t try to link in.</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@param</span> succ the expected current successor</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@param</span> newSucc the new successor</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@return</span> true if successful</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">    </span><br><span class="line">      <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">link</span><span class="params">(Index&lt;K,V&gt; succ, Index&lt;K,V&gt; newSucc)</span> </span>&#123;</span><br><span class="line">          Node&lt;K,V&gt; n = node;</span><br><span class="line">          newSucc.right = succ;</span><br><span class="line">          <span class="keyword">return</span> n.value != <span class="keyword">null</span> &amp;&amp; casRight(succ, newSucc);</span><br><span class="line">      &#125;</span><br><span class="line"></span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">      参考后文</span></span><br><span class="line"><span class="comment">       * Tries to CAS right field to skip over apparent successor</span></span><br><span class="line"><span class="comment">       * succ.  Fails (forcing a retraversal by caller) if this node</span></span><br><span class="line"><span class="comment">       * is known to be deleted.</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@param</span> succ the expected current successor</span></span><br><span class="line"><span class="comment">       * <span class="doctag">@return</span> true if successful</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">      <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">unlink</span><span class="params">(Index&lt;K,V&gt; succ)</span> </span>&#123;</span><br><span class="line">          <span class="keyword">return</span> node.value != <span class="keyword">null</span> &amp;&amp; casRight(succ, succ.right);</span><br><span class="line">      &#125;</span><br><span class="line"></span><br><span class="line">      <span class="comment">// Unsafe mechanics，Index类内部的Unsafe实例创建</span></span><br><span class="line">      <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> sun.misc.Unsafe UNSAFE;</span><br><span class="line">      <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> rightOffset;</span><br><span class="line">      <span class="keyword">static</span> &#123;</span><br><span class="line">          <span class="keyword">try</span> &#123;</span><br><span class="line">              UNSAFE = sun.misc.Unsafe.getUnsafe();</span><br><span class="line">              Class&lt;?&gt; k = Index.class;</span><br><span class="line">              rightOffset = UNSAFE.objectFieldOffset</span><br><span class="line">                  (k.getDeclaredField(<span class="string">&quot;right&quot;</span>));</span><br><span class="line">          &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">              <span class="keyword">throw</span> <span class="keyword">new</span> Error(e);</span><br><span class="line">          &#125;</span><br><span class="line">      &#125;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<h5 id="HeadIndex节点"><a href="#HeadIndex节点" class="headerlink" title="HeadIndex节点"></a>HeadIndex节点</h5><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* ---------------- Head nodes -------------- */</span></span><br><span class="line"></span><br><span class="line"><span class="comment">/**  从结构图也可以看出：该层HeadIndex的right指针指向的就是该层链表的头节点，down指针指向下一层的HeadIndex节点，关键的level属性：表示该层的序号，最小值是1，也即第一层</span></span><br><span class="line"><span class="comment"> * Nodes heading each level keep track of their level.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="class"><span class="keyword">class</span> <span class="title">HeadIndex</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; <span class="keyword">extends</span> <span class="title">Index</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    <span class="keyword">final</span> <span class="keyword">int</span> level;</span><br><span class="line">    HeadIndex(Node&lt;K,V&gt; node, Index&lt;K,V&gt; down, Index&lt;K,V&gt; right, <span class="keyword">int</span> level) &#123;</span><br><span class="line">        <span class="keyword">super</span>(node, down, right);</span><br><span class="line">        <span class="keyword">this</span>.level = level;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h4 id="get方法解析"><a href="#get方法解析" class="headerlink" title="get方法解析"></a>get方法解析</h4><p>有了以上基本数据结构说明后，理解查找节点的过程来进一步解析CSM核心设计。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> V <span class="title">get</span><span class="params">(Object key)</span> </span>&#123; </span><br><span class="line">    <span class="keyword">return</span> doGet(key); <span class="comment">// get方法内部封装的私有的doGet方法</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>doGet总体思路：使用comparator比较器，先找到key对于的前驱节点b，此刻起，有(b,n,f)三个节点关系（b:当前节点n的前驱节点，f:当前节点n的后继节点），这三个指针非常重要，要想读到准确n节点的value，显然在第一次读到(b,n,f)时，还需要再次检查b节点、n节点有无被其他线程修改或者删除，确保前后两次读一致，才可以正常地把key和n节点进行比较，若key==n.key，则可查询到key对应的值。</p>
+<p>b节点：给定key的前驱节点，一般有b.key&lt;key；n节点：要与key作为比较，f节点：n节点后驱节点</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> V <span class="title">doGet</span><span class="params">(Object key)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (key == <span class="keyword">null</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException();</span><br><span class="line">    Comparator&lt;? <span class="keyword">super</span> K&gt; cmp = comparator;</span><br><span class="line">  <span class="comment">/* 外层循环的outer非常有用：若当前读线程在内部循环找到(b,n,f)且准备读取数据节点n，有其他写线程（如删除操作）抢先一步将正常的数据n节点标记为marker或者更改了n节点，那么就需要要求当前读线程重新跳回外层循环再次定位(b,n,f)这个三个特殊节点，或者说：如果在内层循环，当前线程前后读取的(b,n,f)三个节点中的b节点、n节点有出现不一致读，则需要再次遍历，直到前后读取的(b,n,f)中的b、n都未改动时，返回的value才是key对应的value。</span></span><br><span class="line"><span class="comment">  */</span></span><br><span class="line">    outer: <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">      	<span class="comment">// ① 在内循环开始时，找到给定key的前驱节点b，以及b节点的next节点：n节点，b节点key一定是小于给定的key，否则b节点就不是给定key的前驱节点</span></span><br><span class="line">        <span class="keyword">for</span> (Node&lt;K,V&gt; b = findPredecessor(key, cmp), n = b.next;;) &#123;</span><br><span class="line">            Object v; <span class="keyword">int</span> c; <span class="comment">// c是comparator的比较结果，0，小于0，大于0</span></span><br><span class="line">          	<span class="comment">//② 来到数据层链表的尾部位置如： b → null，因此n指向null，说明key未能在数据层链表找到，可直接返回。</span></span><br><span class="line">          	<span class="comment">// 这里也对应下面③b=n;n=f后移操作，也是作为外层循环首要考虑的程序出口条件。</span></span><br><span class="line">            <span class="keyword">if</span> (n == <span class="keyword">null</span>)</span><br><span class="line">                <span class="keyword">break</span> outer; <span class="comment">// 注意：break outer是指结束结束外层循环来到return null语句</span></span><br><span class="line">          	<span class="comment">// n节点的后继节点为f节点</span></span><br><span class="line">            Node&lt;K,V&gt; f = n.next;</span><br><span class="line">          	<span class="comment">// 当前时刻n节点已经不是b节点的后继节点，说明n节点被其他线程改过(前、后不一致性读)，那么当前线程回到内层for循环① 位置继续下一轮重试。</span></span><br><span class="line">            <span class="keyword">if</span> (n != b.next)                <span class="comment">// inconsistent read</span></span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">          	<span class="comment">// 若线程执行到这里发现n节点value变为null，说明n节点被标记为“删除”，当前线程进入helpDelete帮助删除n节点，然后回到内层for循环①位置继续下一轮重试。</span></span><br><span class="line">            <span class="keyword">if</span> ((v = n.value) == <span class="keyword">null</span>) &#123;    <span class="comment">// n is deleted</span></span><br><span class="line">                n.helpDelete(b, f);</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">          	<span class="comment">// 若线程执行到这里发现b节点value变为null，此时说明前驱节点b被其他线程删除，或者n节点被其他线程标记为marker节点，当前线程只能回到内层for循环①位置继续下一轮重试。</span></span><br><span class="line">            <span class="keyword">if</span> (b.value == <span class="keyword">null</span> || v == n)  <span class="comment">// b is deleted</span></span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">          	<span class="comment">// 代码执行到这里说明b节点和n节点前后两次读取一致，那么可以开始比较key和n.key,若相等，n节点就是要找的key对应的节点，返回其value即可</span></span><br><span class="line">            <span class="keyword">if</span> ((c = cpr(cmp, key, n.key)) == <span class="number">0</span>) &#123;</span><br><span class="line">                <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span> V vv = (V)v;</span><br><span class="line">                <span class="keyword">return</span> vv;</span><br><span class="line">            &#125;</span><br><span class="line">          	<span class="comment">// b节点已经是给定key的前驱节点，有：b.key&lt;key,若c&lt;0,说明key&lt;n.key,因为b节点和n节点之间已经没有节点，既然key对应的不是b节点也不是n节点，说明key节点不在跳表里面，那么当前读线程只能跳出外层循环并结束读取操作，返回null。</span></span><br><span class="line">            <span class="keyword">if</span> (c &lt; <span class="number">0</span>)</span><br><span class="line">                <span class="keyword">break</span> outer;</span><br><span class="line">          	<span class="comment">//③ 代码执行到这里，说明要查找的key大于n节点的key，所以要继续向当前链表右边方向遍历，b和n指针同时向右边移动一个节点位置的指向，可以想象：当b来到链表尾部最后一个节点时，此时n=b.next=null 回到for循环就会进入②位置的分支：满足if (n == null)，然后break outer退出外层循环后return null</span></span><br><span class="line">            b = n;</span><br><span class="line">            n = f;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>doGet方法的设计整体相对清晰，最关键的一个点是如何找到key的前驱节点b？通过findPredecessor实现。</p>
+<h5 id="findPredecessor方法实现："><a href="#findPredecessor方法实现：" class="headerlink" title="findPredecessor方法实现："></a>findPredecessor方法实现：</h5><p>此方法有两个功能：</p>
+<p>功能 1：找到给定key对应的前驱节点node</p>
+<p>功能2：also unlinks indexes to deleted nodes found along the way，此功能具体分析放在后文的doRemove方法，在本小节中只需关注功能1即可。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br></pre></td><td class="code"><pre><span class="line">    <span class="comment">/* ---------------- Traversal -------------- */</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Returns a base-level node with key strictly less than given key,</span></span><br><span class="line"><span class="comment">     * or the base-level header if there is no such node.  Also</span></span><br><span class="line"><span class="comment">     * unlinks indexes to deleted nodes found along the way.  Callers</span></span><br><span class="line"><span class="comment">     * rely on this side-effect of clearing indices to deleted nodes.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> key the key</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> a predecessor of key</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">private</span> Node&lt;K,V&gt; <span class="title">findPredecessor</span><span class="params">(Object key, Comparator&lt;? <span class="keyword">super</span> K&gt; cmp)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (key == <span class="keyword">null</span>)</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException(); <span class="comment">// don&#x27;t postpone errors</span></span><br><span class="line">      	<span class="comment">// 两层循环，若当前线程在遍历索引节点过程中，当前遍历节点被修改，说明读不一致，那么当前线程必须回到外层循环重新遍历</span></span><br><span class="line">        <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">            <span class="comment">/* </span></span><br><span class="line"><span class="comment">            注意q、r、d的指向方向，如下所示</span></span><br><span class="line"><span class="comment">            q → r → indexNode  → indexNode → null  </span></span><br><span class="line"><span class="comment">            ↓</span></span><br><span class="line"><span class="comment">            d</span></span><br><span class="line"><span class="comment">            先将q指向head节点，那么r和d自然就出来了，如下所示</span></span><br><span class="line"><span class="comment">            q(head) → r (q.right) → indexNode  → indexNode → null  </span></span><br><span class="line"><span class="comment">            ↓</span></span><br><span class="line"><span class="comment">            d(q.down)</span></span><br><span class="line"><span class="comment">            */</span></span><br><span class="line">          	<span class="comment">// 这里很关键：q、r、d三个指针都是Index索引节点类型，说明findPredecessor方法只会在索引层去找key的前驱节点，而不会去到最底层的数据节点链表去找。</span></span><br><span class="line">            <span class="keyword">for</span> (Index&lt;K,V&gt; q = head, r = q.right, d;;) &#123;</span><br><span class="line">              	<span class="comment">//①分支：从上面的q、r位置关系可知，q、r都在同一层索引层移动，如果r节点不为空，说明可以继续向右遍历索引链表，若r来到索引链表尾部null位置，那么执行流跳过①分支来到④分支</span></span><br><span class="line">                <span class="keyword">if</span> (r != <span class="keyword">null</span>) &#123;</span><br><span class="line">                  	<span class="comment">//取出索引节点指向的数据节点node，此节点的key将和给定key比较</span></span><br><span class="line">                    Node&lt;K,V&gt; n = r.node;</span><br><span class="line">                    K k = n.key;</span><br><span class="line">                   <span class="comment">/*② 此分支建议深度理解了doRemove方法后，再回来理解它则简单很多。</span></span><br><span class="line"><span class="comment">                  在remove方法中有其他写线程使用n.casValue(v, null)将目标删除节点n的value字段设为null，因此只要读线程进入此分支，说明r索引节点指向的数据节点node已经被其他写线程标记为删除状态，此时要将q节点和r节点断开链接，也即将q → r → r.right 变成q → r.right</span></span><br><span class="line"><span class="comment">                   */</span></span><br><span class="line">                    <span class="keyword">if</span> (n.value == <span class="keyword">null</span>) &#123;</span><br><span class="line">                        <span class="keyword">if</span> (!q.unlink(r))</span><br><span class="line">                            <span class="keyword">break</span>;           <span class="comment">// 若unlink内部的cas失败，则继续重试</span></span><br><span class="line">                      	<span class="comment">// 如果上面unlink成功，旧r节点断开q节点，此时重新读取q的right节点，然后继续下一轮循环。</span></span><br><span class="line">                        r = q.right;         <span class="comment">// reread r</span></span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">//③分支：给定的key比r.key大，说明只好向右继续查找：q、r指针同时右边移动一个节点</span></span><br><span class="line">                    <span class="keyword">if</span> (cpr(cmp, key, k) &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                        q = r;</span><br><span class="line">                        r = r.right;</span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line"><span class="comment">/*④分支：findPredecessor结束点：找到了key的前驱节点。注意这里q已经是第一层的目标索引节点，q.down指向null，q.node指向数据节点node，所以不要误解为q.down指向node，而node不为空，参考后面图文解释！</span></span><br><span class="line"><span class="comment">            q (索引层leve=1的索引节点) </span></span><br><span class="line"><span class="comment">            ↓</span></span><br><span class="line"><span class="comment">            d (最底层数据节点)，显然此时d是Node节点类型，</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line">                <span class="keyword">if</span> ((d = q.down) == <span class="keyword">null</span>)</span><br><span class="line">                    <span class="keyword">return</span> q.node;</span><br><span class="line">              	<span class="comment">//⑤分支：遍历到当前索引层链表尾部r=null也没找到key的前驱节点，那么只能垂直在向下移动，在下一层索引层的链表头部继续重复以上逻辑。务必记住：此“向下移动一层”的操作只在索引层操作，不会“下移到数据链表层”！</span></span><br><span class="line">                q = d;</span><br><span class="line">                r = d.right;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p><code>q.unlink(r))</code>的定义：</p>
+<p>unlink方法是Index索引节点内部方法，设计目的是：当Index.node指向的数据节点已经被标记删除，那么此Index节点也需要被删除，假设r是当前处理索引节点：</p>
+<p>将q → r → r.right 变成q → r.right，对应到unlink的相关变量则为：</p>
+<p>将q → succ → succ.right 变成q → succ.right</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">/** </span></span><br><span class="line"><span class="comment"> * Tries to CAS right field to skip over apparent successor</span></span><br><span class="line"><span class="comment"> 若调用此方法时，q恰好被标记为删除状态，那么cas会失败，要求unlink调用者再次循环重试，这就是findPredecessor方法里面的②分支设计为重试的原因。 </span></span><br><span class="line"><span class="comment"> * succ.  Fails (forcing a retraversal by caller) if this node</span></span><br><span class="line"><span class="comment"> * is known to be deleted.</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> succ the expected current successor</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@return</span> true if successful</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">unlink</span><span class="params">(Index&lt;K,V&gt; succ)</span> </span>&#123;</span><br><span class="line">  	 <span class="comment">// 这里node.value是指q.node.value，不是r.node.value！要求q指向的数据节点node还没被删除才能进行cas</span></span><br><span class="line">    <span class="keyword">return</span> node.value != <span class="keyword">null</span> &amp;&amp; casRight(succ, succ.right);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>findPredecessor方法最关键的一个设计点——返回逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/*④分支：findPredecessor结束点：找到了key的前驱节点</span></span><br><span class="line"><span class="comment">            q (索引层leve=1的索引节点) </span></span><br><span class="line"><span class="comment">            ↓</span></span><br><span class="line"><span class="comment">            d (最底层数据节点)，显然此时d是Node节点类型，</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line">                <span class="keyword">if</span> ((d = q.down) == <span class="keyword">null</span>)</span><br><span class="line">                    <span class="keyword">return</span> q.node;</span><br></pre></td></tr></table></figure>
+<p>以上代码很容易让人产生错误理解（如果提前理解了doPut方法中idx插入索引节点的设计，则能正确理解④分支的设计逻辑），具体说明人下面两张图所示</p>
+<p>正确的理解：<br><img src="https://img-blog.csdnimg.cn/65f7be0bca5246dfa5f518aa5a4898a2.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"></p>
+<p>错误的理解：</p>
+<p><img src="https://img-blog.csdnimg.cn/7f2a17ac64e2460386eb38952646841e.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"></p>
+<p>虽然在前面CSM的数据结构图中 level=1的索引层节点画的图是直接指向下方数据层节点，但必须要清楚在真正的CSM设计中，是不存在这个down指向关系，你可以理解是第一层索引节点通过q.node指针实现指向最底层的数据节点。</p>
+<h5 id="图示doGet方法查找图"><a href="#图示doGet方法查找图" class="headerlink" title="图示doGet方法查找图"></a>图示doGet方法查找图</h5><p>分为两步理解：<br><img src="https://img-blog.csdnimg.cn/0eb498c68cbb4bf1999927e150db78b1.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"></p>
+<p>doGet方法和findPredecessor的执行流程能够让你理解了CSM，但要想深入掌握它，还得从put方法和remove方法中找到答案</p>
+<h4 id="put方法解析"><a href="#put方法解析" class="headerlink" title="put方法解析"></a>put方法解析</h4><p>Main insertion method. Adds element if not present, or replaces value if present and onlyIfAbsent is false.</p>
+<p>如果key不在csm中可插入key，onlyIfAbsent默认为false，表示如果该key已经在csm中，则替换旧value。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> V <span class="title">put</span><span class="params">(K key, V value)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (value == <span class="keyword">null</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException();</span><br><span class="line">    <span class="keyword">return</span> doPut(key, value, <span class="keyword">false</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>doPut的主要设计思路：</p>
+<p>1、找到合适位置插入key节点</p>
+<ul>
+<li><p>1.1 找到key在数据层链表中前驱节点b（这个逻辑在doGet已经解析过），并给出(b,n,f)这三个指针的指向</p>
+</li>
+<li><p>1.2 将新插入的节点z用cas设置到b的next中，也即将节点z插入到 b → n，也即变成  b → z → n </p>
+</li>
+</ul>
+<p>2、通过随机算法来决定是否要在新插入的节点z上（垂直方向上）构建索引节点（若层数n，就构建n个索引节点），</p>
+<p>3、将这些索引节点在各自的索引层链接好左右关系指向。</p>
+<p>建议先用单线程的角度去理解doPut主体逻辑，也即假设b节点、n节点不会被其他写线程删除或者更改，这样可以快速理解doPut设计逻辑。</p>
+<h5 id="doPut方法第一部分："><a href="#doPut方法第一部分：" class="headerlink" title="doPut方法第一部分："></a>doPut方法第一部分：</h5><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> V <span class="title">doPut</span><span class="params">(K key, V value, <span class="keyword">boolean</span> onlyIfAbsent)</span> </span>&#123;</span><br><span class="line">    Node&lt;K,V&gt; z;             <span class="comment">// added node</span></span><br><span class="line">    <span class="keyword">if</span> (key == <span class="keyword">null</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException();</span><br><span class="line">    Comparator&lt;? <span class="keyword">super</span> K&gt; cmp = comparator;</span><br><span class="line">    outer: <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">      	<span class="comment">// 注意：以下内层循环所有逻辑（除了findPredecessor）只发生在最底层的数据链表层中进行遍历</span></span><br><span class="line">        <span class="keyword">for</span> (Node&lt;K,V&gt; b = findPredecessor(key, cmp), n = b.next;;) &#123;</span><br><span class="line">          	<span class="comment">// 1.1 若不是在数据链表尾部，则可以继续遍历，否则也即来到链表尾部就跳到1.2分支</span></span><br><span class="line">            <span class="keyword">if</span> (n != <span class="keyword">null</span>) &#123;</span><br><span class="line">                Object v; <span class="keyword">int</span> c;</span><br><span class="line">              	<span class="comment">// f暂存n节点之后子链，用于后续遍历</span></span><br><span class="line">                Node&lt;K,V&gt; f = n.next;</span><br><span class="line">              	<span class="comment">//1.1.1 单线程情况下，n还是b的next节点，若高并发写情况下，n节点可能被其他线程更改，那么当前线程第一次读取的b.next和现在读取的b.next显然不一致，也即“inconsistent read”</span></span><br><span class="line">                <span class="keyword">if</span> (n != b.next)               <span class="comment">// inconsistent read</span></span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">              	<span class="comment">//1.1.2 n的值为null，说明被其他线程标记位删除状态，只能先去helpDelete，然后再回到内层循环重试。</span></span><br><span class="line">                <span class="keyword">if</span> ((v = n.value) == <span class="keyword">null</span>) &#123;   <span class="comment">// n is deleted</span></span><br><span class="line">                    n.helpDelete(b, f);</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">                &#125;</span><br><span class="line">              	<span class="comment">//1.1.3 前驱节点b被删除或者n节点value是指向自己（说明n是一个mark节点），前驱节点都被其他线程删除，只能退出本轮回到内层for循环继续重试。</span></span><br><span class="line">                <span class="keyword">if</span> (b.value == <span class="keyword">null</span> || v == n) <span class="comment">// b is deleted</span></span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">              	<span class="comment">//1.1.4 给定的key比n节点还大，那么只能继续向右比较</span></span><br><span class="line">                <span class="keyword">if</span> ((c = cpr(cmp, key, n.key)) &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                  	<span class="comment">// 更新b、n指针向后移动一步</span></span><br><span class="line">                    b = n;</span><br><span class="line">                    n = f;</span><br><span class="line">                    <span class="keyword">continue</span>;</span><br><span class="line">                &#125;</span><br><span class="line">              	<span class="comment">//1.1.5 如果key==n.key,说明已找到该key。</span></span><br><span class="line">                <span class="keyword">if</span> (c == <span class="number">0</span>) &#123;</span><br><span class="line">                    <span class="keyword">if</span> (onlyIfAbsent || n.casValue(v, value)) &#123;</span><br><span class="line">                        <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span> V vv = (V)v;</span><br><span class="line">                        <span class="keyword">return</span> vv;</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">break</span>; <span class="comment">// restart if lost race to replace value</span></span><br><span class="line">                &#125;</span><br><span class="line">                <span class="comment">// else c &lt; 0; fall through</span></span><br><span class="line">            &#125;</span><br><span class="line">				<span class="comment">/* 1.2</span></span><br><span class="line"><span class="comment">          	第一种情况：根据1.1 n不为空，那么在 b → n 之间插入  b → z → n </span></span><br><span class="line"><span class="comment">          	第二种情况：如果1.1 的n节点为空说明来到链表尾部，也即b前驱节点后面就是null，那么b → null 变成b → z → null</span></span><br><span class="line"><span class="comment">           	*/</span>   </span><br><span class="line">            z = <span class="keyword">new</span> Node&lt;K,V&gt;(key, value, n);  <span class="comment">//创建key这个插入节点，然后有 z → n </span></span><br><span class="line">          	<span class="comment">// 1.3 </span></span><br><span class="line">            <span class="keyword">if</span> (!b.casNext(n, z)) <span class="comment">// cas: 在n节点前、后时刻读一致性时，z节点才能成功CAS插入b前驱节点后面</span></span><br><span class="line">                <span class="keyword">break</span>;         <span class="comment">// restart if lost race to append to b若cas失败，只能回到内循环重试</span></span><br><span class="line">            <span class="keyword">break</span> outer;</span><br><span class="line">        &#125;</span><br><span class="line">    </span><br></pre></td></tr></table></figure>
+<h5 id="doput方法第二部分："><a href="#doput方法第二部分：" class="headerlink" title="doput方法第二部分："></a>doput方法第二部分：</h5><p>在第一部分逻辑插入号z节点后，那么接下里就得考虑z节点垂直方向是否需要创建索引层节点。</p>
+<p>如何决定是否需要？ 当然是根据随机数算法满足test条件来决定是否需要执行。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br></pre></td><td class="code"><pre><span class="line">     <span class="comment">/* 这里随机数的生成考虑很细致：ThreadLocalRandom.nextInt也可以实现线程自己本地随机数，而nextSecondarySeed能做到生成和“当前线程业务代码调用的ThreadLocalRandom.nextInt”不冲突的随机数。</span></span><br><span class="line"><span class="comment">     * To produce random values without interference across threads,</span></span><br><span class="line"><span class="comment">     * we use within-JDK thread local random support (via the</span></span><br><span class="line"><span class="comment">     * &quot;secondary seed&quot;, to avoid interference with user-level</span></span><br><span class="line"><span class="comment">     * ThreadLocalRandom.)</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">		<span class="keyword">int</span> rnd = ThreadLocalRandom.nextSecondarySeed(); </span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment">0x80000001是16进制数：1000 0000 0000 0000 0000 0000 0000 0001</span></span><br><span class="line"><span class="comment">考察rnd &amp; 0x80000001 == 0成立时rnd的取值特征：</span></span><br><span class="line"><span class="comment">0nnn nnnn nnnn nnnn nnnn nnnn nnnn nnn0</span></span><br><span class="line"><span class="comment">其中，n表示0或者1，其实就是表达rnd只要是偶数就可使得测试条件通过，所以概率为50%。</span></span><br><span class="line"><span class="comment">*/</span></span><br><span class="line">        <span class="keyword">if</span> ((rnd &amp; <span class="number">0x80000001</span>) == <span class="number">0</span>) &#123; <span class="comment">// test highest and lowest bits</span></span><br><span class="line">            <span class="keyword">int</span> level = <span class="number">1</span>, max;</span><br><span class="line">            <span class="comment">/* 1、根据rnd的比特位值为1的特征先计算一个“level值”，</span></span><br><span class="line"><span class="comment">            例如0nnn nnnn nnnn nnnn nnnn nnnn nnnn nnn0，30个n全部为1，那么</span></span><br><span class="line"><span class="comment">            level=1+30=31，计算出31层，是否就是真的要在跳表上加31层索引节点呢？ 显然没那么简单，具体看第2点逻辑				</span></span><br><span class="line"><span class="comment">            */</span></span><br><span class="line"></span><br><span class="line">            <span class="keyword">while</span> (((rnd &gt;&gt;&gt;= <span class="number">1</span>) &amp; <span class="number">1</span>) != <span class="number">0</span>)</span><br><span class="line">                ++level;</span><br><span class="line">          	<span class="comment">// 这一句非常关键：第一层的索引节点Index，它的down指向idx=null，而不是指向其下方的node数据节点。 </span></span><br><span class="line">            Index&lt;K,V&gt; idx = <span class="keyword">null</span>;</span><br><span class="line">            HeadIndex&lt;K,V&gt; h = head; <span class="comment">// head指向的是最顶层的HeadIndex节点，不是最底层的数据链表头节点</span></span><br><span class="line">          <span class="comment">/*</span></span><br><span class="line"><span class="comment">          2、如果计算的level未超过现有索引层数，那么好处理：在z节点上方建立level个索引节点</span></span><br><span class="line"><span class="comment">          例如，假设当前h.level=3，也即有三层索引层，rnd=2,那么level计算结果为2，因此根据以下逻辑，</span></span><br><span class="line"><span class="comment">          在z节点垂直上方创建2个index节点,且每个index的right还是null，换句话说，这些索引节点还未与其所在层的前后索引节点建立指向关系，如下：</span></span><br><span class="line"><span class="comment">          index2</span></span><br><span class="line"><span class="comment">          ↓</span></span><br><span class="line"><span class="comment">          index1</span></span><br><span class="line"><span class="comment">          |</span></span><br><span class="line"><span class="comment">          z</span></span><br><span class="line"><span class="comment">          */</span></span><br><span class="line">            <span class="keyword">if</span> (level &lt;= (max = h.level)) &#123;</span><br><span class="line">                <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">1</span>; i &lt;= level; ++i)</span><br><span class="line">                    idx = <span class="keyword">new</span> Index&lt;K,V&gt;(z, idx, <span class="keyword">null</span>); </span><br><span class="line">            &#125;</span><br><span class="line">          </span><br><span class="line">          <span class="comment">/*</span></span><br><span class="line"><span class="comment">          3、如果level&gt;现有层数，例如level计算值为7，现有层数为3，那么也只能给它加一层，而不是加（7-3）层，</span></span><br><span class="line"><span class="comment">          以下max按3作为案例说明</span></span><br><span class="line"><span class="comment">            */</span></span><br><span class="line">            <span class="keyword">else</span> &#123; <span class="comment">// try to grow by one level </span></span><br><span class="line">              	<span class="comment">// level=3+1=4</span></span><br><span class="line">                level = max + <span class="number">1</span>; <span class="comment">// hold in array and later pick the one to use</span></span><br><span class="line">              	<span class="comment">// 存放要添加的索引节点数组，level为4，那么idxs容量为5</span></span><br><span class="line">                <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span>Index&lt;K,V&gt;[] idxs =</span><br><span class="line">                    (Index&lt;K,V&gt;[])<span class="keyword">new</span> Index&lt;?,?&gt;[level+<span class="number">1</span>]; </span><br><span class="line">              	<span class="comment">// 注意：这里从idxs的下标1开始放入idx索引节点，idxs[0]不参与实际逻辑。</span></span><br><span class="line">                <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">1</span>; i &lt;= level; ++i)</span><br><span class="line">                  	<span class="comment">/* 跟上面2部分类似，但它这里每次创建好的节点放到idxs数组中，方便后面新创建HeadIndex使用：</span></span><br><span class="line"><span class="comment">                  	 		newh = new HeadIndex&lt;K,V&gt;(oldbase, newh, idxs[j], j);</span></span><br><span class="line"><span class="comment">                  	*/</span></span><br><span class="line">                    idxs[i] = idx = <span class="keyword">new</span> Index&lt;K,V&gt;(z, idx, <span class="keyword">null</span>);</span><br><span class="line">              	<span class="comment">// 3.1 </span></span><br><span class="line">                <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">                    h = head;</span><br><span class="line">                  	<span class="comment">// 根据3的假设，原来由3层索引层</span></span><br><span class="line">                    <span class="keyword">int</span> oldLevel = h.level;</span><br><span class="line">                  	<span class="comment">// 假设当前时刻仅有当前线程添加索引层，那么4&lt;=3，不需要重试。</span></span><br><span class="line">                    <span class="keyword">if</span> (level &lt;= oldLevel) <span class="comment">// lost race to add level:有其他插入线程抢先一步升高了索引层，当前线程只能下一轮重试,因此在3.1使用了for循环</span></span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                  	<span class="comment">// 3.2 </span></span><br><span class="line">                    HeadIndex&lt;K,V&gt; newh = h;</span><br><span class="line">                    Node&lt;K,V&gt; oldbase = h.node;</span><br><span class="line">                  	<span class="comment">// 创建新添加的索引层的头节点，新增多少层，就添加多少个头节点，</span></span><br><span class="line">                  	<span class="comment">// 由于oldLevel=3，level=4,因此以下计算后只在第4层添加一个HeadIndex，并且该HeadIndex的四个字段都有了指向关系。</span></span><br><span class="line">                    <span class="keyword">for</span> (<span class="keyword">int</span> j = oldLevel+<span class="number">1</span>; j &lt;= level; ++j)</span><br><span class="line">                        newh = <span class="keyword">new</span> HeadIndex&lt;K,V&gt;(oldbase, newh, idxs[j], j); <span class="comment">// 这就是为何前面需要创建idxs数组的原因。</span></span><br><span class="line">                  	<span class="comment">// 3.3 将跳表头节点Head指向新添加的HeadIndex</span></span><br><span class="line">                    <span class="keyword">if</span> (casHead(h, newh)) &#123;</span><br><span class="line">                        h = newh;</span><br><span class="line">                      	<span class="comment">// 这里level = oldLevel=3，也即将idx指向第3层新增索引节点，为何不是第4层新增的索引节点呢？因为在3.2中，在第4层新增的HeadIndex节点已经将right指针指向对应新增的索引节点。因此之后要处理的索引节点是从旧level层数开始处理down、right指向关系</span></span><br><span class="line">                        idx = idxs[level = oldLevel];</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>第2部分的逻辑对应下图：</p>
+<p>根据key计算的level未超过现有索引层数3时的逻辑图<br><img src="https://img-blog.csdnimg.cn/0bbafd8d861a46d08af5e813c9a13562.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"><br>第3部分的逻辑对应下图：</p>
+<p>根据key计算的level超过现有索引层数3时的逻辑图，不管是计算level=4大于level=3还是其他比3值更大，也只能增加一层索引层：level = max + 1<br><img src="https://img-blog.csdnimg.cn/aa0ae26faa314d75bec56d81b08fd0ac.png?x-oss-process=image/watermark,type_ZHJvaWRzYW5zZmFsbGJhY2s,shadow_50,text_Q1NETiBAeWllbGQtYnl0ZXM=,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center" alt="在这里插入图片描述"><br>在新增加的level=4的索引层，需要添加一个新的HeadIndex节点，根据以下逻辑可知：新增的HeadIndex节点已经将right指针指向对应新增的索引节点，如图位置1所示</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (<span class="keyword">int</span> j = oldLevel+<span class="number">1</span>; j &lt;= level; ++j)</span><br><span class="line">    newh = <span class="keyword">new</span> HeadIndex&lt;K,V&gt;(old base, newh, idxs[j], j);</span><br></pre></td></tr></table></figure>
+<h5 id="doput方法第三部分："><a href="#doput方法第三部分：" class="headerlink" title="doput方法第三部分："></a>doput方法第三部分：</h5><p>在doput方法第二部分完成新插入数据节点z对应的多层索引节点创建，但索引节点idx还未与前后已有节点建立指向关系，因此接下里代码逻辑中负责完成此事。</p>
+<p>为了能具体化分析以下逻辑，不妨假设插入z节点后，计算出的level=4高于当前跳表oldLevel=3，根据上面3.3的逻辑可知，此时h执行第4层的headIndex，根据<code>idx = idxs[level = oldLevel]</code> ，有idx指针指向第3层的待处理索引节点idx，level=oldLevel=3，根据这些变量代入以下逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br></pre></td><td class="code"><pre><span class="line">				<span class="comment">// find insertion points and splice in.</span></span><br><span class="line">				<span class="comment">// splice in 是指拼接的意思，也即将idx加入所在层的链表关系中</span></span><br><span class="line">				<span class="comment">//insertionLevel = level =3，</span></span><br><span class="line">        splice: <span class="keyword">for</span> (<span class="keyword">int</span> insertionLevel = level;;) &#123;</span><br><span class="line">          	<span class="comment">// 关于insertionLevel的理解，结合上图可知，insertionLevel=3，说明第3层idx加入此层索引层链表中，也称为待插入层。</span></span><br><span class="line">            <span class="keyword">int</span> j = h.level; <span class="comment">// 这个j表征执行流走向第几层（也称为当前处理层），h.level的值为4</span></span><br><span class="line">          	<span class="comment">// 类似doGet方法，从顶层的左上方head位置开始遍历而且只在索引层去检索，目的是把每个需要insertionLevel层的idx节点t链入q → r之间，变成：q → t → r 。注意：t的方向是从高层idx向低层的idx移动指向，idx：新增加的索引阶段</span></span><br><span class="line">            <span class="keyword">for</span> (Index&lt;K,V&gt; q = h, r = q.right, t = idx;;) &#123;</span><br><span class="line">              	<span class="comment">//3.1 两种情况可以说明idx链入工作完成：条件1：说明q来到当前索引层的链表末尾位置，q会指向null 2、当t指向null时，垂直方向多个idx节点全部链入对应索引层。</span></span><br><span class="line">                <span class="keyword">if</span> (q == <span class="keyword">null</span> || t == <span class="keyword">null</span>)</span><br><span class="line">                    <span class="keyword">break</span> splice;</span><br><span class="line">              	<span class="comment">//3.2 对于q → r → r.right...情况，r不是null时，也即q不是尾节点时</span></span><br><span class="line">                <span class="keyword">if</span> (r != <span class="keyword">null</span>) &#123;</span><br><span class="line">                  	<span class="comment">// q → r → r.right，也即熟悉的（b,n,f）子链</span></span><br><span class="line">                    Node&lt;K,V&gt; n = r.node;</span><br><span class="line">                    <span class="comment">// compare before deletion check avoids needing recheck</span></span><br><span class="line">                    <span class="keyword">int</span> c = cpr(cmp, key, n.key); </span><br><span class="line">                  	<span class="comment">// 如果当前索引节点r指向的数据节点n被标记删除，说明索引节点r也需要删除，此时要将q节点和r节点断开链接，也即将q → r → r.right 变成q → r.right。前面findPredecessor方法内部也用到了该unlink方法，此逻辑被称为side-effect！</span></span><br><span class="line">                    <span class="keyword">if</span> (n.value == <span class="keyword">null</span>) &#123;</span><br><span class="line">                        <span class="keyword">if</span> (!q.unlink(r))<span class="comment">// q、r断开失败则需要重试</span></span><br><span class="line">                            <span class="keyword">break</span>;</span><br><span class="line">                      	<span class="comment">// 取出q新的右节点继续遍历重试</span></span><br><span class="line">                        r = q.right;</span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">// r.key&lt;key,只能在同一层继续向右找到key插入的位置。 </span></span><br><span class="line">                    <span class="keyword">if</span> (c &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                        q = r;</span><br><span class="line">                        r = r.right;</span><br><span class="line">                        <span class="keyword">continue</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">             <span class="comment">/*3.3 如果当前处理层指针恰好移动到位于需要对新增索引节点建立前后指向关系的待插入层</span></span><br><span class="line"><span class="comment">              那么将待处理的索引节点 t=idx 链入q → r 之间，变成：q → t → r </span></span><br><span class="line"><span class="comment">              */</span></span><br><span class="line">                <span class="keyword">if</span> (j == insertionLevel) &#123;</span><br><span class="line">                    <span class="keyword">if</span> (!q.link(r, t))</span><br><span class="line">                        <span class="keyword">break</span>; <span class="comment">// restart t=idx 链入失败只能回到循环重试。</span></span><br><span class="line">                    <span class="comment">// 索引节点idx指向的新插入数据节点z已被其他写线程标为删除状态，那么当前线程就不需要给z节点建立垂直方向的索引，相反当前线程利用findNode去帮助把z节点删除，同时findNode里面的findPredecessor方法也会在find过程中沿途清理z节点上方的idxs索引节点，这就是findNode的“side-effect” 思想：去删除数据节点z的同时顺便沿途把与z对应新建的索引节点idxs都删除了</span></span><br><span class="line">                    <span class="keyword">if</span> (t.node.value == <span class="keyword">null</span>) &#123;</span><br><span class="line">                        findNode(key);</span><br><span class="line">                        <span class="keyword">break</span> splice;</span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">// 如果q.link(r, t)成功，且新插入的数据节点z未被删除，那么当前待插入层insertionLevel已完成，如果insertionLevel自减1等于0，说明insertionLevel指向最底层的数据层，显然数据层不需要处理，说明所有idxs都在各自所在的索引层链表里面，可结束。</span></span><br><span class="line">                    <span class="keyword">if</span> (--insertionLevel == <span class="number">0</span>)</span><br><span class="line">                        <span class="keyword">break</span> splice;</span><br><span class="line">                &#125; <span class="comment">// </span></span><br><span class="line">           </span><br><span class="line">              	</span><br><span class="line">         <span class="comment">// 这里的理解相对有点绕：若当前待插入层已经处理完，则t指向下一个层的待处理索引节点idx。什么场景不需要执行 t = t.down呢？当遍历层指针j在一开始就指向新增的最高层时，t此时是指向（最高层-1）的idx，因此只有当遍历层指针j来到当前待插入层insertionLevel且t已经链入该层的q → r之间，说明当前insertionLevel层已处理完，那么t可以移动下一层的idx</span></span><br><span class="line">                <span class="keyword">if</span> (--j &gt;= insertionLevel &amp;&amp; j &lt; level)</span><br><span class="line">                    t = t.down;</span><br><span class="line">         <span class="comment">// 1、当前遍历层指针j指向最高层时 2、当前遍历层指针j指向当前待插入层insertionLevel且insertionLevel层的t节点已经链入该层的q → r之间。这两个条件都会使得q，r下移一层</span></span><br><span class="line">                q = q.down;</span><br><span class="line">                r = q.right;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>关于<code>q.link(r, t)</code> 的说明</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// if (!q.link(r, t))</span></span><br><span class="line">    <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">link</span><span class="params">(Index&lt;K,V&gt; succ, Index&lt;K,V&gt; newSucc)</span> </span>&#123;</span><br><span class="line">      	<span class="comment">// 这里的node节点就是索引节点q.node指向的数据节点,succ就是r，newSucc就是t（新增的idx节点）</span></span><br><span class="line">        Node&lt;K,V&gt; n = node; </span><br><span class="line">      	<span class="comment">// t.right=r </span></span><br><span class="line">        newSucc.right = succ;</span><br><span class="line">      	<span class="comment">/* link能成功的两个条件同时成立：</span></span><br><span class="line"><span class="comment">      		1、要求q指向的node数据节点一定不能处于被标记为&quot;删除状态&quot;</span></span><br><span class="line"><span class="comment">      		2、q的后继节点r索引节点未被其他写线程标记为&quot;删除状态&quot;</span></span><br><span class="line"><span class="comment">        */</span></span><br><span class="line">        <span class="keyword">return</span> n.value != <span class="keyword">null</span> &amp;&amp; casRight(succ, newSucc);</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<h5 id="findNode的作用"><a href="#findNode的作用" class="headerlink" title="findNode的作用"></a>findNode的作用</h5><p>此方法在doPut的“第三部分逻辑：新建的索引链表如何插入到该层链表中”起到关键作用，此外它还被doRemove、computeIfPresent、merge、replace等方法在内部调用，因此需要对其设计逻辑进行解析。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">  <span class="comment">// findNode的源代码注释其实写得很清楚，需要看完一下源码再解析</span></span><br><span class="line"><span class="comment">// 以下逻辑一定要带着这样的前提：新插入的z节点被标记删除后，需要对其上方的新建索引节点都一起删除</span></span><br><span class="line"><span class="function"><span class="keyword">private</span> Node&lt;K,V&gt; <span class="title">findNode</span><span class="params">(Object key)</span> </span>&#123;</span><br><span class="line">      <span class="keyword">if</span> (key == <span class="keyword">null</span>)</span><br><span class="line">          <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException(); <span class="comment">// don&#x27;t postpone errors</span></span><br><span class="line">      Comparator&lt;? <span class="keyword">super</span> K&gt; cmp = comparator;</span><br><span class="line"> </span><br><span class="line">      outer: <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">        	<span class="comment">//1、找到key在数据层链表的前驱节点b，从b开始向右遍历。这里最关键：findPredecessor，除了找到z节点的前驱节点b，它的额外收益还把沿途找到的z对应的索引节点都删除了</span></span><br><span class="line">          <span class="keyword">for</span> (Node&lt;K,V&gt; b = findPredecessor(key, cmp), n = b.next;;) &#123;</span><br><span class="line">              Object v; <span class="keyword">int</span> c;</span><br><span class="line">            	<span class="comment">//2、 来到链表末尾则可结束</span></span><br><span class="line">              <span class="keyword">if</span> (n == <span class="keyword">null</span>)</span><br><span class="line">                  <span class="keyword">break</span> outer;</span><br><span class="line">            	<span class="comment">// 又是经典的（b,n,f）三节点指针</span></span><br><span class="line">              Node&lt;K,V&gt; f = n.next;</span><br><span class="line">            	<span class="comment">//3、 n已不是b的后继节点，重试</span></span><br><span class="line">              <span class="keyword">if</span> (n != b.next)                <span class="comment">// inconsistent read</span></span><br><span class="line">                  <span class="keyword">break</span>;</span><br><span class="line">            	<span class="comment">//4、 n被标记为删除状态，则使用helpDelete真正删除n节点，然后重试</span></span><br><span class="line">              <span class="keyword">if</span> ((v = n.value) == <span class="keyword">null</span>) &#123;    <span class="comment">// n is deleted</span></span><br><span class="line">                  n.helpDelete(b, f);</span><br><span class="line">                  <span class="keyword">break</span>;</span><br><span class="line">              &#125;</span><br><span class="line">            	<span class="comment">//5、 b被标记为删除状态，或者b被标记位删除且b.next是一个marker节点，也只能重试</span></span><br><span class="line">              <span class="keyword">if</span> (b.value == <span class="keyword">null</span> || v == n)  <span class="comment">// b is deleted</span></span><br><span class="line">                  <span class="keyword">break</span>;</span><br><span class="line">            	<span class="comment">//6、 执行到这里：说明n节点就是z节点本身，显然它在已经在4步骤被删除掉，因此可直接返回该n节点，需要注意：返回的n节点只有key不为空，其value是null的。</span></span><br><span class="line">              <span class="keyword">if</span> ((c = cpr(cmp, key, n.key)) == <span class="number">0</span>)</span><br><span class="line">                  <span class="keyword">return</span> n;</span><br><span class="line">            	<span class="comment">// 说明key原本就不在链表上，可以直接返回。</span></span><br><span class="line">              <span class="keyword">if</span> (c &lt; <span class="number">0</span>)</span><br><span class="line">                  <span class="keyword">break</span> outer;</span><br><span class="line">            <span class="comment">// b、n同时后移一步</span></span><br><span class="line">              b = n;</span><br><span class="line">              n = f;</span><br><span class="line">          &#125;</span><br><span class="line">      &#125;</span><br><span class="line">      <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+<p>“新插入的z节点被标记删除后，需要对其上方的新建索引节点都一起删除”基于这个原因用findNode方法去完成，那么可以这样提问：能否直接调用<code>findPredecessor</code> 删除逻辑呢？如下所示</p>
+<p>findPredecessor是在检索的沿途中会删除那些被标记“删除状态的”索引节点，它只在索引层范围内进行，不会下沉到数据层链表中操作。</p>
+<p>而findNode方法可以进入到数据层链表中，把已经标记为删除状态的数据节点node删除，这个功能是findPredecessor不具备的，同时findNode内部调用findPredecessor方法，完成了额外的索引节点删除功能。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="keyword">if</span> (t.node.value == <span class="keyword">null</span>) &#123;</span><br><span class="line">  	<span class="comment">// findNode(key)</span></span><br><span class="line">    findPredecessor(key, cmp);</span><br><span class="line">    <span class="keyword">break</span> splice;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>以下是官方关于findNode方法设计说明及其实现功能：新插入的z节点被标记删除后，需要对其上方的新建索引节点都一起删除</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">返回一个null（如果给定的key不在数据链表里面）或者一个持有key的node（node的value当然是null）,清除沿途遍历到的所有已标记“node.value&#x3D;null”的数据层节点（注意这里的nodes是数据层链表中的节点，不是指清除索引层节点）</span><br><span class="line">Returns node holding key or null if no such, clearing out any deleted nodes seen along the way.</span><br><span class="line">从key的前驱节点b开始遍历base-level的数据层链表（如有必要则需要重复遍历），向右移动过程中遇到标记位删除的节点就处理它</span><br><span class="line">Repeatedly traverses at base-level looking for key starting at predecessor returned from findPredecessor, processing base-level deletions as encountered. </span><br><span class="line">调用者可以使用findNode方法获得额外收益即沿途过程中能清除被标记为删除状态的数据节点。</span><br><span class="line">Some callers rely on this side-effect of clearing deleted nodes.</span><br><span class="line"></span><br><span class="line">出现以下三种情况之一，都会使得执行流再次回到b节点重新遍历</span><br><span class="line">Restarts occur, at traversal step centered on node n,</span><br><span class="line">（1）考察(b,n,f)三个节点，若n节点已发生改变，不再是b.next执行的原n节点，因此本轮遍历无法处理这种删除操作（cannot unlink），需重试</span><br><span class="line">if: (1) After reading n&#39;s next field, n is no longer assumed predecessor b&#39;s current successor, which means that we don&#39;t have a consistent 3-node snapshot and so cannot unlink any subsequent deleted nodes encountered. </span><br><span class="line"></span><br><span class="line">（2）考察(b,n,f)三个节点，若n.value&#x3D;null，说明n被标记为删除状态，这种情况下，先去n.helpDelete(b, f)删除n节点本身，然后重新遍历</span><br><span class="line">(2) n&#39;s value field is null, indicating n is deleted, in which case we help out an ongoing structural deletion before retrying. Even though there are cases where such unlinking doesn&#39;t require restart, they aren&#39;t sorted out here because doing so would not usually outweigh cost of restarting. </span><br><span class="line"></span><br><span class="line">（3）考察(b,n,f)三个节点，若n是marker节点（说明b被标记）或者b.value&#x3D;null,说明findPredecessor方法返回的是一个被标记删除的数据节点，此时无法正确获得predecessor节点就不能继续执行unlink操作。只能重新回到for循环继续调用findPredecessor，找到新的(b,n,f)</span><br><span class="line">(3) n is a marker or n&#39;s predecessor&#39;s value field is null, indicating (among other possibilities) that findPredecessor returned a deleted node. We can&#39;t unlink the node because we don&#39;t know its predecessor, so rely on another call to findPredecessor to notice and return some earlier predecessor, which it will do. </span><br><span class="line">第3种check只会在循环的开始才会严格执行检查，但每次迭代都会执行此检查，以帮助调用方避免和其他线程发生竞争，如果调用方cas失败，只能retry。</span><br><span class="line">This check is only strictly needed at beginning of loop, (and the b.value check isn&#39;t strictly needed at all) but is done each iteration to help avoid contention with other threads by callers that will fail to be able to change links, and so will retry anyway. </span><br><span class="line"></span><br><span class="line">doPut, doRemove, and findNear方法中loop设计都会有以上三种情况的检查逻辑。findFirst、findLast也有类似的检查逻辑</span><br><span class="line">The traversal loops in doPut, doRemove, and findNear all include the same three kinds of checks. And specialized versions appear in findFirst, and findLast and their variants. They can&#39;t easily share code because each uses the reads of fields held in locals occurring in the orders they were performed.</span><br><span class="line">Params:</span><br><span class="line">key – the key</span><br><span class="line">Returns:</span><br><span class="line">node holding key, or null if no suc</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/12/05/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98%EF%BC%9A%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90ThreadLocal%E7%9A%84%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86%E5%8F%8A%E5%85%B6%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0/" rel="prev" title="Java高级主题：深入解析ThreadLocal的数据结构设计原理及其源代码实现">
+      <i class="fa fa-chevron-left"></i> Java高级主题：深入解析ThreadLocal的数据结构设计原理及其源代码实现
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2022/01/30/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E9%AB%98%E5%B9%B6%E5%8F%91%E8%B7%B3%E8%A1%A8%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84ConcurrentSkipListMap%E7%9A%84%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%EF%BC%88%E4%B8%8B%EF%BC%89/" rel="next" title="Java高级主题：深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（下）">
+      Java高级主题：深度讨论高并发跳表数据结构ConcurrentSkipListMap的源代码实现（下） <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#CSM%E7%9A%84%E5%9F%BA%E6%9C%AC%E7%94%A8%E6%B3%95"><span class="nav-number">1.</span> <span class="nav-text">CSM的基本用法</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#CSM-%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E5%9B%BE"><span class="nav-number">2.</span> <span class="nav-text">CSM 数据结构图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%9B%B8%E5%85%B3%E8%8A%82%E7%82%B9%E7%9A%84%E5%AE%9A%E4%B9%89%EF%BC%9A"><span class="nav-number">3.</span> <span class="nav-text">相关节点的定义：</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E6%95%B0%E6%8D%AE%E8%8A%82%E7%82%B9%EF%BC%9A"><span class="nav-number">3.1.</span> <span class="nav-text">数据节点：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E7%B4%A2%E5%BC%95%E8%8A%82%E7%82%B9Index"><span class="nav-number">3.2.</span> <span class="nav-text">索引节点Index</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#HeadIndex%E8%8A%82%E7%82%B9"><span class="nav-number">3.3.</span> <span class="nav-text">HeadIndex节点</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#get%E6%96%B9%E6%B3%95%E8%A7%A3%E6%9E%90"><span class="nav-number">4.</span> <span class="nav-text">get方法解析</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#findPredecessor%E6%96%B9%E6%B3%95%E5%AE%9E%E7%8E%B0%EF%BC%9A"><span class="nav-number">4.1.</span> <span class="nav-text">findPredecessor方法实现：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%9B%BE%E7%A4%BAdoGet%E6%96%B9%E6%B3%95%E6%9F%A5%E6%89%BE%E5%9B%BE"><span class="nav-number">4.2.</span> <span class="nav-text">图示doGet方法查找图</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#put%E6%96%B9%E6%B3%95%E8%A7%A3%E6%9E%90"><span class="nav-number">5.</span> <span class="nav-text">put方法解析</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#doPut%E6%96%B9%E6%B3%95%E7%AC%AC%E4%B8%80%E9%83%A8%E5%88%86%EF%BC%9A"><span class="nav-number">5.1.</span> <span class="nav-text">doPut方法第一部分：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#doput%E6%96%B9%E6%B3%95%E7%AC%AC%E4%BA%8C%E9%83%A8%E5%88%86%EF%BC%9A"><span class="nav-number">5.2.</span> <span class="nav-text">doput方法第二部分：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#doput%E6%96%B9%E6%B3%95%E7%AC%AC%E4%B8%89%E9%83%A8%E5%88%86%EF%BC%9A"><span class="nav-number">5.3.</span> <span class="nav-text">doput方法第三部分：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#findNode%E7%9A%84%E4%BD%9C%E7%94%A8"><span class="nav-number">5.4.</span> <span class="nav-text">findNode的作用</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

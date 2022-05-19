@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="在文章中《深度解析官方关于jdk1.8的resizeStamp的bug处理过程》，我们讨论关于CHM的核心设计——resizeStam需要修复的处理过程，本文再次基于openJDK的bugs讨论组提出的CHM源代码另外一个会造成死循环的bug，默认读者已经掌握CHM的核心源代码实现，否则无法从本文的讨论中获益。文章前部分先把computeIfAbsent的bug成因分析清楚，再来介绍官网Concu">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的computeIfAbsent源代码修复逻辑">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/10/10/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84computeIfAbsent%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="在文章中《深度解析官方关于jdk1.8的resizeStamp的bug处理过程》，我们讨论关于CHM的核心设计——resizeStam需要修复的处理过程，本文再次基于openJDK的bugs讨论组提出的CHM源代码另外一个会造成死循环的bug，默认读者已经掌握CHM的核心源代码实现，否则无法从本文的讨论中获益。文章前部分先把computeIfAbsent的bug成因分析清楚，再来介绍官网Concu">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/e850dc9870704077af0bb9da6e7810c3.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/6c404db5015738104b55964eeeb0db55.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/6817b340064cd6fe400a5846be97c467.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/f37ea7b269f04b09b9dc2e867aeeb67d.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/e850dc9870704077af0bb9da6e7810c3.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center">
+<meta property="article:published_time" content="2021-10-09T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-09T14:01:19.521Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/e850dc9870704077af0bb9da6e7810c3.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/10/10/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84computeIfAbsent%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的computeIfAbsent源代码修复逻辑 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/10/10/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84computeIfAbsent%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的computeIfAbsent源代码修复逻辑
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-10-10 00:00:00" itemprop="dateCreated datePublished" datetime="2021-10-10T00:00:00+08:00">2021-10-10</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-09 22:01:19" itemprop="dateModified" datetime="2022-05-09T22:01:19+08:00">2022-05-09</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>25k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>23 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>在文章中《深度解析官方关于jdk1.8的resizeStamp的bug处理过程》，我们讨论关于CHM的核心设计——resizeStam需要修复的处理过程，本文再次基于openJDK的bugs讨论组提出的CHM源代码另外一个会造成死循环的bug，默认读者已经掌握CHM的核心源代码实现，否则无法从本文的讨论中获益。文章前部分先把computeIfAbsent的bug成因分析清楚，再来介绍官网<code>ConcurrentHashMap.computeIfAbsent stuck in an endless loop</code>的讨论过程，这样更容易看懂相关内容。</p>
+<p>研究openJDK官方公布的相关源码bug有何“收益”：</p>
+<p>虽然这些bug不是特别严重，修复起来也即几行代码，但如果想要解决这种看似“简单的bug”，要求对CHM设计原理、类、方法实现细节足够熟悉，也就是说，你要具备（至少在这个bug上下文的类、方法范围内）和源代码设计者同等思考视角才能去挖掘bug的本质原因并提出合理的修复建议。换句话说，你研究的不是这个bug本身，而是深入精通整个类的源代码实现，这种高级收益在日常业务开发几乎无法获得。</p>
+<p><img src="https://img-blog.csdnimg.cn/e850dc9870704077af0bb9da6e7810c3.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"></p>
+<p>《gitee 博客文章封面》</p>
+<h4 id="认识computeIfAbsent用法"><a href="#认识computeIfAbsent用法" class="headerlink" title="认识computeIfAbsent用法"></a>认识computeIfAbsent用法</h4><p>理解computeIfAbsent在一些场合下的用法，有助于帮助切入源代码分析。</p>
+<h5 id="computeIfAbsent使用场景1："><a href="#computeIfAbsent使用场景1：" class="headerlink" title="computeIfAbsent使用场景1："></a>computeIfAbsent使用场景1：</h5><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.ConcurrentHashMap;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Demo1</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">static</span> <span class="keyword">int</span> <span class="title">computeKeyLength</span><span class="params">(String key)</span></span>&#123; <span class="comment">// 计算key的长度，将其作为该key对应的value</span></span><br><span class="line">        <span class="keyword">return</span> key.length();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span>  <span class="title">main</span><span class="params">(String[] args)</span></span>&#123;</span><br><span class="line">        ConcurrentHashMap&lt;String,Integer&gt; map=<span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();</span><br><span class="line">        map.put(<span class="string">&quot;foo&quot;</span>,<span class="number">1</span>);</span><br><span class="line">        map.computeIfAbsent(<span class="string">&quot;foobar&quot;</span>,key-&gt;computeKeyLength(key));</span><br><span class="line">        System.out.println(map); <span class="comment">//输出 &#123;foobar=6, foo=1&#125;</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>computeIfAbsent字面意思：如果key不在map里面，那么就使用给定的匿名函数（也叫映射函数）将key对应的value“计算出来”。（匿名函数也即lambda语法是jdk1.8语法新特性，这一点不必多说）</p>
+<p>按这个思路可以有以下解释：</p>
+<a id="more"></a>
+<p>因为字符串”foobar”这个key不在map里面，因此把它放入map的同时，对应的value要用给定的函数computeKeyLength计算出来，例如这里调用computeKeyLength计算值为6，因此有key=foobar，value=6，将其放入map中。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">map.put(<span class="string">&quot;bar&quot;</span>,<span class="number">10</span>);</span><br><span class="line">map.computeIfAbsent(<span class="string">&quot;bar&quot;</span>,key-&gt;computeKeyLength(key));</span><br><span class="line">System.out.println(map); <span class="comment">// 输出：&#123;bar=10&#125;</span></span><br></pre></td></tr></table></figure>
+<p>若key已经在map时，value不会被<code>computeKeyLength(key)</code>的计算值6所覆盖。</p>
+<p>当然此demo做了一个不优雅的示范：既然可用匿名函数的写法去写逻辑，就没必要基于方法computeKeyLength去封装多一层，最简便写法如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">map.computeIfAbsent(<span class="string">&quot;foobar&quot;</span>,key-&gt;key.length());</span><br></pre></td></tr></table></figure>
+<p>注意这个key可以作为匿名函数的入参去参与到计算value，也可以不作为匿名函数的入参，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">map.computeIfAbsent(&quot;foobar&quot;,key-&gt;10);</span><br></pre></td></tr></table></figure>
+<p>显然foobar=10。</p>
+<h5 id="computeIfAbsent使用场景2："><a href="#computeIfAbsent使用场景2：" class="headerlink" title="computeIfAbsent使用场景2："></a>computeIfAbsent使用场景2：</h5><p>并发场景下的频率统计：该demo方法其实在并发计数器LongAdder这个类的源码注释里面，Doug Lea已经告诉我们一个经典的场景恰好需要使用computeIfAbsent方法</p>
+<blockquote>
+<p>LongAdders can be used with a java.util.concurrent.ConcurrentHashMap to maintain a scalable frequency map (a form of histogram or multiset). For example, to add a count to a ConcurrentHashMap<String,LongAdder> freqs, initializing if not already present, you can use freqs.computeIfAbsent(k -&gt; new LongAdder()).increment();</p>
+</blockquote>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.ConcurrentHashMap;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.atomic.LongAdder;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Demo2</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span>  <span class="title">main</span><span class="params">(String[] args)</span></span>&#123;</span><br><span class="line">        ConcurrentHashMap&lt;String,LongAdder&gt; map=<span class="keyword">new</span> ConcurrentHashMap&lt;&gt;();</span><br><span class="line">        String[] strings=&#123;<span class="string">&quot;foo&quot;</span>,<span class="string">&quot;bar&quot;</span>,<span class="string">&quot;foo&quot;</span>,<span class="string">&quot;foo&quot;</span>&#125;;</span><br><span class="line">        <span class="keyword">for</span> (String key : strings) &#123;</span><br><span class="line">           map.computeIfAbsent(key,k-&gt; <span class="keyword">new</span> LongAdder()).increment();</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(map); <span class="comment">//输出 &#123;bar=1, foo=3&#125;</span></span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>该demo虽然只是用单个线程去执行computeIfAbsent，但逻辑是清晰的：实现对字符串出现次数进行统计</p>
+<ul>
+<li>关于LongAdder的分析，它内部其实有一个像ConcurrentHashMap的fullAddCount并发计数逻辑，这里不再讨论，有关研究可参考本博客的文章《Java并发进阶系列：LongAdder高并发计数性能分析》</li>
+</ul>
+<h5 id="computeIfAbsent方法源码解析"><a href="#computeIfAbsent方法源码解析" class="headerlink" title="computeIfAbsent方法源码解析"></a>computeIfAbsent方法源码解析</h5><p>这部内容要求读者已经掌握jdk1.8的ConcurrentHashMap设计及其关键方法的源代码实现逻辑，否则将难以理解其含义。本节所提的computeIfAbsent是未修复前的版本，这里并不会详细解析computeIfAbsent每一行代码，因为它跟putVal方法逻辑几乎一样，而不同地方可参考以下数字标记的说明：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> V <span class="title">computeIfAbsent</span><span class="params">(K key, Function&lt;? <span class="keyword">super</span> K, ? extends V&gt; mappingFunction)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (key == <span class="keyword">null</span> || mappingFunction == <span class="keyword">null</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException()</span><br><span class="line">    <span class="keyword">int</span> h = spread(key.hashCode()); </span><br><span class="line">    V val = <span class="keyword">null</span>;</span><br><span class="line">    <span class="keyword">int</span> binCount = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = table;;) &#123; <span class="comment">//看到这个写法应该很熟悉了：自旋+cas机制，为啥要自旋，因为线程不保证自己一次cas就成功，如果和其他线程竞争失败，则需要重试cas，这就是“自旋+cas机制”的黄金搭配。</span></span><br><span class="line">        Node&lt;K,V&gt; f; <span class="keyword">int</span> n, i, fh;</span><br><span class="line">        <span class="keyword">if</span> (tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span>)</span><br><span class="line">            tab = initTable();</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>) &#123; </span><br><span class="line">          	<span class="comment">//① 如果key对应的桶位为空，先创建一个保留节点用于接下里的占位逻辑</span></span><br><span class="line">            Node&lt;K,V&gt; r = <span class="keyword">new</span> ReservationNode&lt;K,V&gt;();</span><br><span class="line">          	<span class="comment">// ②当前线程用保留节点占位当然需要借用独占锁对r对象进行加锁</span></span><br><span class="line">            <span class="keyword">synchronized</span> (r) &#123;</span><br><span class="line">              	<span class="comment">// 在当前桶位放置保留节点用于占位，占位之后就可以给该桶位放入新建的node节点</span></span><br><span class="line">                <span class="keyword">if</span> (casTabAt(tab, i, <span class="keyword">null</span>, r)) &#123;</span><br><span class="line">                    binCount = <span class="number">1</span>;</span><br><span class="line">                    Node&lt;K,V&gt; node = <span class="keyword">null</span>;</span><br><span class="line">                    <span class="keyword">try</span> &#123;</span><br><span class="line">   <span class="comment">/*putVal在桶位为空时的逻辑，可看到非常简单，直接使用cas给当前桶位设置新节点，value是给定的value，不需要通过函数计算出value</span></span><br><span class="line"><span class="comment">  if (casTabAt(tab, i, null,new Node&lt;K,V&gt;(hash, key, value, null))) &#123;</span></span><br><span class="line"><span class="comment"> 				 break;  </span></span><br><span class="line"><span class="comment">  			&#125;</span></span><br><span class="line"><span class="comment">   */</span></span><br><span class="line">                      <span class="comment">// 对于computeIfAbsent，value是需要用给定的匿名函数计算出的，正如前面场景1的“bar”这个key对应的“value”就是使用computeKeyLength(key)计算处理的值</span></span><br><span class="line">                        <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>)</span><br><span class="line">                            node = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val, <span class="keyword">null</span>);</span><br><span class="line">                    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">                      	<span class="comment">//虽然在②步骤那里已经在桶位i放置了一个ReservationNode用于占位，到了这个步骤才是真正把数据节点node放入桶位i当中</span></span><br><span class="line">                        setTabAt(tab, i, node);</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">          	<span class="comment">// 显然②步骤一定能成功在桶位i放入node节点（binCount=1），既然已经将key和value放入map，那么任务完成，当前线程退出自旋</span></span><br><span class="line">            <span class="keyword">if</span> (binCount != <span class="number">0</span>)</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">//③如果key定位到的桶位i恰好是一个ForwardingNode占位节点，那么当前线程要去参与“帮助扩容”的逻辑，这里跟putval一样。</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> ((fh = f.hash) == MOVED)</span><br><span class="line">            tab = helpTransfer(tab, f);</span><br><span class="line">        <span class="keyword">else</span> &#123;</span><br><span class="line">           <span class="comment">//代码若执行到这，说明桶位i是一个链表或者一棵红色树 </span></span><br><span class="line">            <span class="keyword">boolean</span> added = <span class="keyword">false</span>;</span><br><span class="line">            <span class="comment">// 当前线程先给头节点加独占锁，保证当前线程写入节点操作时的独占性</span></span><br><span class="line">            <span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">      <span class="comment">//并发环境，这里当然还要二次检查头节点是不是刚刚加锁前的头节点（也即检查加锁前后的头节点有无被改动过）</span></span><br><span class="line">                <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">                     <span class="comment">// ④f节点是链表的情况</span></span><br><span class="line">                    <span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">                        binCount = <span class="number">1</span>;</span><br><span class="line">                        <span class="keyword">for</span> (Node&lt;K,V&gt; e = f;; ++binCount) &#123;</span><br><span class="line">                            K ek; V ev;</span><br><span class="line">                            <span class="comment">// 在链表中遇到相同的key，那么就不做更新value操作，返回旧value</span></span><br><span class="line">                            <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                                ((ek = e.key) == key ||</span><br><span class="line">                                 (ek != <span class="keyword">null</span> &amp;&amp; key.equals(ek)))) &#123;</span><br><span class="line">                                val = e.val;</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                            &#125;</span><br><span class="line">                            Node&lt;K,V&gt; pred = e;</span><br><span class="line">                          	<span class="comment">// 尾插法：来到链表尾部</span></span><br><span class="line">                            <span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>) &#123;</span><br><span class="line">                               <span class="comment">// key不在链表时，value则由给定的匿名函数计算而来</span></span><br><span class="line">                                <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                                    added = <span class="keyword">true</span>;</span><br><span class="line">                                    <span class="comment">//尾插法</span></span><br><span class="line">                                    pred.next = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val, <span class="keyword">null</span>);</span><br><span class="line">                                &#125;</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                            &#125;</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">// ④f节点是TreeBin的情况（该桶位是一棵红黑树）</span></span><br><span class="line">                    <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">                        binCount = <span class="number">2</span>;</span><br><span class="line">                        TreeBin&lt;K,V&gt; t = (TreeBin&lt;K,V&gt;)f;</span><br><span class="line">                        TreeNode&lt;K,V&gt; r, p;</span><br><span class="line">                     </span><br><span class="line">                        <span class="keyword">if</span> ((r = t.root) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                            (p = r.findTreeNode(h, key, <span class="keyword">null</span>)) != <span class="keyword">null</span>)</span><br><span class="line">                            val = p.val;</span><br><span class="line">                      	 <span class="comment">// key不在树里面时，value则由给定的匿名函数计算而来</span></span><br><span class="line">                        <span class="keyword">else</span> <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                            added = <span class="keyword">true</span>;</span><br><span class="line">                            t.putTreeVal(h, key, val);</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">if</span> (binCount != <span class="number">0</span>) &#123;</span><br><span class="line">                <span class="keyword">if</span> (binCount &gt;= TREEIFY_THRESHOLD)</span><br><span class="line">                    treeifyBin(tab, i);</span><br><span class="line">                <span class="keyword">if</span> (!added)</span><br><span class="line">                    <span class="keyword">return</span> val;</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  <span class="comment">/*</span></span><br><span class="line"><span class="comment">  	//以下两行是putVal的逻辑：CHM添加一个节点后，需要对size加1计数</span></span><br><span class="line"><span class="comment">    addCount(1L, binCount);</span></span><br><span class="line"><span class="comment">    return null;</span></span><br><span class="line"><span class="comment">    */</span></span><br><span class="line">    <span class="keyword">if</span> (val != <span class="keyword">null</span>)</span><br><span class="line">        addCount(<span class="number">1L</span>, binCount);</span><br><span class="line">    <span class="keyword">return</span> val;<span class="comment">// </span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>相信经过以上“可理解的场景使用和源代码分析”，computeIfAbsent应该能掌握了，下面进入官方bug解析的流程，具有较高水平的知识点，值得阅读！</p>
+<h4 id="an-endless-loop"><a href="#an-endless-loop" class="headerlink" title="an endless loop"></a>an endless loop</h4><p>具体提交页面参考<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/browse/JDK-8062841">官方bug描述页面</a></p>
+<p>问题：ConcurrentHashMap.computeIfAbsent stuck in an endless loop</p>
+<p>该提交者提交方式是那种示范性的提问方式，提供较为详细的辅助信息：jdk版本、操作系统信息、问题描述、以及复现bug的测试代码</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> at.irian.misc.javabug;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.util.Map;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.ConcurrentHashMap;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Main</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">        Map&lt;String, Integer&gt; map = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;(<span class="number">16</span>);</span><br><span class="line">        map.computeIfAbsent(</span><br><span class="line">                <span class="string">&quot;AaAa&quot;</span>,</span><br><span class="line">          			<span class="comment">// 建议改写为 k1-&gt; map.computeIfAbsent(&quot;BBBB&quot;,k2-&gt;42)，相对直观易懂</span></span><br><span class="line">                key -&gt; &#123;</span><br><span class="line">                    <span class="keyword">return</span> map.computeIfAbsent(<span class="string">&quot;BBBB&quot;</span>,key2 -&gt; <span class="number">42</span>);</span><br><span class="line">                &#125;</span><br><span class="line">        );</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">               </span><br></pre></td></tr></table></figure>
+<p>有了前面computeIfAbsent用法的介绍，提交者提交的测试代码其实很好理解：</p>
+<p>“AaAa”对应的value需要根据<code>map.computeIfAbsent(&quot;BBBB&quot;,key2 -&gt; 42)</code>计算出来，易知value返回的是42</p>
+<p>本来期待map的结果是<code>&#123;AaAa=42,BBBB=42&#125;</code>，当执行时，发现程序“卡住了”不能结束，说明bug已复现，但如何一步一步追踪它呢？</p>
+<p>考虑到提交者的测试代码写得比较一般，比如匿名函数写个return显然是多余的，再例如为了制造两个key哈希冲突，写了个“AaAa”、“BBBB”，这当然无大碍，只是看起来有点“Counterintuitive”，因此这里给出相对容易接受的测试代码：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Demo3</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span>  <span class="title">main</span><span class="params">(String[] args)</span></span>&#123;</span><br><span class="line">        ConcurrentHashMap&lt;Name, Integer&gt; map = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;(<span class="number">16</span>);</span><br><span class="line">        map.computeIfAbsent(</span><br><span class="line">                <span class="keyword">new</span> Name(<span class="string">&quot;foo&quot;</span>),</span><br><span class="line">                k1-&gt; map.computeIfAbsent(<span class="keyword">new</span> Name(<span class="string">&quot;bar&quot;</span>),k2-&gt;<span class="number">10</span>)</span><br><span class="line">          			<span class="comment">/*或者使用 k1-&gt; map.computeIfAbsent(new Name(&quot;bar&quot;),k2-&gt; k2.key.length()) </span></span><br><span class="line"><span class="comment">          			这里的k2是指new Name(&quot;bar&quot;)，那么k2.key就是“bar”这个字符串，那么k2.key.length()就是</span></span><br><span class="line"><span class="comment">          			计算k2里面字符串的长度，预期输出结果为&#123;bar=3,foo=3&#125;</span></span><br><span class="line"><span class="comment">          			*/</span></span><br><span class="line">        );</span><br><span class="line">    &#125;</span><br><span class="line">  </span><br><span class="line">    <span class="comment">// 定义一个Name对象，用于作为map的key</span></span><br><span class="line">    <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Name</span> </span>&#123;</span><br><span class="line">        <span class="keyword">private</span> String key;</span><br><span class="line">        Name(String key)&#123;</span><br><span class="line">            <span class="keyword">this</span>.key=key;</span><br><span class="line">        &#125;</span><br><span class="line">     </span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">hashCode</span><span class="params">()</span> </span>&#123;</span><br><span class="line">          	<span class="comment">// 重写hashCode方法，保证每个不同key计算的哈希值都一样，目的是让不同的key直接在同一桶位上发生哈希冲突，以便观察bug的执行流程。显然根据桶位计算方法：i = (16 - 1) &amp; 1，由此可知，不同Name的key都会在桶位1上发生冲突。</span></span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span></span>&#123;</span><br><span class="line">            <span class="keyword">return</span> key;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>对于<code>new Name(&quot;foo&quot;)</code>和<code>new Name(&quot;bar&quot;)</code>这两个不同key，其哈希值都是1，期待运行结果：<code>&#123;foo=10,bar=10&#125;</code>,实际运行结果：程序陷入了死循环，复现了源代码的bug。</p>
+<h4 id="深挖原因"><a href="#深挖原因" class="headerlink" title="深挖原因"></a>深挖原因</h4><p>借助IDEA debug即可完成此任务。在computeIfAbsent的以下代码处打上断点：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>) &#123; <span class="comment">//这行不是断点位置 </span></span><br><span class="line">    Node&lt;K,V&gt; r = <span class="keyword">new</span> ReservationNode&lt;K,V&gt;(); <span class="comment">// 这行是断点位置</span></span><br></pre></td></tr></table></figure>
+<p>根据Name的固定hash值可知道，当首次执行将<code>new Name(&quot;foo&quot;)</code>放入桶位时，程序第一循环先完成table的初始化创建，即如下逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = table;;) &#123;</span><br><span class="line">    Node&lt;K,V&gt; f; <span class="keyword">int</span> n, i, fh;</span><br><span class="line">  	<span class="comment">// ① 第1次循环，table为空，因此需要执行初始化逻辑</span></span><br><span class="line">    <span class="keyword">if</span> (tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span>)</span><br><span class="line">        tab = initTable();</span><br><span class="line">  	<span class="keyword">else</span> <span class="keyword">if</span>&#123;</span><br><span class="line">    <span class="comment">//...</span></span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<p>table的初始化之后，进行第2次循环，会进入到以下逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ② 第2次循环，会进入此逻辑，这好理解，因为new Name(&quot;foo&quot;)这个key的哈希值为1，首次放入key之前，桶位1的头节点f一定是null的</span></span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>) &#123;</span><br><span class="line">            	Node&lt;K,V&gt; r = <span class="keyword">new</span> ReservationNode&lt;K,V&gt;(); <span class="comment">//这行是断点位置</span></span><br><span class="line">            	<span class="keyword">synchronized</span> (r) &#123; <span class="comment">// ③</span></span><br><span class="line">                	<span class="keyword">if</span> (casTabAt(tab, i, <span class="keyword">null</span>, r)) &#123;</span><br><span class="line">                    	binCount = <span class="number">1</span>;</span><br><span class="line">                    	Node&lt;K,V&gt; node = <span class="keyword">null</span>;</span><br><span class="line">                    	<span class="keyword">try</span> &#123;</span><br><span class="line">                        <span class="comment">//</span></span><br><span class="line">                        	<span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>)</span><br></pre></td></tr></table></figure>
+<p>以上两点是要说明：运行debug时虽然执行流会马上停在断点代码位置，但在暂停前，代码已经执行完第1次循环（初始化操作）和正在进行第2次循环</p>
+<p>因为CHM是并发的，因此进入加锁区后不是先把new Name(“foo”)这个节点直接放入桶位1中，而是先放一个保留节点用于占位（好让其他线程看到该桶位是一个保留节点后就转去做其他事情），然后才进入以下try代码区</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>)<span class="comment">// ④</span></span><br><span class="line">        node = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val, <span class="keyword">null</span>);</span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    setTabAt(tab, i, node);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>标记④位置的代码就是揭开bug的关键入口点，在try代码块里面，new Name(“foo”)这个key的value是用指定的匿名函数（或者称为映射函数）计算出来，因此④位置代码是调用给定匿名函数去计算value，如果Step Into到这个位置，那么接下来再继续Step Into就会来测试代码这一位置<code>k1-&gt; map.computeIfAbsent(new Name(&quot;bar&quot;),k2-&gt;10)</code>：</p>
+<p>说明new Name(“foo”)这个key要想放入桶位1，得先等<code>map.computeIfAbsent(new Name(&quot;bar&quot;),k2-&gt;10)</code>逻辑执行完成。</p>
+<p>从Frames的线程方法调用栈也可以看出相关逻辑：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/6c404db5015738104b55964eeeb0db55.png" alt="computeIfAbsent_1"></p>
+<p>继续Step Into操作当然是再次进入computeIfAbsent方法内部，接下来，对于key为<code>new Name(&quot;bar&quot;)</code>，显然它也能定位到桶位1，接下来好办，进入for循环（自旋）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">  <span class="function"><span class="keyword">public</span> V <span class="title">computeIfPresent</span><span class="params">(K key, BiFunction&lt;? <span class="keyword">super</span> K, ? <span class="keyword">super</span> V, ? extends V&gt; remappingFunction)</span> </span>&#123;</span><br><span class="line">      <span class="keyword">if</span> (key == <span class="keyword">null</span> || remappingFunction == <span class="keyword">null</span>)</span><br><span class="line">          <span class="keyword">throw</span> <span class="keyword">new</span> NullPointerException();</span><br><span class="line">      <span class="keyword">int</span> h = spread(key.hashCode());</span><br><span class="line">      V val = <span class="keyword">null</span>;</span><br><span class="line">      <span class="keyword">int</span> delta = <span class="number">0</span>;</span><br><span class="line">      <span class="keyword">int</span> binCount = <span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = table;;) &#123;</span><br><span class="line">          Node&lt;K,V&gt; f; <span class="keyword">int</span> n, i, fh;</span><br><span class="line">          <span class="comment">//① table已不为空，所以执行流不会进入此逻辑</span></span><br><span class="line">          <span class="keyword">if</span> (tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span>)</span><br><span class="line">              tab = initTable();</span><br><span class="line">        	<span class="comment">//② 执行第一次computeIfAbsent时，桶位1被放置了一个保留节点，因此桶位1不再为空，所以执行流不会进入此逻辑。注意注意：此桶位1还未放入new Name(&quot;foo&quot;)这个节点！因为new Name(&quot;foo&quot;)还在等new Name(&quot;bar&quot;)这个key计算value</span></span><br><span class="line">          <span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>)&#123;&#125;</span><br><span class="line">        	<span class="comment">//③ 桶位1放的是一个保留节点ReservationNode，显然不是ForwardingNode节点，所以执行流不会进入此逻辑。</span></span><br><span class="line">          <span class="keyword">else</span> <span class="keyword">if</span> ((fh = f.hash) == MOVED)&#123;&#125;</span><br><span class="line">        	<span class="comment">//④ 前面三个条件不满足，执行流最终会进入此逻辑，这里解析bug的关键逻辑！</span></span><br><span class="line">        	<span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="comment">//4.1</span></span><br><span class="line">            <span class="comment">//4.2</span></span><br><span class="line">            <span class="comment">//4.3</span></span><br><span class="line">          &#125;</span><br></pre></td></tr></table></figure>
+<p>继续深入④逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//④ 前面三个条件不满足，执行流最终会进入此逻辑，这里解析bug的关键逻辑！</span></span><br><span class="line"><span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="keyword">boolean</span> added = <span class="keyword">false</span>;</span><br><span class="line">    <span class="comment">//对桶位上的头节点f加独占锁（这个f节点显然还是new Name(&quot;foo&quot;)放入的保留节点ReservationNode）</span></span><br><span class="line">  	<span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">        <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">    		<span class="comment">//4.1 f是ReservationNode节点显然不是链表，所以执行流不会进入此逻辑</span></span><br><span class="line">            <span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">                binCount = <span class="number">1</span>;</span><br><span class="line">                <span class="keyword">for</span> (Node&lt;K,V&gt; e = f;; ++binCount) &#123;</span><br><span class="line">                    K ek; V ev;</span><br><span class="line">                    <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                        ((ek = e.key) == key ||</span><br><span class="line">                         (ek != <span class="keyword">null</span> &amp;&amp; key.equals(ek)))) &#123;</span><br><span class="line">                        val = e.val;</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                    Node&lt;K,V&gt; pred = e;</span><br><span class="line">                    <span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>) &#123;</span><br><span class="line">                        <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                            added = <span class="keyword">true</span>;</span><br><span class="line">                            pred.next = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val, <span class="keyword">null</span>);</span><br><span class="line">                        &#125;</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">          	<span class="comment">//4.2 f是ReservationNode节点,显然也不是TreeBin节点，所以执行流不会进入此逻辑</span></span><br><span class="line">            <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">                binCount = <span class="number">2</span>;</span><br><span class="line">                TreeBin&lt;K,V&gt; t = (TreeBin&lt;K,V&gt;)f;</span><br><span class="line">                TreeNode&lt;K,V&gt; r, p;</span><br><span class="line">                <span class="keyword">if</span> ((r = t.root) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                    (p = r.findTreeNode(h, key, <span class="keyword">null</span>)) != <span class="keyword">null</span>)</span><br><span class="line">                    val = p.val;</span><br><span class="line">                <span class="keyword">else</span> <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                    added = <span class="keyword">true</span>;</span><br><span class="line">                    t.putTreeVal(h, key, val);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  	<span class="comment">//4.3 程序执行到这里发现都无法满足以上条件来放入new Name(&quot;bar&quot;)节这个节点，而new Name(&quot;foo&quot;)这个key又在等待new Name(&quot;bar&quot;)计算value的返回值，也即当前桶位还未放入这两个key节点，因此binCount还是初始值0，所以执行流不会进入此逻辑</span></span><br><span class="line">    <span class="keyword">if</span> (binCount != <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="keyword">if</span> (binCount &gt;= TREEIFY_THRESHOLD)</span><br><span class="line">            treeifyBin(tab, i);</span><br><span class="line">        <span class="keyword">if</span> (!added)</span><br><span class="line">            <span class="keyword">return</span> val;</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">//⑤ 执行流回到for循环继续，接下来就是一直死循环了</span></span><br></pre></td></tr></table></figure>
+<p>总结以上流程，用骨架代码解释死循环发生的过程：</p>
+<p>对于new Name(“bar”)这个节点进入computeIfAbsent后，发生以下循环问题：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = table;;) &#123;</span><br><span class="line">          Node&lt;K,V&gt; f; <span class="keyword">int</span> n, i, fh;</span><br><span class="line">          <span class="comment">//① table已不为空，所以执行流不会进入此逻辑</span></span><br><span class="line">          <span class="keyword">if</span> (tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span>)</span><br><span class="line">              tab = initTable();</span><br><span class="line">        	<span class="comment">//② 执行第一次computeIfAbsent时，该桶位已经是ReservationNode节点，所以执行流不会进入此逻辑！</span></span><br><span class="line">          <span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>)&#123;&#125;</span><br><span class="line">        	<span class="comment">//③ f是ReservationNode节点不是fwd节点，所以执行流不会进入此逻辑</span></span><br><span class="line">          <span class="keyword">else</span> <span class="keyword">if</span> ((fh = f.hash) == MOVED)&#123;&#125;</span><br><span class="line">        	<span class="comment">//④ 前面三个条件不满足，执行流最终会进入此逻辑，这里解析bug的关键逻辑！</span></span><br><span class="line">        	<span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="comment">//4.1 f是ReservationNode节点不是链表，所以执行流不会进入此逻辑</span></span><br><span class="line">            <span class="comment">//4.2 f是ReservationNode节点不是TreeBin节点，所以执行流不会进入此逻辑</span></span><br><span class="line">            <span class="comment">//4.3 binCount还是初始值0，所以执行流不会进入此逻辑</span></span><br><span class="line">            <span class="comment">// 回到for循环：接下里即陷入死循环</span></span><br><span class="line">          &#125;</span><br></pre></td></tr></table></figure>
+<p>有没发现当准备为new Name(“bar”)节点找满足条件来插入节点时，发现for循环里面的7个条件（①、②、③、④、4.1、4.2、4.3)）都不满足，那执行流接下里怎么办？ 只能继续下一轮循环，下一轮循依旧出现7个条件都不满足只能再继续循环，因此进入了死循环陷阱。</p>
+<p>本质原因是map写入节点的操作恰好同时满足以下两个条件：</p>
+<p>（1）两个key定位到相同的桶位（hash冲突）</p>
+<p>（2）一个key调用<code>map.computeIfAbsent</code>计算value的过程中又递归调用<code>map.computeIfAbsent</code>计算另外一个key的value</p>
+<h4 id="使用jstack定位死循环位置"><a href="#使用jstack定位死循环位置" class="headerlink" title="使用jstack定位死循环位置"></a>使用jstack定位死循环位置</h4><p>既然已经掌握computeIfAbsent出现无限循环的原理，那么当发生无限循环时，可以使用jstack快速定位位置。</p>
+<p>使用top -u 查看cpu使用率最高的进程号</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">~ top -u </span><br><span class="line">PID    COMMAND      %CPU  TIME     #TH   #WQ  #PORTS MEM    PURG   CMPRS  PGRP  PPID  STATE</span><br><span class="line">40929  java         90.5  00:31.31 18&#x2F;1  1    75     17M    0B     0B     8828  8828  running</span><br></pre></td></tr></table></figure>
+<p>再使用jps打印所有java进程执行，进程号40929对应的主类是Demo3，因此进程号40929就是目标处理对象</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"> kevent@MacBookPro  ~  jps</span><br><span class="line">40928 Launcher</span><br><span class="line">40929 Demo3</span><br><span class="line">40967 Jps</span><br><span class="line">8828</span><br></pre></td></tr></table></figure>
+<p>使用jstack打印40929进程里面的所有线程方法调用栈信息并输出文件中（把信息放在文本中方便查阅，否则直接在terminal打印不方便分析）</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">jstack -l 40929 &gt; 40929.txt  # -l选项表示长列表，会打印出更为详细关于锁的信息（如果有死锁被被监测到并打印出来）</span><br></pre></td></tr></table></figure>
+<p>如果程序fork了很多线程，还需要使用<code>top -H -p pid</code>来定位哪个线程的cpu使用率最高，然后再用线程号去jstack 输出文本里面grep到对应线程的调用栈信息。</p>
+<p>打印出信息如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">~ jstack -l 40929</span><br><span class="line">Full thread dump OpenJDK 64-Bit Server VM (25.252-b09 mixed mode):</span><br><span class="line"></span><br><span class="line"># 省略其他输出</span><br><span class="line"></span><br><span class="line">&quot;main&quot; #1 prio&#x3D;5 os_prio&#x3D;31 tid&#x3D;0x00007fc89300b000 nid&#x3D;0x1003 runnable [0x0000700009038000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">	at concurrent.demo.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1747)</span><br><span class="line">	at concurrent.demo.Demo3.lambda$main$1(Demo3.java:7)</span><br><span class="line">	at concurrent.demo.Demo3$$Lambda$1&#x2F;250421012.apply(Unknown Source)</span><br><span class="line">	at concurrent.demo.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1688)</span><br><span class="line">	- locked &lt;0x0000000795864ea0&gt; (a concurrent.demo.ConcurrentHashMap$ReservationNode)</span><br><span class="line">	at concurrent.demo.Demo3.main(Demo3.java:5)</span><br><span class="line"></span><br><span class="line">   Locked ownable synchronizers:</span><br><span class="line">	- None</span><br><span class="line"># 省略其他输出</span><br></pre></td></tr></table></figure>
+<p>Demo3执行后一直“卡着”并不会结束运行，上面显示main主线程，它的状态是RUNNABLE，这个正是说明当前Demo3一直在运行中没有结束。以下内容是主线程的方法调用栈，可以看到栈顶的computeIfAbsent方法</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">at concurrent.demo.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1747)</span><br><span class="line">at concurrent.demo.Demo3.lambda$main$1(Demo3.java:7)</span><br><span class="line">at concurrent.demo.Demo3$$Lambda$1&#x2F;250421012.apply(Unknown Source)</span><br><span class="line">at concurrent.demo.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1688)</span><br><span class="line">- locked &lt;0x0000000795864ea0&gt; (a concurrent.demo.ConcurrentHashMap$ReservationNode)</span><br><span class="line">at concurrent.demo.Demo3.main(Demo3.java:5)</span><br></pre></td></tr></table></figure>
+<p>(ConcurrentHashMap.java:1747)信息很关键，它指出死循环发生在ConcurrentHashMap.java源代码文件的1747行，接着你可以在源代码文件相应位置加个打印语句<code>System.out.println(&quot;dead loop&quot;);</code>看看是否是这个是位置有死循环``，如下图所示：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/6817b340064cd6fe400a5846be97c467.png" alt="computeIfAbsent_2"></p>
+<p>源代码能编辑的前提是你对IDEA的Sourcepath做了设置，至于如何设置，这些小trick不再说明。</p>
+<p>再次执行Demo3时，则会一直打印<code>dead loop</code>，这种方式看起来也让其死循环行为更为直观。</p>
+<h4 id="openJDK官方的讨论过程"><a href="#openJDK官方的讨论过程" class="headerlink" title="openJDK官方的讨论过程"></a>openJDK官方的讨论过程</h4><p>有了以上对computeIfAbsent全面的解析，则可以更好理解openJDK的官方讨论过程，<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/browse/JDK-8062841">参考此提交页面</a></p>
+<p>1、<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dl">Doug Lea</a> added a comment - 2014-11-04 11:21</p>
+<p>Doug Lea说自己没有一个好的方式去诊断CHM就此出现的问题，他猜测是否是线程在执行<code>computing value</code>逻辑时stuck住了，但从提交者的描述来看又无法确定这点。</p>
+<blockquote>
+<p>I do not see a way to diagnose if there is a CHM problem here. The reservation mentioned may exist if some other thread is stuck while computing value, but there is no way to determine this from description.</p>
+</blockquote>
+<p>你可以理解为Doug Lea对此bug暂无解决思路（未能在短时间内想起哪个逻辑出现问题），这是因为提交者首次提bug时没有附上“可复现bug的代码文件”，仅根据贴上的基本描述无法清晰指出问题所在。</p>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=pardesha">Pardeep Sharma</a> added a comment - 2014-12-03 03:58</p>
+<blockquote>
+<p>Response from the submitter:<br>“I’ve been investigating the bug further in the mean time and I have a<br>minimal example (see attachment). </p>
+<p>The problem is that we’re doing a computeIfAbsent within another<br>computeIfAbsent with an object that has accidentally the same hashCode<br>(in the attached example “AaAa” and “BBBB” also have same hashCode). </p>
+<p>The documentation states that this is forbidden (mistake on our side)<br>but it also states that this should throw “IllegalStateException - if<br>the computation detectably attempts a recursive update to this map<br>that would otherwise never complete”. This is not the case. </p>
+<p>I would suggest that either<br>a) the documentation is adjusted to make it more clear that the<br>IllegalStateException is thrown on best effort basis.<br>or<br>b) the implementation is adjusted so that the IllegalStateException is<br>really thrown.”</p>
+</blockquote>
+<p>这部分内容很关键，提交者补充了准确的描述、修复意见和可复现bug的代码文件，补充的内容大概意思如下：</p>
+<p>（1）bug产生的原因：map.computeIfAbsent里面的value再次调用computeIfAbsent，而且两个computeIfAbsent对应的key恰好hash冲突</p>
+<p>（2）提出computeIfAbsent方法官方注释虽然提到禁止使用这种递归调用computeIfAbsent的用法，提交者认为更合理的方式是抛出：IllegalStateException</p>
+<p>（3）提出源代码修复建议  a)注释里面尽可能对IllegalStateException抛出情况写清楚点   b)调整代码逻辑使得遇到此类情况可抛出<code>IllegalStateException</code></p>
+<p>3、<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dl">Doug Lea</a> added a comment - 2014-12-22 05:46</p>
+<blockquote>
+<p>Ignore my previous comment. We discovered some feasible diagnostic improvements that cover more user errors involving recursive map updates by functions supplied in computeIfAbsent, including the case attached in this report. </p>
+<p>Pending any further discussion on concurrency-interest, we should integrate to JDK9, then 8u.</p>
+</blockquote>
+<p>在距离该bug提交时间（11-04）48天后（当然这里不是指Doug Lea每天思考该问题总共用了48天才找出如何解决），<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dl">Doug Lea</a> 终于搞懂bug的发生逻辑，也谦虚说忽略他之前给出的评论意见，说他们能找到问题的所在，并有该bug复现的case。提到之后如果有关于concurrency相关的讨论（修复）都应该优先在jdk9完成，然后再去处理jdk8u版本。</p>
+<h4 id="源代码修复说明"><a href="#源代码修复说明" class="headerlink" title="源代码修复说明"></a>源代码修复说明</h4><p>在这里不妨假设还是按照上面<code>an endless loop</code>章节在分析递归调用<code>new Name(&quot;bar&quot;)</code>的computeIfAbsent发生的循环逻辑，把整个执行流程放到以下修复后代码中去考察：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = table;;) &#123;</span><br><span class="line">         Node&lt;K,V&gt; f; <span class="keyword">int</span> n, i, fh;</span><br><span class="line">         <span class="keyword">if</span> (tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span>)</span><br><span class="line">             tab = initTable();</span><br><span class="line">         <span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>)&#123;&#125;</span><br><span class="line">         <span class="keyword">else</span> <span class="keyword">if</span> ((fh = f.hash) == MOVED)&#123;&#125;      </span><br><span class="line"><span class="keyword">else</span> &#123;</span><br><span class="line">             <span class="keyword">boolean</span> added = <span class="keyword">false</span>;</span><br><span class="line">             <span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">                 <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">                   	<span class="comment">//4.1 f是ReservationNode节点不是链表，所以执行流不会进入此逻辑</span></span><br><span class="line">                     <span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">                         binCount = <span class="number">1</span>;</span><br><span class="line">                         <span class="keyword">for</span> (Node&lt;K,V&gt; e = f;; ++binCount) &#123;</span><br><span class="line">                             K ek;</span><br><span class="line">                             <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                                 ((ek = e.key) == key ||</span><br><span class="line">                                  (ek != <span class="keyword">null</span> &amp;&amp; key.equals(ek)))) &#123;</span><br><span class="line">                                 val = e.val;</span><br><span class="line">                                 <span class="keyword">break</span>;</span><br><span class="line">                             &#125;</span><br><span class="line">                             Node&lt;K,V&gt; pred = e;</span><br><span class="line">                             <span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>) &#123;</span><br><span class="line">                                 <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                         <span class="comment">// 新增的修复代码，链表这边也可能会出现递归调用，也需要直接抛出异常。为何这里也会出现</span></span><br><span class="line">                                     <span class="keyword">if</span> (pred.next != <span class="keyword">null</span>)</span><br><span class="line">                                         <span class="keyword">throw</span> <span class="keyword">new</span> IllegalStateException(<span class="string">&quot;Recursive update&quot;</span>);</span><br><span class="line">                                     added = <span class="keyword">true</span>;</span><br><span class="line">                                     pred.next = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val);</span><br><span class="line">                                 &#125;</span><br><span class="line">                                 <span class="keyword">break</span>;</span><br><span class="line">                             &#125;</span><br><span class="line">                         &#125;</span><br><span class="line">                     &#125;</span><br><span class="line">                   <span class="comment">//4.2 f是ReservationNode节点不是TreeBin节点，所以执行流不会进入此逻辑</span></span><br><span class="line">                     <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">                         binCount = <span class="number">2</span>;</span><br><span class="line">                         TreeBin&lt;K,V&gt; t = (TreeBin&lt;K,V&gt;)f;</span><br><span class="line">                         TreeNode&lt;K,V&gt; r, p;</span><br><span class="line">                         <span class="keyword">if</span> ((r = t.root) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                             (p = r.findTreeNode(h, key, <span class="keyword">null</span>)) != <span class="keyword">null</span>)</span><br><span class="line">                             val = p.val;</span><br><span class="line">                         <span class="keyword">else</span> <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                             added = <span class="keyword">true</span>;</span><br><span class="line">                             t.putTreeVal(h, key, val);</span><br><span class="line">                         &#125;</span><br><span class="line">                     &#125;</span><br><span class="line">                   <span class="comment">// 4.3 新增的修复代码</span></span><br><span class="line">                   <span class="comment">// 在第一次computeIfAbsent执行时new Name(&quot;foo&quot;) 就是通过独占锁在桶位放置了一个ReservationNode然后等待new Name(&quot;bar&quot;) 的返回，而new Name(&quot;bar&quot;) 执行computeIfAbsent时来到相同桶位，此时桶位显然是一个ReservationNode，满足判断条件，故直接抛出异常使得线程终止运行，而不是继续下一轮遍历，解决了死循环。</span></span><br><span class="line">                     <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> ReservationNode)</span><br><span class="line">                         <span class="keyword">throw</span> <span class="keyword">new</span> IllegalStateException(<span class="string">&quot;Recursive update&quot;</span>);</span><br><span class="line">                 &#125;</span><br></pre></td></tr></table></figure>
+<p>当然这种有递归更新操作的修复不单单只在computeIfAbsent方法修改，还有其他方法内部都需要修改，具体参考他们给出的<a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?r1=1.258&amp;r2=1.259&amp;sortby=date">修复前后diff链接</a>。</p>
+<p>Doug Lea除了修复这个死循环的问题，他还给出了一个提高computeIfAbsent性能的修复，<a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?r1=1.295&amp;r2=1.296&amp;sortby=date">修复前后diff连接</a></p>
+<p>Improve already-present performance in computeIfAbsent, putIfAbsent</p>
+<blockquote>
+<p>Revision <strong>1.296</strong> - (<a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?revision=1.296&amp;view=markup&amp;sortby=date">view</a>) (<a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?annotate=1.296&amp;sortby=date">annotate</a>) - <strong>[selected]</strong><br><em>Sun Jul 17 12:09:12 2016 UTC</em> (5 years ago) by <em>dl</em><br>Branch: <a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?view=log&amp;sortby=date&amp;pathrev=MAIN"><strong>MAIN</strong></a><br>Changes since <strong>1.295: +10 -2 lines</strong><br>Diff to <a target="_blank" rel="noopener" href="http://gee.cs.oswego.edu/cgi-bin/viewcvs.cgi/jsr166/src/main/java/util/concurrent/ConcurrentHashMap.java?r1=1.295&amp;r2=1.296&amp;sortby=date">previous 1.295</a></p>
+</blockquote>
+<p>其实也很简单，正如注释所说：check first node without acquiring lock，在无需加锁情况下，快速判断头节点是否和给定key相同，如相同则无须更新value，直接返回头节点原value。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//...</span></span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> ((fh = f.hash) == MOVED)</span><br><span class="line">    tab = helpTransfer(tab, f);</span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (fh == h    <span class="comment">// check first node without acquiring lock</span></span><br><span class="line">         &amp;&amp; ((fk = f.key) == key || (fk != <span class="keyword">null</span> &amp;&amp; key.equals(fk)))</span><br><span class="line">         &amp;&amp; (fv = f.val) != <span class="keyword">null</span>)</span><br><span class="line">    <span class="keyword">return</span> fv;</span><br><span class="line"><span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="keyword">boolean</span> added = <span class="keyword">false</span>;</span><br><span class="line">    <span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">        <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line"> <span class="comment">//...</span></span><br></pre></td></tr></table></figure>
+<p>有了以上全文内容的理解，再来回顾computeIfAbsent的源代码注释则能理解它要强调的重点！</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * If the specified key is not already associated with a value,</span></span><br><span class="line"><span class="comment"> * attempts to compute its value using the given mapping function</span></span><br><span class="line"><span class="comment"> * and enters it into this map unless &#123;<span class="doctag">@code</span> null&#125;.  The entire</span></span><br><span class="line"><span class="comment"> * method invocation is performed atomically.  The supplied</span></span><br><span class="line"><span class="comment"> * function is invoked exactly once per invocation of this method</span></span><br><span class="line"><span class="comment"> * if the key is absent, else not at all.  (key不在map的情况下，给定的映射函数只会调用一次用来计算key对应的value)</span></span><br><span class="line"><span class="comment"> *Some attempted update operations on this map by other threads may be blocked while</span></span><br><span class="line"><span class="comment"> * computation is in progress, so the computation should be short</span></span><br><span class="line"><span class="comment"> * and simple.（给key调用映射函数计算value的过程中可能阻塞其他线程，因此这个“映射函数”的计算逻辑尽可能短、简单，例如key对应的value需要用10秒才计算完那么put这个key时显然会导致其他线程需要等待10秒才能继续后续写操作）</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * &lt;p&gt;The mapping function must not modify this map during computation.</span></span><br><span class="line"><span class="comment"> *</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> key key with which the specified value is to be associated</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> mappingFunction the function to compute a value</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@return</span> the current (existing or computed) value associated with</span></span><br><span class="line"><span class="comment"> *         the specified key, or null if the computed value is null</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@throws</span> NullPointerException if the specified key or mappingFunction</span></span><br><span class="line"><span class="comment"> *         is null</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@throws</span> IllegalStateException if the computation detectably</span></span><br><span class="line"><span class="comment"> *         attempts a recursive update to this map that would</span></span><br><span class="line"><span class="comment"> *         otherwise never complete</span></span><br><span class="line"><span class="comment"> （抛出IllegalStateException就是修复的内容：如果检测到递归更新，如本文提供Demo3案例，则会抛出这个异常错误）</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@throws</span> RuntimeException or Error if the mappingFunction does so,</span></span><br><span class="line"><span class="comment"> *         in which case the mapping is left unestablished</span></span><br><span class="line"><span class="comment"> *</span></span><br></pre></td></tr></table></figure>
+<p>掌握computeIfAbsent实现以及bug修复原理，你可以猜到HashMap、TreeMap、Hashtable等computeIfAbsent是如何处理吗？</p>
+<p>这是一个陷阱式提问，显然HashMap、TreeMap、Hashtable的computeIfAbsent是不可能发生死循环，因为它们的computeIfAbsent源代码实现里面就不存在<code>for循环（自旋）+CAS</code>这套操作，而且HashMap、TreeMap这些也不是设计用于并发环境。</p>
+<p>此外jdk1.8的ConcurrentHashMap的computeIfAbsent死循环的bug还引起阿里的分布式事务Seata框架发生同样的bug，文章为<a target="_blank" rel="noopener" href="https://seata.io/zh-cn/blog/seata-dsproxy-deadlock.html">《ConcurrentHashMap导致的Seata死锁问题》</a>，文章发布时间很新，2021年3月13日。写这篇深度分析文章的作者是Seata开发者之一，很不错，该文适合已经具有微服务下的分布式事务开发经验的同学研究。</p>
+<h4 id="One-more-thing"><a href="#One-more-thing" class="headerlink" title="One more thing"></a>One more thing</h4><p>在“源代码修复diff说明”章节，代码修复只解释4.3新增的修复代码，眼尖的同学也许发现了4.1的链表也新增的修复代码而4.2的TreeBin里面确无需修改，这两部分的修复逻辑为何是这么处理呢？</p>
+<h5 id="讨论4-1位置指出的链表片段代码的修复思路"><a href="#讨论4-1位置指出的链表片段代码的修复思路" class="headerlink" title="讨论4.1位置指出的链表片段代码的修复思路"></a>讨论4.1位置指出的链表片段代码的修复思路</h5><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">boolean</span> added = <span class="keyword">false</span>;</span><br><span class="line">            <span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">                <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">                  	<span class="comment">//4.1 f是ReservationNode节点不是链表，所以执行流不会进入此逻辑</span></span><br><span class="line">                    <span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">                        binCount = <span class="number">1</span>;</span><br><span class="line">                        <span class="keyword">for</span> (Node&lt;K,V&gt; e = f;; ++binCount) &#123;</span><br><span class="line">                            K ek;</span><br><span class="line">                            <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                                ((ek = e.key) == key ||</span><br><span class="line">                                 (ek != <span class="keyword">null</span> &amp;&amp; key.equals(ek)))) &#123;</span><br><span class="line">                                val = e.val;</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                            &#125;</span><br><span class="line">                            Node&lt;K,V&gt; pred = e;</span><br><span class="line">                            <span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>) &#123;</span><br><span class="line">                                <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                        <span class="comment">// 新增的修复代码，链表这边也可能会出现递归调用，也需要直接抛出异常。为何这里也会出现</span></span><br><span class="line">                                    <span class="keyword">if</span> (pred.next != <span class="keyword">null</span>)</span><br><span class="line">                                        <span class="keyword">throw</span> <span class="keyword">new</span> IllegalStateException(<span class="string">&quot;Recursive update&quot;</span>);</span><br><span class="line">                                    added = <span class="keyword">true</span>;</span><br><span class="line">                                    pred.next = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val);</span><br><span class="line">                                &#125;</span><br><span class="line">                                <span class="keyword">break</span>;</span><br><span class="line">                            &#125;</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br></pre></td></tr></table></figure>
+<p>首先应该可以猜到，既然Doug Lea 修复了它，说明链表里面肯定存在递归更新（且哈希冲突下的递归更新），但会出现类似ReservationNode的死循环bug吗？还是有其他不一样的情况？这里再次设计相关复现代码以解释之，Demo4如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.LinkedBlockingQueue;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Demo4</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span>  <span class="title">main</span><span class="params">(String[] args)</span></span>&#123;</span><br><span class="line">        <span class="keyword">new</span> LinkedBlockingQueue&lt;&gt;();</span><br><span class="line">        ConcurrentHashMap&lt;Name, Integer&gt; map = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;(<span class="number">16</span>);</span><br><span class="line">        map.put(<span class="keyword">new</span> Name(<span class="string">&quot;a0&quot;</span>),<span class="number">1</span>);</span><br><span class="line">        map.put(<span class="keyword">new</span> Name(<span class="string">&quot;a1&quot;</span>),<span class="number">2</span>);</span><br><span class="line">        map.computeIfAbsent(<span class="keyword">new</span> Name(<span class="string">&quot;a2&quot;</span>),k1-&gt;map.computeIfAbsent(<span class="keyword">new</span> Name(<span class="string">&quot;a3&quot;</span>),k2-&gt;k2.key.length()));</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        System.out.println(map);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Name</span> </span>&#123;</span><br><span class="line">        <span class="keyword">private</span> String key;</span><br><span class="line">        Name(String key)&#123;</span><br><span class="line">            <span class="keyword">this</span>.key=key;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">hashCode</span><span class="params">()</span> </span>&#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span></span>&#123;</span><br><span class="line">            <span class="keyword">return</span> key;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>以上预期打印结果：{a0=1,a1=2,a3=2,a2=2}</p>
+<p>实际输出为：{a0=1, a1=2, a2=2}</p>
+<p>原因分析如下图所示：<br><img src="https://img-blog.csdnimg.cn/f37ea7b269f04b09b9dc2e867aeeb67d.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"></p>
+<p>以上图示说明的是在链表中出现computeIfAbsent递归调用的bug并不会出现类似前面ReservationNode引起的死循环，而是出现“节点被覆盖”的bug，因此需要修复，修复的代码也很好处理：<font color=red>依据上图思路，在Time4时刻先判断此刻<code>pred.next</code>是否还是Time2时刻时的情况，即<code>pred.next=null</code>，如果不为空，说明在Time3时刻，递归调用了computeIfAbsent导致pred.next指向一个新增节点，出现了“inconsistent read”，这种情况很像mysql的“不可重复读”：</font></p>
+<p>事务A在第一次读和第二次读的结果不一样，是因为在第一次和第二次读的中间时刻，有事务B对目标记录修改，导致事务A在一个事务内两次读到的数据不一样，也即不可重复读。</p>
+<p>按这里的思路套入“上图中链表的不可重复读”：线程A第一次computeIfAbsent读取的<code>pred.next</code>为空，接着有线程A第一次computeIfAbsent内部再调用第二个computeIfAbsent对<code>pred.next</code>修改指向了一个非空新增节点，之后当线程A返回到执行第一次computeIfAbsent中断位置继续执行，发现第二次读取的<code>pred.next</code>不为空，那么线程A此时应该抛出异常，这就是Doug Lea对链表出现递归调用computeIfAbsent的修复策略，修复源代码片段如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">Node&lt;K,V&gt; pred = e;</span><br><span class="line"><span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>) &#123; <span class="comment">//这里可以看做是线程A第一次读取pred.next,显然此刻pred.next是指向null</span></span><br><span class="line">    <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">		<span class="comment">// 新增的修复代码：线程A第二次读pred.next，如果此刻pred.next指向为null，说明本次computeIfAbsent内部没递归调用computeIfAbsent，是合法插入节点的操作，此时可以放心让pred.next指向新增节点</span></span><br><span class="line">        <span class="keyword">if</span> (pred.next != <span class="keyword">null</span>)</span><br><span class="line">          <span class="comment">// 如果线程A第二次读pred.next不为空，说明本次computeIfAbsent递归调用computeIfAbsent，直接抛出IllegalStateException</span></span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> IllegalStateException(<span class="string">&quot;Recursive update&quot;</span>);</span><br><span class="line">        <span class="comment">// 线程A第二次读pred.next，如果此刻pred.next指向为null，说明本次computeIfAbsent内部没递归调用computeIfAbsent是合法插入节点的操作，此时可以放心让pred.next指向新增节点new Node。</span></span><br><span class="line">        added = <span class="keyword">true</span>;</span><br><span class="line">        pred.next = <span class="keyword">new</span> Node&lt;K,V&gt;(h, key, val);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>多线程下的computeIfAbsent递归结果其实跟单线程一样，但肯定不会出现死循环，有余力的同学可以自行分析或者debug。</p>
+<h5 id="讨论4-2-位置TreeBin部分的修复思路"><a href="#讨论4-2-位置TreeBin部分的修复思路" class="headerlink" title="讨论4.2 位置TreeBin部分的修复思路"></a>讨论4.2 位置TreeBin部分的修复思路</h5><p>对比jdk1.8和jdk16的TreeBin片段前后，发现源代码无需修复，这是又是为何呢？</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">            <span class="comment">//4.2 f是ReservationNode节点不是TreeBin节点，所以执行流不会进入此逻辑</span></span><br><span class="line">              <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">                  binCount = <span class="number">2</span>;</span><br><span class="line">                  TreeBin&lt;K,V&gt; t = (TreeBin&lt;K,V&gt;)f;</span><br><span class="line">                  TreeNode&lt;K,V&gt; r, p;</span><br><span class="line">                  <span class="keyword">if</span> ((r = t.root) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                      (p = r.findTreeNode(h, key, <span class="keyword">null</span>)) != <span class="keyword">null</span>)</span><br><span class="line">                      val = p.val;</span><br><span class="line">                  <span class="keyword">else</span> <span class="keyword">if</span> ((val = mappingFunction.apply(key)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                      added = <span class="keyword">true</span>;</span><br><span class="line">                      t.putTreeVal(h, key, val);</span><br><span class="line">                  &#125;</span><br><span class="line">              &#125;</span><br><span class="line"><span class="comment">//4.3 新增的修复，处理ReservationNode引起的死循环bug</span></span><br><span class="line">              <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> ReservationNode)</span><br><span class="line">                  <span class="keyword">throw</span> <span class="keyword">new</span> IllegalStateException(<span class="string">&quot;Recursive update&quot;</span>);</span><br><span class="line">          &#125;</span><br><span class="line">      &#125;</span><br></pre></td></tr></table></figure>
+<p>有了前面链表的分析积累，很好理解为何TreeBin无需担心递归更新带来的问题，因为它不会发生这样的bug，下面给出Demo5以及详细可理解的分析：<br><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.ConcurrentHashMap;</span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Demo5</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span>  <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">        ConcurrentHashMap&lt;Name, Integer&gt; map = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;(<span class="number">16</span>);</span><br><span class="line">      </span><br><span class="line">      	<span class="comment">// put64个节点触发扩容并会树化红黑树</span></span><br><span class="line">        <span class="keyword">for</span>(<span class="keyword">int</span> i=<span class="number">0</span>;i&lt;<span class="number">64</span>;i++)&#123;</span><br><span class="line">            map.put(<span class="keyword">new</span> Name(<span class="string">&quot;a&quot;</span>+i),i);</span><br><span class="line"></span><br><span class="line">        &#125;</span><br><span class="line">      	<span class="comment">// 测试b2节点会不会像链表那边被b1节点覆盖</span></span><br><span class="line">        map.computeIfAbsent(<span class="keyword">new</span> Name(<span class="string">&quot;b1&quot;</span>),k1-&gt;map.computeIfAbsent(<span class="keyword">new</span> Name(<span class="string">&quot;b2&quot;</span>),k2-&gt;k2.key.length()));</span><br><span class="line">        System.out.println(map);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Name</span> </span>&#123;</span><br><span class="line">        <span class="keyword">private</span> String key;</span><br><span class="line">        Name(String key)&#123;</span><br><span class="line">            <span class="keyword">this</span>.key=key;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">hashCode</span><span class="params">()</span> </span>&#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> String <span class="title">toString</span><span class="params">()</span></span>&#123;</span><br><span class="line">            <span class="keyword">return</span> key;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><br>详细图解：<br><img src="https://img-blog.csdnimg.cn/e850dc9870704077af0bb9da6e7810c3.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70#pic_center" alt="在这里插入图片描述"></p>
+<h4 id="小节"><a href="#小节" class="headerlink" title="小节"></a>小节</h4><p>相信能读懂本文的同学，应该会受益匪浅，此外，网上也有coder能写出关于官方处理computeIfAbsent的修复过程解析，但他们基本停留在<code>ReservationNode</code>这一点上，而关于链表片段代码的修复以及红黑树部分片段维持不修复的本质原因却没有给出深度解读，这两点作为computeIfAbsent核心设计，肯定需要深挖为何如何修复或不修复的原因。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/09/12/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84resizeStamp%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/" rel="prev" title="Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑">
+      <i class="fa fa-chevron-left"></i> Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/10/22/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9ALongAdder%E9%AB%98%E5%B9%B6%E5%8F%91%E8%AE%A1%E6%95%B0%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/" rel="next" title="Java高级主题：LongAdder高并发计数性能分析">
+      Java高级主题：LongAdder高并发计数性能分析 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E8%AE%A4%E8%AF%86computeIfAbsent%E7%94%A8%E6%B3%95"><span class="nav-number">1.</span> <span class="nav-text">认识computeIfAbsent用法</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#computeIfAbsent%E4%BD%BF%E7%94%A8%E5%9C%BA%E6%99%AF1%EF%BC%9A"><span class="nav-number">1.1.</span> <span class="nav-text">computeIfAbsent使用场景1：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#computeIfAbsent%E4%BD%BF%E7%94%A8%E5%9C%BA%E6%99%AF2%EF%BC%9A"><span class="nav-number">1.2.</span> <span class="nav-text">computeIfAbsent使用场景2：</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#computeIfAbsent%E6%96%B9%E6%B3%95%E6%BA%90%E7%A0%81%E8%A7%A3%E6%9E%90"><span class="nav-number">1.3.</span> <span class="nav-text">computeIfAbsent方法源码解析</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#an-endless-loop"><span class="nav-number">2.</span> <span class="nav-text">an endless loop</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B7%B1%E6%8C%96%E5%8E%9F%E5%9B%A0"><span class="nav-number">3.</span> <span class="nav-text">深挖原因</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8jstack%E5%AE%9A%E4%BD%8D%E6%AD%BB%E5%BE%AA%E7%8E%AF%E4%BD%8D%E7%BD%AE"><span class="nav-number">4.</span> <span class="nav-text">使用jstack定位死循环位置</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#openJDK%E5%AE%98%E6%96%B9%E7%9A%84%E8%AE%A8%E8%AE%BA%E8%BF%87%E7%A8%8B"><span class="nav-number">5.</span> <span class="nav-text">openJDK官方的讨论过程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E8%AF%B4%E6%98%8E"><span class="nav-number">6.</span> <span class="nav-text">源代码修复说明</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#One-more-thing"><span class="nav-number">7.</span> <span class="nav-text">One more thing</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E8%AE%A8%E8%AE%BA4-1%E4%BD%8D%E7%BD%AE%E6%8C%87%E5%87%BA%E7%9A%84%E9%93%BE%E8%A1%A8%E7%89%87%E6%AE%B5%E4%BB%A3%E7%A0%81%E7%9A%84%E4%BF%AE%E5%A4%8D%E6%80%9D%E8%B7%AF"><span class="nav-number">7.1.</span> <span class="nav-text">讨论4.1位置指出的链表片段代码的修复思路</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E8%AE%A8%E8%AE%BA4-2-%E4%BD%8D%E7%BD%AETreeBin%E9%83%A8%E5%88%86%E7%9A%84%E4%BF%AE%E5%A4%8D%E6%80%9D%E8%B7%AF"><span class="nav-number">7.2.</span> <span class="nav-text">讨论4.2 位置TreeBin部分的修复思路</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%B0%8F%E8%8A%82"><span class="nav-number">8.</span> <span class="nav-text">小节</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

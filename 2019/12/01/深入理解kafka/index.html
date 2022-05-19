@@ -38,7 +38,7 @@
 <meta property="og:image" content="https://img-blog.csdnimg.cn/20191201114330792.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
 <meta property="og:image" content="https://img-blog.csdnimg.cn/20191201120617771.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
 <meta property="article:published_time" content="2019-12-01T04:16:41.000Z">
-<meta property="article:modified_time" content="2020-11-22T10:55:35.661Z">
+<meta property="article:modified_time" content="2020-11-22T10:55:35.660Z">
 <meta property="article:tag" content="Kafka原理">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:image" content="https://img-blog.csdnimg.cn/20191127231934698.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
@@ -111,7 +111,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -206,7 +206,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -271,7 +271,6 @@
         <p>&#8195;&#8195;在前面的文章<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103225653">《在hadoopHA节点上部署kafka集群组件》</a>，介绍大数据实时分析平台生态圈组件——kafka，前向用于连接flume，后向连接spark streaming。在研究Kafka过程中，发现该中间件的设计很巧妙，因此专设一篇文章用于深入理解Kafka核心知识。Kafka已经纳入个人目前最欣赏的中间件list：redis，zookeeper，kafka</p>
 <h4 id="1、kafka集群架构图"><a href="#1、kafka集群架构图" class="headerlink" title="1、kafka集群架构图"></a>1、kafka集群架构图</h4><p>以下为kafka集群一种经典的架构图，该图以《在hadoopHA节点上部署kafka集群组件》文章的kafka集群以及sparkapp topic作为示例绘成，本文的内容将以该图为标准作为说明。<br><img src="https://img-blog.csdnimg.cn/20191127231934698.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="kafka集群架构图">图1 kafka集群架构图</p>
 <a id="more"></a>
-
 <h4 id="2、kafka-高性能读写的设计"><a href="#2、kafka-高性能读写的设计" class="headerlink" title="2、kafka 高性能读写的设计"></a>2、kafka 高性能读写的设计</h4><h5 id="2-1、利用read-ahead-和-write-behind提升写性能"><a href="#2-1、利用read-ahead-和-write-behind提升写性能" class="headerlink" title="2.1、利用read-ahead 和 write-behind提升写性能"></a>2.1、利用read-ahead 和 write-behind提升写性能</h5><p>&#8195;&#8195;kafka底层设计高度依赖现代磁盘优化技术和文件系统的优化技术。在kafka官方文档的：<a target="_blank" rel="noopener" href="http://kafka.apache.org/documentation/#design">don’t fear the filesystem</a>章节说明了kafka是如何利用磁盘已有的高性能读写技术：read-ahead 和 write-behind 实现日志在磁盘山高性能顺序写。<br>&#8195;&#8195;read-ahead 是以大的 data block 为单位预先读取数据。write-behind（后写） 是将多个小型的逻辑写合并成一次大型的物理磁盘写入，producer向kafka写入消息日志时，因为消息是一条一条的过来，而且消息本身payload很小，如果每条消息进来立刻执行写入磁盘，显然IO非常高，因此需要将进来的消息先缓存，然后到一定数量或者到一定容量时再触发写入磁盘，kafka用了pagecache实现write-behind而不是通过内存。<br>&#8195;&#8195;官方举例说明用廉价的RAID-5模式sata硬盘可以去到600MB/秒，但随机写入的性能仅约为100k/秒，相差6000倍以上。</p>
 <h5 id="2-2、使用pagecache缓存程序数据提升读写性能"><a href="#2-2、使用pagecache缓存程序数据提升读写性能" class="headerlink" title="2.2、使用pagecache缓存程序数据提升读写性能"></a>2.2、使用pagecache缓存程序数据提升读写性能</h5><p>&#8195;&#8195;同样，在kafka官方文档的：<a target="_blank" rel="noopener" href="http://kafka.apache.org/documentation/#design">don’t fear the filesystem</a>章节还提到另外一个技术：pagecache。kafka利用了现代操作系统主动将所有空闲内存用作磁盘caching这一机制（代价是在内存回收时性能会有所降低），再次提升基于filesystem的读写性能的效果。<br>&#8195;&#8195;kafka 跑在 jvm之上，那么jvm一定会有复杂的GC情况：</p>
 <ul>
@@ -292,25 +291,17 @@
 <blockquote>
 <p>在应用程序和网络之间提供更快的数据传输方法，从而可以有效地降低通信延迟，提高网络吞吐率。零拷贝技术是实现主机或者路由器等设备高速网络接口的主要技术之一。举例来说，一个 1 GHz 的处理器可以对 1Gbit/s 的网络链接进行传统的数据拷贝操作，但是如果是 10 Gbit/s 的网络，那么对于相同的处理器来说，零拷贝技术就变得非常重要了。</p>
 </blockquote>
-<p>page cache 和 sendfile 的组合使用意味着，在一个kafka集群中，大多数 consumer 消费时，==将看不到磁盘上的读取活动，因为数据将完全由缓存提供==。<br>有关zero-copy以及Linux IO详细内容，推荐IBM Developer中国区四篇高质量文章：<br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-directio/index.html?mhsrc=ibmsearch_a&mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中直接 I/O 机制的介绍》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy1/index.html?mhsrc=ibmsearch_a&mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中的零拷贝技术，第 1 部分》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/index.html?mhsrc=ibmsearch_a&mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中的零拷贝技术，第 2 部分》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/java/j-zerocopy/index.html?mhsrc=ibmsearch_a&mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《通过零拷贝实现有效数据传输》</a>，这篇文章翻译了IBM Developer官方英文原文：<a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">《Efficient data transfer through zero copy》</a><br>阅读这几篇文章可以说收益匪浅，不仅深度理解了kafka使用filesystem作为消息队列的底层文件IO，而且也有利于理解任何基于文件系统上的中间件的部分实现机制。</p>
+<p>page cache 和 sendfile 的组合使用意味着，在一个kafka集群中，大多数 consumer 消费时，==将看不到磁盘上的读取活动，因为数据将完全由缓存提供==。<br>有关zero-copy以及Linux IO详细内容，推荐IBM Developer中国区四篇高质量文章：<br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-directio/index.html?mhsrc=ibmsearch_a&amp;mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中直接 I/O 机制的介绍》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy1/index.html?mhsrc=ibmsearch_a&amp;mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中的零拷贝技术，第 1 部分》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/index.html?mhsrc=ibmsearch_a&amp;mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《Linux 中的零拷贝技术，第 2 部分》</a><br><a target="_blank" rel="noopener" href="https://www.ibm.com/developerworks/cn/java/j-zerocopy/index.html?mhsrc=ibmsearch_a&amp;mhq=%E9%9B%B6%E6%8B%B7%E8%B4%9D">《通过零拷贝实现有效数据传输》</a>，这篇文章翻译了IBM Developer官方英文原文：<a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">《Efficient data transfer through zero copy》</a><br>阅读这几篇文章可以说收益匪浅，不仅深度理解了kafka使用filesystem作为消息队列的底层文件IO，而且也有利于理解任何基于文件系统上的中间件的部分实现机制。</p>
 <h4 id="3、kafka的repilcas副本机制"><a href="#3、kafka的repilcas副本机制" class="headerlink" title="3、kafka的repilcas副本机制"></a>3、kafka的repilcas副本机制</h4><h5 id="3-1-主分区的副本"><a href="#3-1-主分区的副本" class="headerlink" title="3.1 主分区的副本"></a>3.1 主分区的副本</h5><p>&#8195;&#8195;Kafka 允许 topic 的 partition 拥有若干副本，也就是说每个partition都有一个 leader 和零或多个 followers，例如图1 kafka集群架构图中，sparkapp这个topic，在broker1有主分区（leader）partition-0，在broker-1和broker-2有followers副本分区（replica）partition-0。  总的副本数是包含 leader 分区的总和。 所有的读写操作都由 leader 处理，各分区的 leader 均 匀的分布在brokers 中，一个topic在当前broker只能有一个leader主分区。followers节点就像普通的 consumer 那样从 leader 节点那里拉取消息并保存在自己的日志文件中。</p>
 <h5 id="3-2-leade如何管理follower节点"><a href="#3-2-leade如何管理follower节点" class="headerlink" title="3.2 leade如何管理follower节点"></a>3.2 leade如何管理follower节点</h5><p>&#8195;&#8195;Kafka 判断节点是否存活有两种方式。</p>
 <ul>
 <li>首先follower所在的broker服务器在线，Zookeeper 通过心跳机制检查每个broker的连接，对应的znode路径/brokers/ids。</li>
 <li>要求follower角色的同步进程 ，它必须能及时的同步 leader 的写操作，并且延时不能太多。 </li>
 </ul>
-<p>&#8195;&#8195;kafka认为满足这两个条件的节点处于 “in sync” 状态， Leader会追踪所有 “in sync” 的节点。如果有节点挂掉了, 或是写超时, 或是心跳超时, leader 就会把它从同步副本集合ISR中移除。这个ISR列表在zookeeper可以看到，a set of In-Sync Replicas，简称：ISR：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 36] get &#x2F;brokers&#x2F;topics&#x2F;sparkapp&#x2F;partitions&#x2F;1&#x2F;state</span><br><span class="line">&#123;&quot;controller_epoch&quot;:6,&quot;leader&quot;:10,&quot;version&quot;:1,&quot;leader_epoch&quot;:2,&quot;isr&quot;:[11,12,10]&#125;</span><br></pre></td></tr></table></figure>
-<p>&#8195;&#8195;以上说明：sparkapp的partition-1这个主分区在brokerid为10的服务器上，其他follower的brokerid分别为11和12。<br>可配置在ISR移除follower的触发条件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># 如果leader发现follower超过10秒没有向它发起同步请求，那么leader会认为follower无法正常同步主分区日志，就把它从ISR集合中中移除。</span><br><span class="line"> rerplica.lag.time.max.ms&#x3D;10000 # 默认值</span><br><span class="line"> # 相差1000条就从ISR集合移除该follower</span><br><span class="line"> rerplica.lag.max.messages&#x3D;1000# 默认值</span><br></pre></td></tr></table></figure>
-
-<h5 id="3-3-Replica如何均匀分布到整个kafka集群"><a href="#3-3-Replica如何均匀分布到整个kafka集群" class="headerlink" title="3.3 Replica如何均匀分布到整个kafka集群"></a>3.3 Replica如何均匀分布到整个kafka集群</h5><p>&#8195;&#8195;为了更好的做负载均衡以及HA，Kafka尽量降所有的replicas均匀分配到整个集群上。为了更直观partition的副本是如何被分布到不同节点上，这里以一个小例子为例：创建一个fooTopic（可以先把它理解为消息队列queue，类似RabbitMQ的队列）且有五个分区，每个分区有三个副本replica，如下所示：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka-2.12]# bin&#x2F;kafka-topics.sh --create --zookeeper nn:2181 --replication-factor 3 --partitions 5 --topic fooTopic</span><br><span class="line">[root@dn1 kafka-2.12]#  bin&#x2F;kafka-topics.sh --describe --zookeeper nn:2181 --topic fooTopic</span><br><span class="line">Topic:fooTopic  PartitionCount:5        ReplicationFactor:3     Configs:</span><br><span class="line">        Topic: fooTopic Partition: 0    Leader: 11      Replicas: 11,10,12      Isr: 11,10,12</span><br><span class="line">        Topic: fooTopic Partition: 1    Leader: 12      Replicas: 12,11,10      Isr: 12,11,10</span><br><span class="line">        Topic: fooTopic Partition: 2    Leader: 10      Replicas: 10,12,11      Isr: 10,12,11</span><br><span class="line">        Topic: fooTopic Partition: 3    Leader: 11      Replicas: 11,12,10      Isr: 11,12,10</span><br><span class="line">        Topic: fooTopic Partition: 4    Leader: 12      Replicas: 12,10,11      Isr: 12,10,11</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
+<p>&#8195;&#8195;kafka认为满足这两个条件的节点处于 “in sync” 状态， Leader会追踪所有 “in sync” 的节点。如果有节点挂掉了, 或是写超时, 或是心跳超时, leader 就会把它从同步副本集合ISR中移除。这个ISR列表在zookeeper可以看到，a set of In-Sync Replicas，简称：ISR：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 36] get &#x2F;brokers&#x2F;topics&#x2F;sparkapp&#x2F;partitions&#x2F;1&#x2F;state</span><br><span class="line">&#123;&quot;controller_epoch&quot;:6,&quot;leader&quot;:10,&quot;version&quot;:1,&quot;leader_epoch&quot;:2,&quot;isr&quot;:[11,12,10]&#125;</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;以上说明：sparkapp的partition-1这个主分区在brokerid为10的服务器上，其他follower的brokerid分别为11和12。<br>可配置在ISR移除follower的触发条件：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># 如果leader发现follower超过10秒没有向它发起同步请求，那么leader会认为follower无法正常同步主分区日志，就把它从ISR集合中中移除。</span><br><span class="line"> rerplica.lag.time.max.ms&#x3D;10000 # 默认值</span><br><span class="line"> # 相差1000条就从ISR集合移除该follower</span><br><span class="line"> rerplica.lag.max.messages&#x3D;1000# 默认值</span><br></pre></td></tr></table></figure></p>
+<h5 id="3-3-Replica如何均匀分布到整个kafka集群"><a href="#3-3-Replica如何均匀分布到整个kafka集群" class="headerlink" title="3.3 Replica如何均匀分布到整个kafka集群"></a>3.3 Replica如何均匀分布到整个kafka集群</h5><p>&#8195;&#8195;为了更好的做负载均衡以及HA，Kafka尽量降所有的replicas均匀分配到整个集群上。为了更直观partition的副本是如何被分布到不同节点上，这里以一个小例子为例：创建一个fooTopic（可以先把它理解为消息队列queue，类似RabbitMQ的队列）且有五个分区，每个分区有三个副本replica，如下所示：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@nn kafka-2.12]# bin&#x2F;kafka-topics.sh --create --zookeeper nn:2181 --replication-factor 3 --partitions 5 --topic fooTopic</span><br><span class="line">[root@dn1 kafka-2.12]#  bin&#x2F;kafka-topics.sh --describe --zookeeper nn:2181 --topic fooTopic</span><br><span class="line">Topic:fooTopic  PartitionCount:5        ReplicationFactor:3     Configs:</span><br><span class="line">        Topic: fooTopic Partition: 0    Leader: 11      Replicas: 11,10,12      Isr: 11,10,12</span><br><span class="line">        Topic: fooTopic Partition: 1    Leader: 12      Replicas: 12,11,10      Isr: 12,11,10</span><br><span class="line">        Topic: fooTopic Partition: 2    Leader: 10      Replicas: 10,12,11      Isr: 10,12,11</span><br><span class="line">        Topic: fooTopic Partition: 3    Leader: 11      Replicas: 11,12,10      Isr: 11,12,10</span><br><span class="line">        Topic: fooTopic Partition: 4    Leader: 12      Replicas: 12,10,11      Isr: 12,10,11</span><br><span class="line"></span><br></pre></td></tr></table></figure></p>
 <p>Kafka分配资源跟很多中间件一样：通过取余实现，具体的规则如下：<br> 1）序号为i的Partition分配到第（i mod n）个Broker上，n为集群的broker总数<br> 2）序列号为i的Partition的第j个Replica分配到第（(i + j) mod n）个Broker上</p>
-<p>以上述fooTopic为例，给出其分布过程：首先查看broker ids的列表为</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 1] ls &#x2F;brokers&#x2F;ids</span><br><span class="line">[11, 12, 10]</span><br></pre></td></tr></table></figure>
-<p>[11, 12, 10]列表的项的索引从0开始，因为kafka是用Scala语言开发，Scala获取zk这个ids值后，肯定是转为Scala数组类型，它的索引从0开始。当然也适用replicas数组（列表）。（这里为何不是[10, 11, 12]？因为本次获取结果是最新的集群选举结果数组）<br>假设a=[11, 12, 10]那么a[0]=11,a=[1]=12,a[2]=10</p>
+<p>以上述fooTopic为例，给出其分布过程：首先查看broker ids的列表为<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 1] ls &#x2F;brokers&#x2F;ids</span><br><span class="line">[11, 12, 10]</span><br></pre></td></tr></table></figure><br>[11, 12, 10]列表的项的索引从0开始，因为kafka是用Scala语言开发，Scala获取zk这个ids值后，肯定是转为Scala数组类型，它的索引从0开始。当然也适用replicas数组（列表）。（这里为何不是[10, 11, 12]？因为本次获取结果是最新的集群选举结果数组）<br>假设a=[11, 12, 10]那么a[0]=11,a=[1]=12,a[2]=10</p>
 <ul>
 <li><p>按规则1）对于partition的序号i，它会分配到第（i mod n）个broker上：<br>那么对于partition0，0 mod 3=0，所以该在a[0]=11这个broker上，<br>同理有：<br>partition1，1 mod 3=1，所以该在a[1]=12这个broker上<br>partition2，2 mod 3=2，所以该在a[2]=10这个broker上<br>partition3，3 mod 3=0，所以该在a[0]=11这个broker上<br>partition4，4 mod 3=1，所以该在a[1]=12这个broker上</p>
 </li>
@@ -320,9 +311,7 @@
 <h4 id="4、Kafka消息的ack机制"><a href="#4、Kafka消息的ack机制" class="headerlink" title="4、Kafka消息的ack机制"></a>4、Kafka消息的ack机制</h4><p>&#8195;&#8195;这里是指producer向broker写消息的确认机制，这直接影响到Kafka集群的吞吐量和消息可靠性。而吞吐量和可靠性是矛盾的，两者不可兼得，只能平衡。<br>&#8195;&#8195;在第3章节提到leader和follower节点日志同步的内容，kafka动态维护了一个同步状态的副本的集合，在这个集合中的节点都是和leader保持高度一致的，任何一条消息只有被这个集合中的每个节点读取并追加到日志中，才会向外部通知说“这个消息已经committed。<br>&#8195;&#8195;也就是说只有当消息被ISR上所有的followers加入到日志中时，才算是“committed”，只有committed的消息才会发送给consumer，这样就不用担心一旦leader down掉了消息会丢失。这一环节就是决定了消息队列吞吐量和可靠性的环节。消息从leader复制到follower，可通过producer是否等待消息被提交的通知(ack)来区分同步复制和异步复制。<br>ack有3个可选值，分别是1，0，-1，可通过server.properties进行配置：<br>request.required.asks=0<br>==ack=0==:相当于异步的，producer给broker发送一次就不再发送了，不管本条消息是否在leader和follower都写入成功。可靠性低，吞吐量当然高。<br>==ack=1==：producer等待leader这个主分区成功写入了消息，producer才会认为消息发送成功，这是默认值，显然是吞吐量与可靠性的一个折中方案<br>==ack=-1==：当所有的follower都同步消息成功后，leader再向producer发送ack，producer才认为此消息发送成功，显然牺牲了吞吐量，因为如果leader有多个followers，同步需要一定时间，producer当然要等待一段时间后，再能继续向leader发送新消息。</p>
 <p>当然ack=1的情况下，消息也可能会丢失，这是因为：<br>producer只要收到分区leader成功写入的通知就会认为消息发送成功了，但是也有这样的情况：leader成功写入后，还没来得及把数据同步到follower节点超时等，这时候消息会丢失。</p>
 <p>清楚了kafka的ack机制后，来看看ack=-1的同步复制过程：<br>1）producer首先取zookeeper找到指定topic的主分区leader，向leader发送消息<br>2）leader收到消息写入到本地segment文件<br>3）所有follower从leader pull消息并写入自己segment文件<br>4）所有follower向leader发送ack消息<br>5）leader收到所有follower的ack消息<br>6）leader向producer发送ack<br>7）producer收到成功写入的响应</p>
-<h4 id="5、kafka-消息索引机制"><a href="#5、kafka-消息索引机制" class="headerlink" title="5、kafka 消息索引机制"></a>5、kafka 消息索引机制</h4><p>&#8195;&#8195;前面的四节内容更多是kafka集群本身的一些机制，其实对于consumer侧，当consumer去broker pull一条的消息时，broker是如何快速找出相应的消息呢？<br>&#8195;&#8195;在前面部署Kafka集群已经知道每个partition都是一个文件目录，每个目录下有成index文件和log文件，它们是成对出现，后缀 “.index” 和 “.log” 分表表示 segment 索引文件和数据文件（存放消息的地方），segment的大小以及相关配置可在server.properties进行设置：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#segment文件的大小，默认为 1G</span><br><span class="line">log.segment.bytes&#x3D;1024*1024*1024</span><br><span class="line">#滚动生成新的segment文件的最大时长</span><br><span class="line">log.roll.hours&#x3D;24*7</span><br><span class="line">#segment文件保留的最大时长，超过7天将被删除</span><br><span class="line">log.retention.hours&#x3D;24*7</span><br></pre></td></tr></table></figure>
-<p>&#8195;&#8195;Segment 是 Kafka 存储消息的最小单位，Segment 文件命名规则：对于某个partition，例如partition0，全局的第一个 Segment 从 0 开始，后续每个 Segment 文件名为上一个 Segment 文件最后一条消息的 offset 值。数值最大为 64 位 long 大小，19 位数字字符长度，没有数字用 0 填充。如 00000000000000368769.index 和 00000000000000368769.log。<br>对于parition1，它全局的第一个 Segment 也是从 0 开始，切勿认为parition0的最后一个segment的offset会顺延到partition1！<br>以下图为例，分析costumer如何根据offset拿到消息数据：<br>（因为集群测试环境还没有太多segment数据，所以这里参考这篇<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/fX26tCdYSMgwM54_2CpVrw">文章的内容</a>：）<br><img src="https://img-blog.csdnimg.cn/20191130215819665.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;假设现在研究partition0，在它.index文件中，存储的是key-value格式的值：&lt;n,m&gt;，n代表在.log中按顺序开始第n条消息，m代表该消息的位置偏移m，这里以索引文件中元数据 <code>&lt;3, 497&gt;</code> 为例，表示该368769.log文件中第 3 条Message，该消息所在物理位置为 497。<br>现在consumer要取offset为368773的消息，以下为查找过程：<br>1）在partition0下，有多个segment的index文件，根据二分法，可以快速地位到368772条消息在368769.index上<br>2）在368769.index索引文件，找出&lt;n,m&gt;的具体值，n=368774-368769=4（一般称为base offset），因为索引文件是稀疏结构，4这个值不在索引文件上<br>3）再根据二分法，很快找到3这个base offset&lt;3,497&gt;，因为索引值4没有，只能用不大于4的索引值3。<br>4）再回到368769.log上，从物理位置497开始按顺序查找，当物理位置到达830时，offset为368773的消息被找到。</p>
+<h4 id="5、kafka-消息索引机制"><a href="#5、kafka-消息索引机制" class="headerlink" title="5、kafka 消息索引机制"></a>5、kafka 消息索引机制</h4><p>&#8195;&#8195;前面的四节内容更多是kafka集群本身的一些机制，其实对于consumer侧，当consumer去broker pull一条的消息时，broker是如何快速找出相应的消息呢？<br>&#8195;&#8195;在前面部署Kafka集群已经知道每个partition都是一个文件目录，每个目录下有成index文件和log文件，它们是成对出现，后缀 “.index” 和 “.log” 分表表示 segment 索引文件和数据文件（存放消息的地方），segment的大小以及相关配置可在server.properties进行设置：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#segment文件的大小，默认为 1G</span><br><span class="line">log.segment.bytes&#x3D;1024*1024*1024</span><br><span class="line">#滚动生成新的segment文件的最大时长</span><br><span class="line">log.roll.hours&#x3D;24*7</span><br><span class="line">#segment文件保留的最大时长，超过7天将被删除</span><br><span class="line">log.retention.hours&#x3D;24*7</span><br></pre></td></tr></table></figure><br>&#8195;&#8195;Segment 是 Kafka 存储消息的最小单位，Segment 文件命名规则：对于某个partition，例如partition0，全局的第一个 Segment 从 0 开始，后续每个 Segment 文件名为上一个 Segment 文件最后一条消息的 offset 值。数值最大为 64 位 long 大小，19 位数字字符长度，没有数字用 0 填充。如 00000000000000368769.index 和 00000000000000368769.log。<br>对于parition1，它全局的第一个 Segment 也是从 0 开始，切勿认为parition0的最后一个segment的offset会顺延到partition1！<br>以下图为例，分析costumer如何根据offset拿到消息数据：<br>（因为集群测试环境还没有太多segment数据，所以这里参考这篇<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/fX26tCdYSMgwM54_2CpVrw">文章的内容</a>：）<br><img src="https://img-blog.csdnimg.cn/20191130215819665.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">&#8195;&#8195;假设现在研究partition0，在它.index文件中，存储的是key-value格式的值：<n,m>，n代表在.log中按顺序开始第n条消息，m代表该消息的位置偏移m，这里以索引文件中元数据 <code>&lt;3, 497&gt;</code> 为例，表示该368769.log文件中第 3 条Message，该消息所在物理位置为 497。<br>现在consumer要取offset为368773的消息，以下为查找过程：<br>1）在partition0下，有多个segment的index文件，根据二分法，可以快速地位到368772条消息在368769.index上<br>2）在368769.index索引文件，找出<n,m>的具体值，n=368774-368769=4（一般称为base offset），因为索引文件是稀疏结构，4这个值不在索引文件上<br>3）再根据二分法，很快找到3这个base offset<3,497>，因为索引值4没有，只能用不大于4的索引值3。<br>4）再回到368769.log上，从物理位置497开始按顺序查找，当物理位置到达830时，offset为368773的消息被找到。</p>
 <p>&#8195;&#8195;从上图可以知道 Index 文件也不是每次递增 1 的，这是因为 Kafka 采取稀疏索引存储的方式，每隔一定字节的数据建立一条索引。它减少了索引文件大小，使得能够把 Index 映射到内存，降低了查询时的磁盘 IO 开销，同时也并没有给查询带来太多的时间消耗。<br>&#8195;&#8195;要满足以上的搜索策略：Kafka为在 Partition 中的每一条 Message 都定义了以下三个属性：</p>
 <ul>
 <li>Offset：表示 Message 在当前 Partition 中的偏移量，是一个逻辑上的值，唯一确定了在当前Partition 中的一条 Message</li>
@@ -428,27 +417,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -479,7 +468,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -488,12 +477,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

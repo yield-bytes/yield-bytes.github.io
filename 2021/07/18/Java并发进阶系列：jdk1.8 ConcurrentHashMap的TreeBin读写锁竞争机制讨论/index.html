@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="本文接前面ConcurrentHashMap文章的内容，继续深入到TreeBin这个特殊节点的读写锁竞争机制。 7、TreeBin类设计原理对TreeBin类深入分析，不仅能够理解为何CHM能支持并发读的底层实现，而且也能加深jk1.8的ConcurrentHashMap整体设计原理。本文将详细深入地解析TreeBin优秀的读写锁控制设计，此部分内容在全网的相关文章很少涉及。 7.1 保证加锁对象">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：jdk1.8 ConcurrentHashMap的TreeBin读写锁竞争机制讨论">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/07/18/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9Ajdk1.8%20ConcurrentHashMap%E7%9A%84TreeBin%E8%AF%BB%E5%86%99%E9%94%81%E7%AB%9E%E4%BA%89%E6%9C%BA%E5%88%B6%E8%AE%A8%E8%AE%BA/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="本文接前面ConcurrentHashMap文章的内容，继续深入到TreeBin这个特殊节点的读写锁竞争机制。 7、TreeBin类设计原理对TreeBin类深入分析，不仅能够理解为何CHM能支持并发读的底层实现，而且也能加深jk1.8的ConcurrentHashMap整体设计原理。本文将详细深入地解析TreeBin优秀的读写锁控制设计，此部分内容在全网的相关文章很少涉及。 7.1 保证加锁对象">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/54c658513c0a61c8d834b71268ad8b52.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/6dfa0d55150d2c596cca7bafb704cfc3.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/6cb4f3e0435a69f7c9f119e3accc35c3.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/71fed23c88b3acec285cc576a04e91c5.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/e0c0576900dea2795ee43035c6a347b7.png">
+<meta property="article:published_time" content="2021-07-17T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-09T13:50:02.242Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/img_convert/54c658513c0a61c8d834b71268ad8b52.png">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/07/18/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9Ajdk1.8%20ConcurrentHashMap%E7%9A%84TreeBin%E8%AF%BB%E5%86%99%E9%94%81%E7%AB%9E%E4%BA%89%E6%9C%BA%E5%88%B6%E8%AE%A8%E8%AE%BA/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：jdk1.8 ConcurrentHashMap的TreeBin读写锁竞争机制讨论 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/07/18/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9Ajdk1.8%20ConcurrentHashMap%E7%9A%84TreeBin%E8%AF%BB%E5%86%99%E9%94%81%E7%AB%9E%E4%BA%89%E6%9C%BA%E5%88%B6%E8%AE%A8%E8%AE%BA/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：jdk1.8 ConcurrentHashMap的TreeBin读写锁竞争机制讨论
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-07-18 00:00:00" itemprop="dateCreated datePublished" datetime="2021-07-18T00:00:00+08:00">2021-07-18</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-09 21:50:02" itemprop="dateModified" datetime="2022-05-09T21:50:02+08:00">2022-05-09</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>19k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>18 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>本文接前面ConcurrentHashMap文章的内容，继续深入到TreeBin这个特殊节点的读写锁竞争机制。</p>
+<h4 id="7、TreeBin类设计原理"><a href="#7、TreeBin类设计原理" class="headerlink" title="7、TreeBin类设计原理"></a>7、TreeBin类设计原理</h4><p>对TreeBin类深入分析，不仅能够理解为何CHM能支持并发读的底层实现，而且也能加深jk1.8的ConcurrentHashMap整体设计原理。本文将详细深入地解析TreeBin优秀的读写锁控制设计，此部分内容在全网的相关文章很少涉及。</p>
+<h5 id="7-1-保证加锁对象不改变的设计思想"><a href="#7-1-保证加锁对象不改变的设计思想" class="headerlink" title="7.1 保证加锁对象不改变的设计思想"></a>7.1 保证加锁对象不改变的设计思想</h5><p>首先看其源码的注释说明：</p>
+<blockquote>
+<p>TreeNodes used at the heads of bins. TreeBins do not hold user keys or values, but instead point to list of TreeNodes and their root. They also maintain a parasitic read-write lock forcing writers (who hold bin lock) to wait for readers (who do not) to complete before tree restructuring operations.</p>
+</blockquote>
+<p>TreeBins节点不是用于放置key和value，而是用于指向TreeNodes和TreeNodes的根节点。TreeBins内部会维护一把读写锁，用于保证在树重构前，持有锁的写线程被强制等待无锁读线程完成。</p>
+<p>当然这注释也未能回答这样核心问题：为何对于桶位是红黑树的情况下，CHM放置的一个TreeBin节点，而不像HashMap那样放置一个TreeNode节点？</p>
+<p>首先看看TreeBin的使用场景，在put场景下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">    <span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">        <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">            <span class="comment">// </span></span><br><span class="line">          	<span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line"><span class="comment">// ..</span></span><br><span class="line">            &#125;</span><br><span class="line">          	<span class="comment">// </span></span><br><span class="line">            <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">                Node&lt;K,V&gt; p;</span><br><span class="line">                binCount = <span class="number">2</span>;</span><br><span class="line">                <span class="keyword">if</span> ((p = ((TreeBin&lt;K,V&gt;)f).putTreeVal(hash, key,</span><br><span class="line">                                               value)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                    oldVal = p.val;</span><br><span class="line">                    <span class="keyword">if</span> (!onlyIfAbsent)</span><br><span class="line">                        p.val = value;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<p>当key所在桶位可以放入key时，先对头节点加锁<code>synchronized (f)</code>，注意这是独占锁，要求头节点对象在锁期间不会改变，否则就不能锁住同一对象。</p>
+<p>为论证f头节点是<code>TreeNode</code>类型不适用并发的CHM场景，不妨假设CHM使用TreeNode作为CHM桶位上红黑树的头节点，于是在put场景下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">            <span class="comment">// ① 假设当前头节点f是一个TreeNode节点，则执行流会进入②分支</span></span><br><span class="line"><span class="keyword">synchronized</span> (f) &#123;</span><br><span class="line">                <span class="keyword">if</span> (tabAt(tab, i) == f) &#123;</span><br><span class="line">                    <span class="comment">// </span></span><br><span class="line">                  	<span class="keyword">if</span> (fh &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">								<span class="comment">// ..</span></span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">// ② 这里已经将TreeBin换成TreeNode类型</span></span><br><span class="line">                    <span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeNode) &#123;</span><br><span class="line">                        Node&lt;K,V&gt; p;</span><br><span class="line">                        binCount = <span class="number">2</span>;</span><br><span class="line">                      	<span class="comment">// ③ 将key和value插入到红黑树当中</span></span><br><span class="line">                        <span class="keyword">if</span> ((p = ((TreeBin&lt;K,V&gt;)f).putTreeVal(hash, key,</span><br><span class="line">                                                       value)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">                            oldVal = p.val;</span><br><span class="line">                            <span class="keyword">if</span> (!onlyIfAbsent)</span><br><span class="line">                                p.val = value;</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br></pre></td></tr></table></figure>
+<p>这里关键是第③步逻辑：将key和value插入到红黑树当中，会发生什么事情？</p>
+<p>我们知道，在HashMap节点，将一个节点put入红黑树后，需要做插入平衡处理和将红黑树root节点移到双向链表的头节点位置，目的是为了保证桶位上的头节点即是红黑树的根节点也是双向链表的头结点，下面就是HashMap对应的操作</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">final</span> TreeNode&lt;K,V&gt; <span class="title">putTreeVal</span><span class="params">(HashMap&lt;K,V&gt; map, Node&lt;K,V&gt;[] tab,</span></span></span><br><span class="line"><span class="function"><span class="params">                               <span class="keyword">int</span> h, K k, V v)</span> </span>&#123;</span><br><span class="line">            <span class="comment">// 插入平衡处理和将红黑树root节点移到双向链表的头节点位置</span></span><br><span class="line">            moveRootToFront(tab, balanceInsertion(root, x));</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>但对于并发CHM来说，红黑树的插入平衡处理会导致root节点发生了改变（例如插入平衡前根节点是treeNodeA，插入平衡后根节点是treeNodeB）而不是位于桶位头节点上，如果CHM桶位头节点还是TreeNode，那么就会出现以下图示的不能保证写线程独占操作的线程不安全情况。</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/54c658513c0a61c8d834b71268ad8b52.png" alt="TreeBin改为TreeNode的锁情况.001"></p>
+<p>如何解决以上遇到的问题？</p>
+<a id="more"></a>
+<p>Doug Lea为此设计了TreeBin类（节点），该节点只放在桶位头节点上，它内部“包装”一棵红黑树（有些文章会跟你说TreeBin是 TreeNode的代理结点，其实意思都一样）。加锁时，对桶位头节点上TreeBin节点进行加锁，内部的红黑树根节点root在调整平衡后不管如何变化，当前桶位的加锁对象——TreeBin节点保持不变，也即保证写操作独占性，如下图所示。此外TreeBin还支持高级特性：并发环境下的读写锁控制机制。</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/6dfa0d55150d2c596cca7bafb704cfc3.png" alt="TreeBin对象加锁不变.0001"></p>
+<p>而且这样设计的TreeBin还有另外一个收益：无需进行类似HashMap的<code>moveRootToFront</code> 操作，因为桶头节点不再要求是</p>
+<p>红黑树的根节点root，也不是链表的first头节点，而是一个包装了TreeNodes的TreeBin节点。</p>
+<p>以下是HashMap的插入节点后需要做<code>moveRootToFront</code> 操作的源码片段：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// putVal方法内部代码片段    </span></span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (p <span class="keyword">instanceof</span> TreeNode)</span><br><span class="line">    e = ((TreeNode&lt;K,V&gt;)p).putTreeVal(<span class="keyword">this</span>, tab, hash, key, value);</span><br><span class="line"><span class="comment">// putTreeVal方法内部代码片段    </span></span><br><span class="line">moveRootToFront(tab, balanceInsertion(root, x));</span><br></pre></td></tr></table></figure>
+<p>以下是CHM插入新节点后的插入平衡操作：在插入平衡操作前，采用cas加锁机制，显然不同于HashMap，这个加锁机制有点复杂，目的是什么呢？在后面7.3小节会提到。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">  <span class="keyword">else</span> &#123;</span><br><span class="line">      lockRoot();</span><br><span class="line">      <span class="keyword">try</span> &#123;</span><br><span class="line"><span class="comment">// 仅有插入平衡操作，没有moveRootToFront操作，因为桶位头节点一直都是TreeBin节点，这个节点的hash值为-2，没有key和value</span></span><br><span class="line">          root = balanceInsertion(root, x); </span><br><span class="line">      &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">          unlockRoot();</span><br><span class="line">      &#125;</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">break</span>;</span><br></pre></td></tr></table></figure>
+<p>此外，在源码中的lockRoot等地方的注释中，有个短语：tree restructuring，表示：红黑树重新调整结构。</p>
+<p>而tree restructuring operations则表示：红黑树重新调整结构操作，具体来说是以下两个方法</p>
+<p>put方面内部的putTreeVal方法以及remove方法内部的removeTreeNode方法，也即红黑树插入一个新节点需要触发tree restructuring 操作，红黑树删除一个节点需要触发tree restructuring 操作：执行tree restructuring操作前需要使用lockRoot()获取写锁，调整完后使用unlockRoot()释放写锁。</p>
+<h5 id="7-2-TreeBin类"><a href="#7-2-TreeBin类" class="headerlink" title="7.2 TreeBin类"></a>7.2 TreeBin类</h5><p>TreeBin作为CHM内部类，有部分设计是新设计，用于解决高并发条件下的读写竞争问题，而另外一部分设计则沿用HashMap红黑树部分操作方法：如<code>rotateLeft</code>、<code>rotateRight</code>、<code>balanceInsertion</code>、<code>balanceDeletion</code> 等，这几个方法是在synchronized(f)独占锁条件系进行的，因此跟HashMap原来的执行机制类似，此处不再累赘。本章重点放在新的设计上。</p>
+<h6 id="7-2-1-基本的成员变量"><a href="#7-2-1-基本的成员变量" class="headerlink" title="7.2.1 基本的成员变量"></a>7.2.1 基本的成员变量</h6><p>基本成员变量具体使用在7.3小节的读写竞争设计给出，waiter、lockState以及lockState对应的三个标记值，再结合位运算方式，非常巧妙的实现了TreeBin读写锁竞争！</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="class"><span class="keyword">class</span> <span class="title">TreeBin</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; <span class="keyword">extends</span> <span class="title">Node</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    TreeNode&lt;K,V&gt; root; <span class="comment">// 桶位上红黑树根节点的引用</span></span><br><span class="line">    <span class="keyword">volatile</span> TreeNode&lt;K,V&gt; first; <span class="comment">// 因为TreeNode节点还有next属性，因此红黑树本身也是一条链表，first就是该链表的头节点，常常用在需要线性遍历节点的场景</span></span><br><span class="line">    <span class="keyword">volatile</span> Thread waiter; <span class="comment">// 参考7.3.1小节内容</span></span><br><span class="line">    <span class="keyword">volatile</span> <span class="keyword">int</span> lockState; <span class="comment">// 直译：锁状态，用于表征TreeBin对象当前的锁状态是什么，对应以下三种状态</span></span><br><span class="line">  </span><br><span class="line">    <span class="comment">// values for lockState</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> WRITER = <span class="number">1</span>; <span class="comment">// set while holding write lock 写线程给lockState进行cas设1以此获得写锁：0001</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> WAITER = <span class="number">2</span>; <span class="comment">// set when waiting for write lock  写线程将lockState设为2就会转成“等待线程”：0010</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> READER = <span class="number">4</span>; <span class="comment">// increment value for setting read lock 桶位每来一个读线程就会对lockState进行cas加4操作：0100</span></span><br></pre></td></tr></table></figure>
+<p>看完后文，你可以发现为何采用1、2、4这样的值，而不是1，2，3或者0，1，2或者2，4，6等，这与读写锁竞争的算法设计有关。</p>
+<h6 id="7-2-2-构造方法"><a href="#7-2-2-构造方法" class="headerlink" title="7.2.2 构造方法"></a>7.2.2 构造方法</h6><p>以下只给出部分片段代码，省略部分的源码片段，其逻辑与HashMap类似，不再给出。</p>
+<p>TreeBin构造方法目的只有一个：基于桶位链表构建一棵红黑树，例如在treeifyBin方法内部的 <code>setTabAt(tab, index, new TreeBin&lt;K,V&gt;(hd))</code></p>
+<blockquote>
+<p>TreeBin构造方法在treeifyBin方法被调用，此外还有以下两种情况也会调用TreeBin的构造方法，在优先重点关注”TreeBin构造方法在treeifyBin方法被调用”的场景。</p>
+</blockquote>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Creates bin with initial set of nodes headed by b.</span></span><br><span class="line"><span class="comment"> 调用方：treeifyBin方法里面的setTabAt(tab, index, new TreeBin&lt;K,V&gt;(hd)) ，这里的hd就是桶位链表头节点</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line">TreeBin(TreeNode&lt;K,V&gt; b) &#123;</span><br><span class="line">    <span class="keyword">super</span>(TREEBIN, <span class="keyword">null</span>, <span class="keyword">null</span>, <span class="keyword">null</span>); <span class="comment">//TREEBIN的值为-2，作为TreeBin节点的hash值：hash for roots of trees，这个特殊的hash值一般用在桶位节点类型判断上，fwd节点是-1，因此只要桶位节点的hash值&lt;0，就可以判断当前桶位节点不是链表</span></span><br><span class="line">    <span class="keyword">this</span>.first = b; <span class="comment">// 红黑树本身也是一条链表，这里的first表示链表的头节点，也即hd链表头节点</span></span><br><span class="line">    TreeNode&lt;K,V&gt; r = <span class="keyword">null</span>;</span><br><span class="line">  	<span class="comment">// ①外层for循环用于从链表取出节点</span></span><br><span class="line">    <span class="keyword">for</span> (TreeNode&lt;K,V&gt; x = b, next; x != <span class="keyword">null</span>; x = next) &#123;</span><br><span class="line">        next = (TreeNode&lt;K,V&gt;)x.next;</span><br><span class="line">        <span class="comment">// ②内层循环用于将链表遍历节点插入到红黑树合适位置，插入并完成调整则完成了链表上一个节点的转移，回到外层for循环继续转移链表下一个节点</span></span><br><span class="line">      	<span class="keyword">for</span> (TreeNode&lt;K,V&gt; p = r;;) &#123;</span><br><span class="line">             r = balanceInsertion(r, x);</span><br><span class="line">             <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当然也可以使用逆向思维去找出“TreeBin构造方法”在什么场合被调用？</p>
+<p>什么场景下，CHM的table桶位上才能放置一个TreeBin节点？</p>
+<p>自然是桶位上已经是一棵红黑树？</p>
+<p>那么桶位上的红黑树是怎么来？</p>
+<p>桶位上的冲突链表达到树化阈值后，使用treeifyBin基于链表构建了红黑树。</p>
+<p>找到答案：treeifyBin方法内部一定有TreeBin构造方法调用，如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">treeifyBin</span><span class="params">(Node&lt;K,V&gt;[] tab, <span class="keyword">int</span> index)</span> </span>&#123;</span><br><span class="line">    Node&lt;K,V&gt; b; <span class="keyword">int</span> n, sc;</span><br><span class="line">    <span class="keyword">if</span> (tab != <span class="keyword">null</span>) &#123;</span><br><span class="line">      	<span class="comment">// ①如果table长度还未达到64，优先使用扩容逻辑而不是转红黑树逻辑</span></span><br><span class="line">        <span class="keyword">if</span> ((n = tab.length) &lt; MIN_TREEIFY_CAPACITY)</span><br><span class="line">            tryPresize(n &lt;&lt; <span class="number">1</span>);</span><br><span class="line">      	<span class="comment">// ②说明当前CHM需要树化处理</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> ((b = tabAt(tab, index)) != <span class="keyword">null</span> &amp;&amp; b.hash &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">          	<span class="comment">// ③锁住当前桶位链表头节点</span></span><br><span class="line">            <span class="keyword">synchronized</span> (b) &#123;</span><br><span class="line">              	 <span class="comment">// 再次检查桶位头节点前后时刻有无改动，没改动的情况下，才能进行写操作</span></span><br><span class="line">                <span class="keyword">if</span> (tabAt(tab, index) == b) &#123;</span><br><span class="line">                  	<span class="comment">// 红黑树本身也是一条链表</span></span><br><span class="line">                    TreeNode&lt;K,V&gt; hd = <span class="keyword">null</span>, tl = <span class="keyword">null</span>;</span><br><span class="line">                  	<span class="comment">// ④链表Node节点转为TreeNode节点，并拷贝到新链表hd-&gt;...-&gt;tl</span></span><br><span class="line">                    <span class="keyword">for</span> (Node&lt;K,V&gt; e = b; e != <span class="keyword">null</span>; e = e.next) &#123;</span><br><span class="line">                        TreeNode&lt;K,V&gt; p =</span><br><span class="line">                            <span class="keyword">new</span> TreeNode&lt;K,V&gt;(e.hash, e.key, e.val,</span><br><span class="line">                                              <span class="keyword">null</span>, <span class="keyword">null</span>);</span><br><span class="line">                        <span class="keyword">if</span> ((p.prev = tl) == <span class="keyword">null</span>)</span><br><span class="line">                            hd = p;</span><br><span class="line">                        <span class="keyword">else</span></span><br><span class="line">                            tl.next = p;</span><br><span class="line">                        tl = p;</span><br><span class="line">                    &#125;</span><br><span class="line">                  	<span class="comment">// ⑤这里就是TeeBin构造方法调用点！！使用cas在index这个桶位上放置一个TreeBin节点，而且可以看到TreeBin节点的入参是hd链表头结点</span></span><br><span class="line">                    setTabAt(tab, index, <span class="keyword">new</span> TreeBin&lt;K,V&gt;(hd));</span><br></pre></td></tr></table></figure>
+<p>有人会问，进入②逻辑开始构建红黑树，但从代码上只看到拷贝了一条hd新链表的逻辑，完全没有构建红黑树的逻辑，这是怎么回事？</p>
+<font color=red>这是因为真正构建红黑树的逻辑是在new TreeBin<K,V>(hd)时才被创建，也即CHM桶位上红黑树是由TreeBin构造方法内部代理创建的。</font>
+
+<p>此外还有以下两种情况也会调用TreeBin的构造方法：</p>
+<p>1、在扩容阶段transfer方法里面，转移桶位链表到新table上是有对应的<code>new TreeBin&lt;K,V&gt;</code> ,也即在新table的i位置上基于低位节点链表构建红黑树，在新table的i+n位置上基于高位节点链表构建红黑树。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">                    ln = (lc &lt;= UNTREEIFY_THRESHOLD) ? untreeify(lo) :</span><br><span class="line"><span class="comment">// TreeBin构造方法的调用点</span></span><br><span class="line">                        (hc != <span class="number">0</span>) ? <span class="keyword">new</span> TreeBin&lt;K,V&gt;(lo) : t;</span><br><span class="line">                    hn = (hc &lt;= UNTREEIFY_THRESHOLD) ? untreeify(hi) :</span><br><span class="line">                        (lc != <span class="number">0</span>) ? <span class="keyword">new</span> TreeBin&lt;K,V&gt;(hi) : t;</span><br><span class="line">                    setTabAt(nextTab, i, ln);</span><br><span class="line">                    setTabAt(nextTab, i + n, hn);</span><br><span class="line">                    setTabAt(tab, i, fwd);</span><br></pre></td></tr></table></figure>
+<p>2、将文件流（本地文件或者socket流）反序列为CHM对象时，readObject也会调用TreeBin的构造方法来构建红黑树实例。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Reconstitutes the instance from a stream (that is, deserializes it).</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> s the stream</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">readObject</span><span class="params">(java.io.ObjectInputStream s)</span></span></span><br><span class="line"><span class="function">    <span class="keyword">throws</span> java.io.IOException, ClassNotFoundException </span>&#123;</span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * To improve performance in typical cases, we create nodes</span></span><br><span class="line"><span class="comment">     * while reading, then place in table once size is known.</span></span><br><span class="line"><span class="comment">     * However, we must also validate uniqueness and deal with</span></span><br><span class="line"><span class="comment">     * overpopulated bins while doing so, which requires</span></span><br><span class="line"><span class="comment">     * specialized versions of putVal mechanics.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line"><span class="comment">// 省略部分</span></span><br><span class="line">        <span class="keyword">while</span> (p != <span class="keyword">null</span>) &#123;</span><br><span class="line">						<span class="comment">// 1、基于TreeNode的next属性先构建出一条链表hd		</span></span><br><span class="line">                        TreeNode&lt;K,V&gt; hd = <span class="keyword">null</span>, tl = <span class="keyword">null</span>;</span><br><span class="line">                        <span class="keyword">for</span> (q = p; q != <span class="keyword">null</span>; q = q.next) &#123;</span><br><span class="line">                            TreeNode&lt;K,V&gt; t = <span class="keyword">new</span> TreeNode&lt;K,V&gt;</span><br><span class="line">                                (q.hash, q.key, q.val, <span class="keyword">null</span>, <span class="keyword">null</span>);</span><br><span class="line">                            <span class="keyword">if</span> ((t.prev = tl) == <span class="keyword">null</span>)</span><br><span class="line">                                hd = t;</span><br><span class="line">                            <span class="keyword">else</span></span><br><span class="line">                                tl.next = t;</span><br><span class="line">                            tl = t;</span><br><span class="line">                        &#125;</span><br><span class="line">          				<span class="comment">// 2、在桶位j上，使用TreeBin构造方法构建一棵红黑树，节点来自上面的hd链表</span></span><br><span class="line">                        setTabAt(tab, j, <span class="keyword">new</span> TreeBin&lt;K,V&gt;(hd));</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br></pre></td></tr></table></figure>
+<h5 id="7-2-3-putval方面-binCount-2的含义？"><a href="#7-2-3-putval方面-binCount-2的含义？" class="headerlink" title="7.2.3 putval方面 binCount = 2的含义？"></a>7.2.3 putval方面 binCount = 2的含义？</h5><p>在put操作里面，我们知道底层是调用了putval方法，有一个逻辑很难理解：</p>
+<p>为何当前桶位节点是TreeBin节点时，binCount=2，而且不需要继续累加计数？ 为何不是跟链表一样从1开始计数？（binCount计算当前桶位的节点数）</p>
+<p>或者这么提问：binCount是用于统计桶位链表节点数量以便判断是否达到树化阈值，但TreeBin里面已经是一棵红黑树了，那么binCount岂不是没有什么实际意义？为何还需要binCount = 2，用意何在？</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (f <span class="keyword">instanceof</span> TreeBin) &#123;</span><br><span class="line">    Node&lt;K,V&gt; p;</span><br><span class="line">    binCount = <span class="number">2</span>; <span class="comment">// 这里binCount不会进行累加计数，为何还需要binCount = 2，有什么用意？</span></span><br><span class="line">    <span class="keyword">if</span> ((p = ((TreeBin&lt;K,V&gt;)f).putTreeVal(hash, key,</span><br><span class="line">                                   value)) != <span class="keyword">null</span>) &#123;</span><br><span class="line">        oldVal = p.val;</span><br><span class="line">        <span class="keyword">if</span> (!onlyIfAbsent)</span><br><span class="line">            p.val = value;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>从7.2.2的构造方法的内容可知，桶位上的TreeBin节点是用下面这样的代码构建成的，以treeifyBin为例</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">setTabAt(tab, index, <span class="keyword">new</span> TreeBin&lt;K,V&gt;(hd));</span><br></pre></td></tr></table></figure>
+<p>这里的hd是桶位链表头节点，算1个，TreeBin本身算1个，共两个，这里binCount=2不是说TreeBin只有两个节点</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">TreeBin(TreeNode&lt;K,V&gt; hd) &#123;</span><br><span class="line">    <span class="keyword">super</span>(TREEBIN, <span class="keyword">null</span>, <span class="keyword">null</span>, <span class="keyword">null</span>); <span class="comment">// 这里就可以表示1个节点：TreeBin本身算1个，hash值为-2</span></span><br></pre></td></tr></table></figure>
+<p>binCount=2的实际用意是：能够让addCount的分支2执行判断是否需要扩容，从而TreeBin的红黑树也可以被扩容</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//addCount(1L, binCount=2);</span></span><br><span class="line">    <span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">addCount</span><span class="params">(<span class="keyword">long</span> x, <span class="keyword">int</span> check)</span> </span>&#123;</span><br><span class="line">    	<span class="comment">// 省略部分</span></span><br><span class="line">      <span class="comment">// 能够让addCount的分支2执行判断是否需要扩容，从而TreeBin的红黑树也可以被扩容</span></span><br><span class="line">        <span class="keyword">if</span> (check &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">            Node&lt;K,V&gt;[] tab, nt; <span class="keyword">int</span> n, sc;</span><br><span class="line">            <span class="keyword">while</span> (s &gt;= (<span class="keyword">long</span>)(sc = sizeCtl) &amp;&amp; (tab = table) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                   (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                <span class="keyword">int</span> rs = resizeStamp(n);</span><br></pre></td></tr></table></figure>
+<h5 id="7-3-TreeBin读写锁的设计"><a href="#7-3-TreeBin读写锁的设计" class="headerlink" title="7.3 TreeBin读写锁的设计"></a>7.3 TreeBin读写锁的设计</h5><p>深度分析TreeBin读写锁的设计非常有利于理解CHM在红黑树结构上并发读写机制，而且TreeBin读写锁的设计也相当优秀。</p>
+<p>在对TreeBin进行写操作时，由于已经使用了<code>synchronized(f)</code>独占锁语义，表示仅有一个写线程进入写操作，此设计解决了写线程与写线程之间竞争，而读线程和写线程之间的竞争如果采用<code>synchronized</code>方式，在高并发条件下性能无法接受。为了达到高性能的读写锁竞争，肯定需要熟悉的lock-free技术：CAS机制。</p>
+<font color=red>TreeBin读写竞争机制容易给人一种惯性思维：如果有写线程在写，那么读线程就不能读。相信这是所有没有深入研究过TreeBin读写锁源码的人会这样理解，遗憾的是：这种理解从TreeBin底层实现来看是错误的。</font>
+
+<font color=red>TreeBin读写竞争机制实际是这样的：即使有写线程在写，读线程依然可以并发读！具体实现参考7.3.2小节</font> ：
+
+其他说明：
+
+>本文提到的写线程是指：
+>
+>put入一个节点后（或删除一个节点后），准备执行插入平衡（删除平衡）操作的线程。或者简单说：在TreeBin节点行进行put或者remove操作的线程。同一时刻只能有一个写线程进行写操作。
+>
+>本文提到的读线程是指：
+>
+>使用get获取（find）TreeBin上指定的key的线程，同一时刻可以有多个读线程并发进行读操作。
+
+由于Doug  Lea使用位运算设计TreeBin读写锁获取的条件，使得其源码理解上有些晦涩难懂，具体看后面的章节分析。
+
+##### 7.3.1 TreeBin写线程竞争write lock的设计
+
+在putTreeVal方法里面，插入节点后需要做插入平衡处理：
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> &#123;</span><br><span class="line">    lockRoot();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        root = balanceInsertion(root, x);</span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">        unlockRoot();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+不同于HashMap的设计，这里在插入平衡前加入了lockRoot设计：put写线程竞争到当前TreeBin对象write lock才能实施插入平衡操作
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Acquires write lock for tree restructuring.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="comment">//  </span></span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">lockRoot</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="comment">// 写线程如果cas加锁成功，那么LOCKSTATE从0变为1（注意这里：只能当LOCKSTATE主存值为0时，写线程才能获得write lock），因此只要LOCKSTATE=1，说明当前TreeBin对象正在被写线程做插入平衡操作，那么此时其他读线程会被阻塞吗，惯性思维会认为读线程会被此刻的写操作阻塞？ 但实际情况不会，具体解释参考7.3.2。</span></span><br><span class="line">  	<span class="comment">// 当然，如果写线程cas不成功，就得使用自旋去竞争write lock</span></span><br><span class="line">    <span class="keyword">if</span> (!U.compareAndSwapInt(<span class="keyword">this</span>, LOCKSTATE, <span class="number">0</span>, WRITER))</span><br><span class="line">        contendedLock(); <span class="comment">// offload to separate method</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+这里提到的`自旋去竞争获取write lock` 是跟“谁在竞争”呢？当然是和读线程(find操作)竞争。两者CAS互相竞争，源码片段对比如下：
+
+>// ①写线程竞争写锁
+>if (!U.compareAndSwapInt(this, LOCKSTATE, 0, WRITER))
+>          contendedLock(); // offload to separate method
+>  }
+
+> // ②读线程竞争读锁
+>
+> else if (U.compareAndSwapInt(this, LOCKSTATE, s,s + READER))  
+
+contendedLock有三个分支：
+
+分支1：写线程竞争write lock
+
+分支2：写线程竞争write lock失败后，在此分支将自己变为“waiter等待线程”
+
+分支3：在分支2完成后，写线程已经是waiter线程，将自己挂起不再继续自旋，避免无限for循环的cpu空转
+
+<font color=red>另外需要注意一个细节：虽然写线程在`if (!U.compareAndSwapInt(this, LOCKSTATE, 0, WRITER))`cas不成功表明lockState那一刻在主存值不为0，但进入if后，来到contendedLock，lockState也有可能变成为0，因为同一时刻有读线程并发读，读完后会对lockState进行cas减4操作，也可能将lockState减至0。简单说来：写线程进入contendedLock时或者进入方法内部时，lockState在主存值可能为0，也可能不是0 </font>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Possibly blocks awaiting root lock.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">contendedLock</span><span class="params">()</span> </span>&#123;</span><br><span class="line">  	<span class="comment">// waiting为true时用于控制这样情况：如果当前写线程未能获得write lock，就不再继续自旋cas竞争，而是将自己转为挂起状态的“等待线程”（waiter），这样做的好处：避免cpu空转浪费cpu时间片</span></span><br><span class="line">    <span class="keyword">boolean</span> waiting = <span class="keyword">false</span>;</span><br><span class="line">		<span class="comment">// 当前写线程进入自旋：要么获得write lock，要么变为waiter并将自己挂起</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> s;;) &#123;</span><br><span class="line">		<span class="comment">/* 分支1：竞争write lock，分两种情况讨论</span></span><br><span class="line"><span class="comment">		① lockState不为0时，</span></span><br><span class="line"><span class="comment">		要使得 (s = lockState) &amp; ~WAITER) == 0，推出lockState=WAITER，也即</span></span><br><span class="line"><span class="comment">		WAITER &amp; ~WAITER必然等于0</span></span><br><span class="line"><span class="comment">		改为使用位运算方式，也可以推导出来（只需考虑低4位）：</span></span><br><span class="line"><span class="comment">		  xxxx</span></span><br><span class="line"><span class="comment">		&amp;~0010</span></span><br><span class="line"><span class="comment">		也即：</span></span><br><span class="line"><span class="comment">		 xxxx</span></span><br><span class="line"><span class="comment">		&amp;1101</span></span><br><span class="line"><span class="comment">		要使得结果为0，那么xxxx只能是0010这个值，也即lockState为2，也即lockState=WAITER</span></span><br><span class="line"><span class="comment">   	而lockState=WAITER，表示当前写线程已经在上一轮遍历转为了“waiter线程”，也说明此时没有读线程正在读TreeBin对象（如果还有读线程，lockState值一定大于2），那么写线程当然可以去竞争写锁：U.compareAndSwapInt(this, LOCKSTATE, 2, WRITER)</span></span><br><span class="line"><span class="comment"></span></span><br><span class="line"><span class="comment">   </span></span><br><span class="line"><span class="comment">   ② lockState在主存值又等于0的情况：这个“又”是指什么情况呢？</span></span><br><span class="line"><span class="comment">   加锁现在有一个读线程和写线程准备读写一个TreeBin，写线程首次对lockState cas不成功说明同一时刻lockState已经被读线程从0改到4（读线程cas加4操作），当写线程进入contendedLock方法后，此时读线程退出对lockState减4，恰好使得lockState在主存值又等于0。</span></span><br><span class="line"><span class="comment">   lockState=0，显然满足(s = lockState) &amp; ~WAITER) == 0，也即</span></span><br><span class="line"><span class="comment">   此刻无读线程竞争，则写线程可以直接去cas加锁</span></span><br><span class="line"><span class="comment">  	*/</span></span><br><span class="line">        <span class="keyword">if</span> (((s = lockState) &amp; ~WAITER) == <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, LOCKSTATE, s, WRITER)) &#123;</span><br><span class="line">			<span class="comment">// 如果当前写线程是因为lockState=WAITER加锁成功进来的，那么可以将自己之前被标为waiter线程的标记去除，表示“我现在不是waiter线程，而是已经获取写锁变成writer线程了”</span></span><br><span class="line">                <span class="keyword">if</span> (waiting)</span><br><span class="line">                    waiter = <span class="keyword">null</span>;</span><br><span class="line">      <span class="comment">// 写线程成功获得write lock当然可以返回，结束自旋。</span></span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    <span class="comment">/* 分支2：写线程竞争write lock失败后，在此分支将自己变为“waiter等待线程”</span></span><br><span class="line"><span class="comment">        到了此分支说明此时lockStat不是0也不是2，是多少呢？</span></span><br><span class="line"><span class="comment">        要使得(s &amp; WAITER) == 0成立，也即</span></span><br><span class="line"><span class="comment">          xx00</span></span><br><span class="line"><span class="comment">        &amp; 0010</span></span><br><span class="line"><span class="comment">       结果为0，可以推出s一定是0或者4、8、12...这样的值，根据读线程能对lockStat使用cas加4操作的设计，可知：</span></span><br><span class="line"><span class="comment">       此时有一个或者多个读线程在读TreeBin对象，那么写线程当然需要等等，这就是为何有waiting、waiter这样的设计</span></span><br><span class="line"><span class="comment">    */</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> ((s &amp; WAITER) == <span class="number">0</span>) &#123;</span><br><span class="line">   <span class="comment">/* 既然写线程发现有读线程正在读TreeBin对象，那么就将自己变成等待线程后继续下一次自旋并在分支3把自己挂起来。</span></span><br><span class="line"><span class="comment">   注意这里不是直接将lockState改为WAITER值，而是改为s | WAITER，例如s在主内存值为4，那么cas成功后例如lockState=4+2=6。容易得出如果有N个读线程并发读，那么在这里lockState就设为4*N+2</span></span><br><span class="line"><span class="comment">   */</span>       </span><br><span class="line">            <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, LOCKSTATE, s, s | WAITER)) &#123;</span><br><span class="line">                waiting = <span class="keyword">true</span>;</span><br><span class="line">                waiter = Thread.currentThread();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">  <span class="comment">// 分支3：在分支2完成后，写线程已经是waiter线程，在这里调用UnSafe的park方法将自己挂起不再继续自旋，避免无限for循环的cpu空转</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (waiting)</span><br><span class="line">            LockSupport.park(<span class="keyword">this</span>);</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<font color=red>小结：contendedLock的for循环其实只需关注前3轮遍历：</font>
+
+<p>对于lockState为0时，这种情况很好理解：写线程直接进入分支1竞争write lock</p>
+<p>对于lockState不为0时，流程如下：</p>
+<p>1、写线程首次进入for循环会直接进入分支2，因为此时lockState已经被1个或多个并发读线程cas加4满足分支2条件，写线程在此分支把自己变成waiter线程。<br>2、第2次循环时，写线程因为在首次循环将waiting设为true，因此会进入分支3，将自己挂起</p>
+<p>3、分支1执行时机是：当其他读线程读完后（find到key）使用unpark唤醒写线程，此时写线程从挂起处执行，回到for循环进入分支1再继续竞争write lock</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span>(;;)</span><br><span class="line"><span class="comment">// 省略部分</span></span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (waiting)</span><br><span class="line">    LockSupport.park(<span class="keyword">this</span>);</span><br><span class="line">    <span class="comment">//写线程从挂起处恢复cpu现场,回到for循环</span></span><br></pre></td></tr></table></figure>
+<p>在理解以上“基于量化的分析”后，再通过以下的“定性说明”，则能掌握contendedLock的设计用意：</p>
+<p>1、写线程发现有读线程正在读TreeBin，那么写线程首次进入for循环后，把自己变为waiter线程（意思是：我在等读线程完成），接着进入第2轮循环。</p>
+<p>2、写线程在第2轮循环将自己挂起，避免自旋消耗cpu时间片</p>
+<p>3、当“最后一个读线程”找到key并在退出前将写线程唤醒。</p>
+<p>4、写线程唤醒后，进入第3轮循环，来到分支1去竞争写锁。</p>
+<h5 id="7-3-2-TreeBin读线程竞争read-lock的设计"><a href="#7-3-2-TreeBin读线程竞争read-lock的设计" class="headerlink" title="7.3.2 TreeBin读线程竞争read lock的设计"></a>7.3.2 TreeBin读线程竞争read lock的设计</h5><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> V <span class="title">get</span><span class="params">(Object key)</span> </span>&#123;</span><br><span class="line">    Node&lt;K,V&gt;[] tab; Node&lt;K,V&gt; e, p; <span class="keyword">int</span> n, eh; K ek;</span><br><span class="line">    <span class="keyword">int</span> h = spread(key.hashCode());</span><br><span class="line"><span class="comment">// 省略部分</span></span><br><span class="line">  	<span class="comment">//如果e节点hash值小于0，说明节点要么是TreeBin节点，要么是fwd节点，两者都有find方法</span></span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (eh &lt; <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">return</span> (p = e.find(h, key)) != <span class="keyword">null</span> ? p.val : <span class="keyword">null</span>;</span><br></pre></td></tr></table></figure>
+<p>如果eh=-2，那么e节点是一个TreeBin节点，也即<code>e.find</code>方法最终调用的是TreeBin内部的find方法（对读线程来说这个find方法可称为读操作）。</p>
+<p>其find方法主要设计思想：</p>
+<p>1、如果TreeBin节点已经有写线程正在做写操作（插入平衡）或者有处于等待状态的写线程，那么当前读线程尝试用遍历链表的方式去读取节点。</p>
+<p>2、如果当前读线程恰能在TreeBin节点cas加锁成功，那么读线程使用红黑树树查找方法快速找到节点，完了后使用unpark将“已经挂起的写线程也即waiter线程”唤醒。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Returns matching node or null if none. Tries to search</span></span><br><span class="line"><span class="comment"> * using tree comparisons from root, but continues linear</span></span><br><span class="line"><span class="comment"> * search when lock not available.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">final</span> Node&lt;K,V&gt; <span class="title">find</span><span class="params">(<span class="keyword">int</span> h, Object k)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (k != <span class="keyword">null</span>) &#123;</span><br><span class="line">        <span class="keyword">for</span> (Node&lt;K,V&gt; e = first; e != <span class="keyword">null</span>; ) &#123;</span><br><span class="line">            <span class="keyword">int</span> s; K ek;</span><br><span class="line">          	<span class="comment">/* 分支1：</span></span><br><span class="line"><span class="comment">          	（1）考察lockState=1以及lockState=2时，(s = lockState) &amp; (WAITER|WRITER)计算结果代表的真实含义。</span></span><br><span class="line"><span class="comment">          	首先WAITER|WRITER =&gt; 2|1 =&gt; 3 =&gt; 0011</span></span><br><span class="line"><span class="comment">          	① lockState=1</span></span><br><span class="line"><span class="comment">              0001  </span></span><br><span class="line"><span class="comment">          	&amp; 0011</span></span><br><span class="line"><span class="comment">          	结果不等于0</span></span><br><span class="line"><span class="comment">          	② lockState=2</span></span><br><span class="line"><span class="comment">          	  0010  </span></span><br><span class="line"><span class="comment">          	&amp; 0011</span></span><br><span class="line"><span class="comment">          	结果不等于0</span></span><br><span class="line"><span class="comment">          	以上两个计算结果是要解释分支1要做的事情：如果当前有写线程正在对TreeBin节点写操作（TreeBin被写线程做插入平衡、删除操作）或者当前写线程已经是一个waiter线程，读线程不会被阻塞，而且读线程用遍历链表的方式去find key</span></span><br><span class="line"><span class="comment">          	（2）第二种情况较为复杂：TreeBin同时关联读线程和写线程。当读写线程是以类似下列的CAS序列去并发读、写TreeBin对象时</span></span><br><span class="line"><span class="comment">          	读线程      写线程(waiter线程)   读线程			 读线程			读线程...</span></span><br><span class="line"><span class="comment">          	cas(s,s+4) cas(s,s|WAITER)    cas(s,s+4)	cas(s,s+4)  cas(s,s+4) ...</span></span><br><span class="line"><span class="comment">          	此时lockState=4*N+2，N=1，2，3，4...，</span></span><br><span class="line"><span class="comment">          	条件(s = lockState) &amp; (WAITER|WRITER)) != 0也能成立。</span></span><br><span class="line"><span class="comment">          	因为此情况下至少有1个读线程和1个写线程（waiter线程），而且从lockState=4*N+2的低两位为10也可以推导出：它和0011相&amp;必然不等于0，位运算如下所示</span></span><br><span class="line"><span class="comment">          	x010</span></span><br><span class="line"><span class="comment">          &amp; 0011</span></span><br><span class="line"><span class="comment">         右起第2位的1保证了结果一定不为0，这也是因为lockState值有一个特殊的“+2”，也即有waiter线程。</span></span><br><span class="line"><span class="comment">          	*/</span></span><br><span class="line">          <span class="comment">// 同时分支1在这里可以证明TreeBin支持即使有写线程在写，也不会阻塞读线程并发读！！</span></span><br><span class="line">            <span class="keyword">if</span> (((s = lockState) &amp; (WAITER|WRITER)) != <span class="number">0</span>) &#123;</span><br><span class="line">                <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                    ((ek = e.key) == k || (ek != <span class="keyword">null</span> &amp;&amp; k.equals(ek))))</span><br><span class="line">                    <span class="keyword">return</span> e;</span><br><span class="line">                e = e.next;</span><br><span class="line">            &#125;</span><br><span class="line">  <span class="comment">/* 分支2：若分支1不成立，说明(s = lockState) &amp; (WAITER|WRITER)) ==0</span></span><br><span class="line"><span class="comment">  由于 (WAITER|WRITER)的值为0011，要使得(s = lockState) &amp; (WAITER|WRITER))结果为0，那么lockState的低两位必须为00， 也即：</span></span><br><span class="line"><span class="comment">                       xx00</span></span><br><span class="line"><span class="comment">                     &amp; 0011</span></span><br><span class="line"><span class="comment">     结果为0说明什么？说明当前时刻lockState的值不是1和2和4*N+2这样的值，而是0，4，8，...4*N这样的值，对应的读写竞争层面含义为：当前有1个或者多个读线程正在读TreeBin节点，那么作为新来的读线程自然可以加进来，并对lockState加4</span></span><br><span class="line"><span class="comment">            */</span></span><br><span class="line">            <span class="comment">// 这里可以证明TreeBin支持并发读，每进入一个读线程，就对lockState加4</span></span><br><span class="line">            <span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, LOCKSTATE, s,</span><br><span class="line">                                         s + READER)) &#123;</span><br><span class="line">                TreeNode&lt;K,V&gt; r, p;</span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                  <span class="comment">// 读线程在这里即可放心读取节点（find key）</span></span><br><span class="line">                    p = ((r = root) == <span class="keyword">null</span> ? <span class="keyword">null</span> :</span><br><span class="line">                         r.findTreeNode(h, k, <span class="keyword">null</span>));</span><br><span class="line">                &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">                    Thread w;</span><br><span class="line">                <span class="comment">/*这里可是一个关键的设计：它的思想跟transfer判断最后一个扩容线程的思想是如出一辙：</span></span><br><span class="line"><span class="comment">                  每次有一个读线程读结束后就会对lockState加“-4”，相当于减4，注意这里用的getAndAddInt，而不是前面熟悉的CAS，用处是什么呢？</span></span><br><span class="line"><span class="comment">                  用处：若最后一个读线程读结束后它使用getAndAddInt返回的恰好是6也即等于(READER|WAITER)，同时lockState被减至2（恰好等于WAITER），表明此刻当前TreeBin对象还关联着仅剩一个waiter线程，于是最后一个读线程在return前顺便把waiter线程唤醒，好让这个写线程恢复执行去获取写锁。这一小设计相当巧妙！！</span></span><br><span class="line"><span class="comment">                 本代码片段设计思想可结合7.3.3的图3来理解。</span></span><br><span class="line"><span class="comment">                  */</span></span><br><span class="line">                    <span class="keyword">if</span> (U.getAndAddInt(<span class="keyword">this</span>, LOCKSTATE, -READER) ==</span><br><span class="line">                        (READER|WAITER) &amp;&amp; (w = waiter) != <span class="keyword">null</span>)</span><br><span class="line">                        LockSupport.unpark(w);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> p;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>到了这里，我们可以根据分支1回答以下关键问题：</p>
+<p>为何TreeBin读写竞争机制可以实现：即使有写线程在写，读线程依然可以并发读，不是说好的读写竞争吗（写的时候不能读）</p>
+<font color=red>这是因为：写线程在写操作时，是对红黑树做插入平衡操作，它只是用到了TreeNode的red、parent、right、left属性，别忘了TreeNode的设计中还有next属性，也即红黑树所有节点在背后已经通过next属性链成了一条链表，当红黑树调整时不会改变next属性，因此链表结构保持不变或者说写线程写操作不会影响到TreeNode的链表节点前后指向，那么就可以安排读线程用遍历链表的方式去读链表节点，所以才有了TreeBin以下的设计</font>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 写线程写时 或者写线程是waiter线程时，可使用TreeNode的next属性去遍历链表，实现读线程并发读也不会被写线程阻塞。</span></span><br><span class="line">              <span class="keyword">if</span> (((s = lockState) &amp; (WAITER|WRITER)) != <span class="number">0</span>) &#123;</span><br><span class="line">                   <span class="keyword">if</span> (e.hash == h &amp;&amp;</span><br><span class="line">                       ((ek = e.key) == k || (ek != <span class="keyword">null</span> &amp;&amp; k.equals(ek))))</span><br><span class="line">                       <span class="keyword">return</span> e;</span><br><span class="line">                   e = e.next; <span class="comment">// 使用TreeNode的next属性去遍历背后的链表结构</span></span><br><span class="line">               &#125;</span><br></pre></td></tr></table></figure>
+<h5 id="7-3-3-图示理解lockState如何控制读写线程"><a href="#7-3-3-图示理解lockState如何控制读写线程" class="headerlink" title="7.3.3 图示理解lockState如何控制读写线程"></a>7.3.3 图示理解lockState如何控制读写线程</h5><p>7.3.1和7.3.2给出非常详细解释了lockState位运算满足的条件及其设计目的，在此基础上结合以下图可深入掌握TreeBin设计的读写锁竞争机制，它是一个非常优秀的并发设计！</p>
+<p>图1：仅有写线程情况下，逻辑简单不再给出图示。</p>
+<p>假设TreeBin节点仅关联一个写线程，那么s的状态值变化很简单，0变为1，再从1变为0：</p>
+<p>① 写线程进入lockRoot：cas(lockState,0,1)，此时lockState从0变为1，表示写线程获得写锁</p>
+<p>② 写线程完成写操作后调用unlockRoot：lockState = 0，此时lockState 从1变为0，表示写线程释放了写锁</p>
+<p>图2：假设当前有N个读线程且无写线程的情况下并发读TreeBin节点，不妨假设它们都是同一时刻进入find方法，完成读后，也是同一时刻退出find方法，那么lockState值变化如下图所示：</p>
+<p>（此设计很像transfer方法里面扩容线程计数设计：扩容线程进入扩容操作时sc+1、退出扩容操作时sc-1。）</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/6cb4f3e0435a69f7c9f119e3accc35c3.png" alt="N个读线程并发读TreeBin.001"></p>
+<font color=red> 图3：假设当前有N个读线程和1写线程并发读写TreeBin节点，毫无疑问，此时读线程要竞争读锁、写线程要竞争写锁。不妨假设第1个读线程正在读TreeBin节点，接着来了一个写线程，再接着进来第2个读线程以及后续更多的读线程，那么观察lockState的变化过程：</font>
+
+<p>(此设计很像transfer方法里面的cas设计：扩容线程进入扩容时sc+1、退出扩容时sc-1，而且这里有个特殊点：lockState=4*N+2中的“+2”，从图中可以知道这个“+2”表示：目前还存在与TreeBin节点关联的唯一一个waiter线程。)</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/71fed23c88b3acec285cc576a04e91c5.png" alt="读写线程并存的lockState状态图的副本"></p>
+<h4 id="8、ForwardingNode节点分析"><a href="#8、ForwardingNode节点分析" class="headerlink" title="8、ForwardingNode节点分析"></a>8、ForwardingNode节点分析</h4><p>这个节点的设计相对简单：在扩容阶段，transfer方法中转移节点的那片逻辑里，当旧表桶位节点迁移到新表中后，会在旧表桶位上放置一个ForwardingNode节点，该节点的hash值为MOVED=-1，不存放key以及value。</p>
+<p>还有一个nextTable属性以及内置一个读方法find，它们的设计意图是？解释如下：</p>
+<p>在扩容阶段：对于桶位i，当旧表桶位节点迁移到新表中后，会在旧表桶位i上放置一个ForwardingNode节点</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">           		setTabAt(nextTab, i, ln);</span><br><span class="line">                  setTabAt(nextTab, i + n, hn);</span><br><span class="line"><span class="comment">// 旧表桶位i节点全部迁移到新表后，会在旧表桶位i上放置一个ForwardingNode节点</span></span><br><span class="line">                  setTabAt(tab, i, fwd); </span><br></pre></td></tr></table></figure>
+<p>当有读线程定位桶位i发现是一个fwd节点，就会调用其内部方法find去找key，但是当前桶位只是一个fwd节点，它没有key和value，那么读线程去哪里找key呢？</p>
+<p>这就是nextTable属性的用意：读线程会去新表nextTable相应的桶位去找节点，这一点可以在以下源码的①位置得到证明。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* ---------------- Special Nodes -------------- */</span></span><br><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * A node inserted at head of bins during transfer operations.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> <span class="class"><span class="keyword">class</span> <span class="title">ForwardingNode</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; <span class="keyword">extends</span> <span class="title">Node</span>&lt;<span class="title">K</span>,<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    <span class="keyword">final</span> Node&lt;K,V&gt;[] nextTable;</span><br><span class="line">    ForwardingNode(Node&lt;K,V&gt;[] tab) &#123;</span><br><span class="line">        <span class="keyword">super</span>(MOVED, <span class="keyword">null</span>, <span class="keyword">null</span>, <span class="keyword">null</span>);</span><br><span class="line">        <span class="keyword">this</span>.nextTable = tab;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">Node&lt;K,V&gt; <span class="title">find</span><span class="params">(<span class="keyword">int</span> h, Object k)</span> </span>&#123;</span><br><span class="line">        <span class="comment">// loop to avoid arbitrarily deep recursion on forwarding nodes</span></span><br><span class="line">        <span class="comment">// ① 读线程虽然定位在旧表桶上，从此处for循环条件来看，读线程会在新表nextTable去找节点</span></span><br><span class="line">        <span class="comment">// 这里的outer有特别的用意</span></span><br><span class="line">        outer: <span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = nextTable;;) &#123;</span><br><span class="line">            Node&lt;K,V&gt; e; <span class="keyword">int</span> n;</span><br><span class="line">            <span class="keyword">if</span> (k == <span class="keyword">null</span> || tab == <span class="keyword">null</span> || (n = tab.length) == <span class="number">0</span> ||</span><br><span class="line">                (e = tabAt(tab, (n - <span class="number">1</span>) &amp; h)) == <span class="keyword">null</span>)</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">          <span class="comment">//② 在新表的桶位上遍历链表</span></span><br><span class="line">            <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">                <span class="keyword">int</span> eh; K ek;</span><br><span class="line">                <span class="keyword">if</span> ((eh = e.hash) == h &amp;&amp;</span><br><span class="line">                    ((ek = e.key) == k || (ek != <span class="keyword">null</span> &amp;&amp; k.equals(ek))))</span><br><span class="line">                    <span class="keyword">return</span> e;</span><br><span class="line">                <span class="keyword">if</span> (eh &lt; <span class="number">0</span>) &#123;</span><br><span class="line">                  <span class="comment">// 如果读线程转去新表（第一个nextTable）去读节点发现该新表对应节点又是一个fwd，说明数据节点被迁移到第二个nextTable，也即读线程转去新表时，新表已经进入扩容期。这时怎么处理呢？ 很简单：告诉读线程请你去第二个nextTable继续去找数据节点。</span></span><br><span class="line">                    <span class="comment">//③</span></span><br><span class="line">                    <span class="keyword">if</span> (e <span class="keyword">instanceof</span> ForwardingNode) &#123;</span><br><span class="line">                    	<span class="comment">// 让tab指向第二个nextTable新表，那么下一轮遍历线程就会在第二个nextTable新表去找节点</span></span><br><span class="line">                        tab = ((ForwardingNode&lt;K,V&gt;)e).nextTable;</span><br><span class="line">                        <span class="keyword">continue</span> outer;</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">else</span></span><br><span class="line">                      	<span class="comment">// 到打这里说明当前e节点是一个TreeBin节点，TreeBin也有find方法，用它找key即可</span></span><br><span class="line">                        <span class="keyword">return</span> e.find(h, k);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">if</span> ((e = e.next) == <span class="keyword">null</span>)</span><br><span class="line">                    <span class="keyword">return</span> <span class="keyword">null</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>在这片源码有个地方的写法比较陌生outer语法：也即 ①位置和③位置，它所要表达的逻辑如下图所示</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">outer: <span class="keyword">for</span> (Node&lt;K,V&gt;[] tab = nextTable;;) &#123;</span><br><span class="line">            <span class="comment">//continue outer告诉线程在此处继续执行for(;;)循环</span></span><br><span class="line">            <span class="keyword">for</span> (;;) &#123;</span><br><span class="line">			<span class="comment">// 省略部分</span></span><br><span class="line">              <span class="keyword">if</span> (e <span class="keyword">instanceof</span> ForwardingNode) &#123;</span><br><span class="line">                tab = ((ForwardingNode&lt;K,V&gt;)e).nextTable;</span><br><span class="line">                <span class="keyword">continue</span> outer;</span><br><span class="line">            	&#125;</span><br><span class="line">            &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>用于解决这样的场景：</p>
+<p>1、首先读线程在旧表读桶位i0时发现是一个fwd节点，读线程会转去新表（第一个nextTable）去读节点</p>
+<p>2、接着读线程发现新表对应桶位i1又是一个fwd节点，说明新表（第一个nextTable）已经进入扩容期。</p>
+<p>3、读线程只能继续转去下一个新表（第二个nextTable）找，发现对应桶位i2是正常的数据节点，那么就可以使用for(;;)读取数据节点。</p>
+<p>可以看出outer设计目的是避免无限递归查找：新表的e.find -&gt;递归&gt;回到新表自己的e.find-&gt;…-&gt; 无限递归</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/e0c0576900dea2795ee43035c6a347b7.png" alt="Forwarding节点分析.001"></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/07/10/%E5%9F%BA%E4%BA%8EAQS%E6%9D%A1%E4%BB%B6%E9%98%9F%E5%88%97%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%90%84%E7%A7%8DXXBlockingQueue%E5%88%86%E6%9E%90/" rel="prev" title="Java高级主题：基于AQS条件队列实现的各种XXBlockingQueue分析">
+      <i class="fa fa-chevron-left"></i> Java高级主题：基于AQS条件队列实现的各种XXBlockingQueue分析
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/07/27/%E5%9F%BA%E4%BA%8EAQS%E9%A9%B1%E5%8A%A8%E7%9A%84CountDownLatch%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90/" rel="next" title="Java高级主题：基于AQS驱动的CountDownLatch实现原理解析">
+      Java高级主题：基于AQS驱动的CountDownLatch实现原理解析 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#7%E3%80%81TreeBin%E7%B1%BB%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86"><span class="nav-number">1.</span> <span class="nav-text">7、TreeBin类设计原理</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#7-1-%E4%BF%9D%E8%AF%81%E5%8A%A0%E9%94%81%E5%AF%B9%E8%B1%A1%E4%B8%8D%E6%94%B9%E5%8F%98%E7%9A%84%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3"><span class="nav-number">1.1.</span> <span class="nav-text">7.1 保证加锁对象不改变的设计思想</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#7-2-TreeBin%E7%B1%BB"><span class="nav-number">1.2.</span> <span class="nav-text">7.2 TreeBin类</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#7-2-1-%E5%9F%BA%E6%9C%AC%E7%9A%84%E6%88%90%E5%91%98%E5%8F%98%E9%87%8F"><span class="nav-number">1.2.1.</span> <span class="nav-text">7.2.1 基本的成员变量</span></a></li><li class="nav-item nav-level-6"><a class="nav-link" href="#7-2-2-%E6%9E%84%E9%80%A0%E6%96%B9%E6%B3%95"><span class="nav-number">1.2.2.</span> <span class="nav-text">7.2.2 构造方法</span></a></li></ol></li><li class="nav-item nav-level-5"><a class="nav-link" href="#7-2-3-putval%E6%96%B9%E9%9D%A2-binCount-2%E7%9A%84%E5%90%AB%E4%B9%89%EF%BC%9F"><span class="nav-number">1.3.</span> <span class="nav-text">7.2.3 putval方面 binCount &#x3D; 2的含义？</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#7-3-TreeBin%E8%AF%BB%E5%86%99%E9%94%81%E7%9A%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">1.4.</span> <span class="nav-text">7.3 TreeBin读写锁的设计</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#7-3-2-TreeBin%E8%AF%BB%E7%BA%BF%E7%A8%8B%E7%AB%9E%E4%BA%89read-lock%E7%9A%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">1.5.</span> <span class="nav-text">7.3.2 TreeBin读线程竞争read lock的设计</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#7-3-3-%E5%9B%BE%E7%A4%BA%E7%90%86%E8%A7%A3lockState%E5%A6%82%E4%BD%95%E6%8E%A7%E5%88%B6%E8%AF%BB%E5%86%99%E7%BA%BF%E7%A8%8B"><span class="nav-number">1.6.</span> <span class="nav-text">7.3.3 图示理解lockState如何控制读写线程</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8%E3%80%81ForwardingNode%E8%8A%82%E7%82%B9%E5%88%86%E6%9E%90"><span class="nav-number">2.</span> <span class="nav-text">8、ForwardingNode节点分析</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

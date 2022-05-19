@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="Unsafe类在整套JUC框架中绝对是核心的一个概念，它是实现free-lock的底层核心设计，它内部直接调用的是Java的JNI，只有理解它的CAS原子操作的内部设计原理，才能更加深入理解JUC的free-lock设计。 使用unsafe操作数组1234567891011121314151617181920212223242526272829303132333435363738394041424">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：Unsafe类实现的JUC框架free-lock设计原理讨论">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/05/09/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9AUnsafe%E7%B1%BB%E5%AE%9E%E7%8E%B0%E7%9A%84JUC%E6%A1%86%E6%9E%B6free-lock%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86%E8%AE%A8%E8%AE%BA/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="Unsafe类在整套JUC框架中绝对是核心的一个概念，它是实现free-lock的底层核心设计，它内部直接调用的是Java的JNI，只有理解它的CAS原子操作的内部设计原理，才能更加深入理解JUC的free-lock设计。 使用unsafe操作数组1234567891011121314151617181920212223242526272829303132333435363738394041424">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2021-05-08T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-09T13:49:07.482Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/05/09/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9AUnsafe%E7%B1%BB%E5%AE%9E%E7%8E%B0%E7%9A%84JUC%E6%A1%86%E6%9E%B6free-lock%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86%E8%AE%A8%E8%AE%BA/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：Unsafe类实现的JUC框架free-lock设计原理讨论 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/05/09/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9AUnsafe%E7%B1%BB%E5%AE%9E%E7%8E%B0%E7%9A%84JUC%E6%A1%86%E6%9E%B6free-lock%E8%AE%BE%E8%AE%A1%E5%8E%9F%E7%90%86%E8%AE%A8%E8%AE%BA/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：Unsafe类实现的JUC框架free-lock设计原理讨论
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-05-09 00:00:00" itemprop="dateCreated datePublished" datetime="2021-05-09T00:00:00+08:00">2021-05-09</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-09 21:49:07" itemprop="dateModified" datetime="2022-05-09T21:49:07+08:00">2022-05-09</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>23k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>20 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>Unsafe类在整套JUC框架中绝对是核心的一个概念，它是实现free-lock的底层核心设计，它内部直接调用的是Java的JNI，只有理解它的CAS原子操作的内部设计原理，才能更加深入理解JUC的free-lock设计。</p>
+<h4 id="使用unsafe操作数组"><a href="#使用unsafe操作数组" class="headerlink" title="使用unsafe操作数组"></a>使用unsafe操作数组</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> hashmap.demo;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.lang.reflect.Field;</span><br><span class="line"><span class="keyword">import</span> sun.misc.Unsafe;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Unsafe3</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> Unsafe unsafe;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span>&#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Field field = Unsafe.class.getDeclaredField(<span class="string">&quot;theUnsafe&quot;</span>);</span><br><span class="line">            field.setAccessible(<span class="keyword">true</span>);</span><br><span class="line">            unsafe = (Unsafe)field.get(<span class="keyword">null</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">int</span>[] intArr1=&#123;<span class="number">10</span>,<span class="number">20</span>,<span class="number">30</span>,<span class="number">40</span>&#125;;</span><br><span class="line">        <span class="keyword">int</span>[] intArr2=&#123;<span class="number">1</span>,<span class="number">3</span>,<span class="number">5</span>,<span class="number">7</span>,<span class="number">8</span>,<span class="number">9</span>,<span class="number">10</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>&#125;;</span><br><span class="line"></span><br><span class="line">        <span class="comment">// byte类型数组内存每个&quot;单元格&quot;容量是1个字节，对应Scale就是1</span></span><br><span class="line">        <span class="keyword">int</span> byteScale=unsafe.arrayIndexScale(<span class="keyword">byte</span>[].class);</span><br><span class="line">        <span class="comment">// short类型数组内存每个&quot;单元格&quot;容量是2个字节，对应Scale就是2</span></span><br><span class="line">        <span class="keyword">int</span> shortScale=unsafe.arrayIndexScale(<span class="keyword">short</span>[].class);</span><br><span class="line">        <span class="comment">// int类型数组内存每个&quot;单元格&quot;容量是4个字节，对应Scale就是4</span></span><br><span class="line">        <span class="keyword">int</span> intScale=unsafe.arrayIndexScale(<span class="keyword">int</span>[].class);</span><br><span class="line">        <span class="comment">// long类型数组内存每个&quot;单元格&quot;容量是8个字节，对应Scale就是8</span></span><br><span class="line">        <span class="keyword">int</span> longScale=unsafe.arrayIndexScale(<span class="keyword">long</span>[].class);</span><br><span class="line">        <span class="comment">// Integer类型数组内存每个&quot;单元格&quot;容量是4个字节，对应Scale就是4</span></span><br><span class="line">        <span class="keyword">int</span> integerScale=unsafe.arrayIndexScale(Integer[].class);</span><br><span class="line">        <span class="comment">// String类型数组内存每个&quot;单元格&quot;容量是4个字节，对应Scale就是4</span></span><br><span class="line">        <span class="keyword">int</span> stringScale=unsafe.arrayIndexScale(String[].class);</span><br><span class="line"></span><br><span class="line">        <span class="comment">//</span></span><br><span class="line">        <span class="keyword">boolean</span> b=intArr1.getClass().equals(intArr2.getClass()) &amp;&amp; <span class="keyword">int</span>[].class.equals(intArr1.getClass()) &amp;&amp; <span class="keyword">int</span>[].class.equals(intArr2.getClass());</span><br><span class="line">        System.out.println(b); <span class="comment">// true</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// intArr1数组实例和intArr2的数组实例都是同一对象，指向int[]</span></span><br><span class="line">        System.out.println(intArr1.getClass().equals(intArr2.getClass()));</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 获取当前intArr1数组实例的相对基址</span></span><br><span class="line">        <span class="keyword">long</span> baseOffset1=unsafe.arrayBaseOffset(intArr1.getClass());</span><br><span class="line"></span><br><span class="line">        System.out.println(baseOffset1); <span class="comment">// 16</span></span><br><span class="line">        <span class="comment">// 获取当前intArr2数组实例的相对基址</span></span><br><span class="line">        <span class="keyword">long</span> baseOffset2=unsafe.arrayBaseOffset(intArr2.getClass());</span><br><span class="line">        System.out.println(baseOffset2); <span class="comment">// 16</span></span><br><span class="line">        <span class="comment">// 从baseOffset1和baseOffset2的值都是16可以看出，这是他们指向对象的相对基址，而不是指向对象绝对地址（如果是执行对象绝对地址，那么这里两个值一定不同）</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        System.out.println(unsafe.getIntVolatile(intArr1,baseOffset1)); <span class="comment">//打印intArr1第1个（首地址）对应的元素，也就是intArr1[0]</span></span><br><span class="line">        System.out.println(unsafe.getIntVolatile(intArr1,baseOffset1+intScale)); <span class="comment">//打印intArr1的第2个元素，也就是intArr1[1]</span></span><br><span class="line">        System.out.println(unsafe.getIntVolatile(intArr1,baseOffset1+intScale* <span class="number">2L</span>)); <span class="comment">//打印intArr1的第3个元素，也就是intArr1[2]</span></span><br><span class="line">        System.out.println(unsafe.getIntVolatile(intArr1,baseOffset1+intScale* <span class="number">3L</span>)); <span class="comment">//打印intArr1的第4个元素，也就是intArr1[3]</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 获取intArr2的数据的第3个元素</span></span><br><span class="line">        System.out.println(unsafe.getIntVolatile(intArr2,baseOffset2+intScale* <span class="number">2L</span>)); <span class="comment">//打印intArr2第3个对应的元素，也就是intArr2[2]</span></span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<a id="more"></a>
+<h4 id="使用Unsafe操作自定义类（非并发条件下）"><a href="#使用Unsafe操作自定义类（非并发条件下）" class="headerlink" title="使用Unsafe操作自定义类（非并发条件下）"></a>使用Unsafe操作自定义类（非并发条件下）</h4><p>以下定义个三个类及其属性，可以清楚看到unsafe操作对象的逻辑：</p>
+<p>首先使用objectFieldOffset取到该对象的字段相对基址</p>
+<p>其次，getXX取值方面，也即“读”：</p>
+<ul>
+<li><p>A、非并发编程条件下，基础类型使用getInt、getDouble等方法获取字段值，引用类型使用getObject取值</p>
+</li>
+<li><p>B、并发编程条件下，基础类型使用getIntVolatile、getDoubleVolatile等方法获取字段值，引用类型使用getObjectVolatile取值</p>
+</li>
+</ul>
+<p>putXX设置值方面（也即set字段值），也即“写”：</p>
+<ul>
+<li><p>A、非并发编程条件下，基础类型使用putInt、putDouble等方法对字段进行赋值，引用类型使用putObject等方法对字段进行赋值</p>
+</li>
+<li><p>B、并发编程条件下，由于涉及多线程对临界区的写入，因此需要使用CAS机制去写入，而不是简单的putObject方法，对于基础类型和引用类型常用的CAS方法：</p>
+</li>
+<li><p>```<br>compareAndSwapInt、compareAndSwapLong、compareAndSwapObject</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">对应的demo程序如下：</span><br><span class="line"></span><br><span class="line">&#96;&#96;&#96;java</span><br><span class="line">package hashmap.demo;</span><br><span class="line"></span><br><span class="line">import sun.misc.Unsafe;</span><br><span class="line"></span><br><span class="line">import java.lang.reflect.Field;</span><br><span class="line">import java.util.concurrent.ConcurrentHashMap;</span><br><span class="line"></span><br><span class="line">class A &#123;</span><br><span class="line">    private int a &#x3D; 1;</span><br><span class="line">    private String aa;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class B &#123;</span><br><span class="line">    private int b &#x3D; 2;</span><br><span class="line">    private String bb &#x3D; &quot;Unsafe looks like a C Pointer&quot;;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">class C &#123;</span><br><span class="line">    private int c &#x3D; 3;</span><br><span class="line">    private String cc;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">public class Unsafe4 &#123;</span><br><span class="line">    private static Unsafe unsafe;</span><br><span class="line"></span><br><span class="line">    static &#123;</span><br><span class="line">        try &#123;</span><br><span class="line">            Field field &#x3D; Unsafe.class.getDeclaredField(&quot;theUnsafe&quot;);</span><br><span class="line">            field.setAccessible(true);</span><br><span class="line">            unsafe &#x3D; (Unsafe) field.get(null);</span><br><span class="line">        &#125; catch (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    public static void main(String[] args) throws NoSuchFieldException &#123;</span><br><span class="line">        long baseOffset1 &#x3D; unsafe.objectFieldOffset(A.class.getDeclaredField(&quot;a&quot;));</span><br><span class="line">        long baseOffset2 &#x3D; unsafe.objectFieldOffset(B.class.getDeclaredField(&quot;b&quot;));</span><br><span class="line">        long baseOffset3 &#x3D; unsafe.objectFieldOffset(C.class.getDeclaredField(&quot;c&quot;));</span><br><span class="line">        long baseOffset4 &#x3D; unsafe.objectFieldOffset(B.class.getDeclaredField(&quot;bb&quot;));</span><br><span class="line">        long baseOffset5 &#x3D; unsafe.objectFieldOffset(C.class.getDeclaredField(&quot;cc&quot;));</span><br><span class="line"></span><br><span class="line">        System.out.println(baseOffset1); &#x2F;&#x2F; 12</span><br><span class="line">        System.out.println(baseOffset2); &#x2F;&#x2F; 12</span><br><span class="line">        System.out.println(baseOffset3); &#x2F;&#x2F; 12</span><br><span class="line">        System.out.println(baseOffset4); &#x2F;&#x2F; 16</span><br><span class="line">        System.out.println(baseOffset5); &#x2F;&#x2F; 16</span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 非并发情况下，使用getInt方法获取字段值</span><br><span class="line">        System.out.println(unsafe.getInt(new A(), baseOffset1)); &#x2F;&#x2F; a&#x3D;1</span><br><span class="line">        System.out.println(unsafe.getInt(new B(), baseOffset2)); &#x2F;&#x2F; a&#x3D;1</span><br><span class="line">        System.out.println(unsafe.getInt(new C(), baseOffset3)); &#x2F;&#x2F; c&#x3D;3</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 引用类型的字段需要使用getObject或者getObjectVolatile获取其值</span><br><span class="line">        System.out.println(unsafe.getObject(new B(), baseOffset4)); &#x2F;&#x2F; Unsafe looks like a C Pointer</span><br><span class="line">        System.out.println(unsafe.getObject(new C(), baseOffset5)); &#x2F;&#x2F; null</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 并发情况下，因为同一对象的同一字段可能有多线程并发get或者set，线程栈内部的字段值和主存字段值可能会不一致，因此需要使用getIntVolatile方法获取字段值</span><br><span class="line">        System.out.println(unsafe.getIntVolatile(new A(), baseOffset1)); &#x2F;&#x2F; a&#x3D;1</span><br><span class="line">        System.out.println(unsafe.getIntVolatile(new B(), baseOffset2)); &#x2F;&#x2F; a&#x3D;1</span><br><span class="line">        System.out.println(unsafe.getIntVolatile(new C(), baseOffset3)); &#x2F;&#x2F; c&#x3D;3</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        System.out.println(unsafe.getObjectVolatile(new B(), baseOffset4)); &#x2F;&#x2F; Unsafe looks like a C Pointer</span><br><span class="line"></span><br><span class="line">        &#x2F;* unsafe.getObjectVolatile返回的是Object类型，那么这个Object类型具体代表是Person类型、Integer类型、C类型还是其他什么类型？</span><br><span class="line">        * 转型的依据：cc字段是什么类型就转型为什么类型，例如在ConcurrentHashMap的源码中：</span><br><span class="line">        * seg &#x3D; (Segment&lt;K,V&gt;)UNSAFE.getObjectVolatile(ss, u)</span><br><span class="line">        * 直接从Segments数组取出位于u下标的Object具体来说一个Segment&lt;K,V&gt;类型元素，因此需将取出的Object转型为对应的Segment&lt;K,V&gt;类型</span><br><span class="line">        * 其实这里取到的是cc字段，因此可以转型为String类型</span><br><span class="line">        * 这里需要说明的是：String类型其实不需要显式转型</span><br><span class="line">        *&#x2F;</span><br><span class="line">        String ccField &#x3D; (String) unsafe.getObjectVolatile(new C(), baseOffset5);</span><br><span class="line">        System.out.println(ccField); &#x2F;&#x2F; null</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<h4 id="关于使用getObject和getObjectVolatile返回值为Object的转型说明"><a href="#关于使用getObject和getObjectVolatile返回值为Object的转型说明" class="headerlink" title="关于使用getObject和getObjectVolatile返回值为Object的转型说明"></a>关于使用<code>getObject</code>和<code>getObjectVolatile</code>返回值为Object的转型说明</h4><p>两个方法源码：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">native</span> Object <span class="title">getObject</span><span class="params">(Object var1, <span class="keyword">long</span> var2)</span></span>;</span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">native</span> Object <span class="title">getObjectVolatile</span><span class="params">(Object var1, <span class="keyword">long</span> var2)</span></span>;</span><br></pre></td></tr></table></figure>
+<p>这里需要清楚一个基本常识：</p>
+<p>往内存某个地址put一个“Person”类型对象，那么从相同的地址取出来也应该是相同的Person类型对象，如果取出来是Dog类型，那么就不符合设计规范了！或者取出的Object应该转型为Person类型，你给它强制转换为Dog类型，编译器当然会抛出一个：<code>ClassCastException</code></p>
+<p>因此使用getObject和getObjectVolatile方法时，需显式转型为具体类型的实例，以便操作该实例相关方法，这里以在ConcurrentHashMap的某个ensureSegment方法源码作为说明：</p>
+<p><code>UNSAFE.getObjectVolatile(ss, u)</code>表示直接Segments数组取出位于u下标的Object，而这个Object结合上下文可知它是一个Segment<K,V>类型的实例，因此对取出的Object将其转型为对应的Segment<K,V>类型</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">while</span> ((seg = (Segment&lt;K,V&gt;)UNSAFE.getObjectVolatile(ss, u))</span><br><span class="line">       == <span class="keyword">null</span>) &#123;</span><br><span class="line">    <span class="keyword">if</span> (UNSAFE.compareAndSwapObject(ss, u, <span class="keyword">null</span>, seg = s))</span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>然后你会发现在ConcurrentHashMap有13个关于getObjectXX类型方法，无一例外都是这样固定转型用法，不管是上面的ensureSegment方法还是下面segmentForHash方法：</p>
+<p> <code>(Segment&lt;K,V&gt;) UNSAFE.getObjectVolatile(segments, u)</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> Segment&lt;K,V&gt; <span class="title">segmentForHash</span><span class="params">(<span class="keyword">int</span> h)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">long</span> u = (((h &gt;&gt;&gt; segmentShift) &amp; segmentMask) &lt;&lt; SSHIFT) + SBASE;</span><br><span class="line">    <span class="keyword">return</span> (Segment&lt;K,V&gt;) UNSAFE.getObjectVolatile(segments, u);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h4 id="使用Unsafe操作自定义类（并发写和读条件下）"><a href="#使用Unsafe操作自定义类（并发写和读条件下）" class="headerlink" title="使用Unsafe操作自定义类（并发写和读条件下）"></a>使用Unsafe操作自定义类（并发写和读条件下）</h4><p>首先使用以下demo程序在单线程情况下compareAndSwapInt的用法</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> hashmap.demo;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> sun.misc.Unsafe;</span><br><span class="line"><span class="keyword">import</span> java.lang.reflect.Field;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Counter</span>&lt;<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">volatile</span> V value;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Unsafe4</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> Unsafe unsafe;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Field field = Unsafe.class.getDeclaredField(<span class="string">&quot;theUnsafe&quot;</span>);</span><br><span class="line">            field.setAccessible(<span class="keyword">true</span>);</span><br><span class="line">            unsafe = (Unsafe) field.get(<span class="keyword">null</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> NoSuchFieldException </span>&#123;</span><br><span class="line">        <span class="keyword">long</span> baseOffset = unsafe.objectFieldOffset(Counter.class.getDeclaredField(<span class="string">&quot;value&quot;</span>));</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 1、单线程情况，对Counter的value字段进行读和写</span></span><br><span class="line">        Counter&lt;Integer&gt; counter=<span class="keyword">new</span> Counter&lt;&gt;();</span><br><span class="line">        System.out.println(unsafe.getInt(counter, baseOffset)); <span class="comment">// 0</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 2、使用非CAS机制的putInt方法将counter的value字段写入10</span></span><br><span class="line">        unsafe.putInt(counter,baseOffset,<span class="number">10</span>);</span><br><span class="line">        <span class="comment">// 3、取出value字段值是否为10</span></span><br><span class="line">        System.out.println(unsafe.getInt(counter, baseOffset)); <span class="comment">// 10</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 4、使用CAS机制的原子写入value的值，写入条件描述为：如果主存里面的value字段值等于所期待的10，那么就将该value字段值更新为新值20</span></span><br><span class="line">        <span class="keyword">boolean</span> isSet= unsafe.compareAndSwapInt(counter,baseOffset,<span class="number">10</span>,<span class="number">20</span>);</span><br><span class="line">        <span class="comment">// 5、从第3点可知，主存里面的value字段值一定为10，因此compareAndSwapInt会对value进行更新为20</span></span><br><span class="line">        System.out.println(isSet); <span class="comment">// true</span></span><br><span class="line">        System.out.println(unsafe.getInt(counter, baseOffset)); <span class="comment">// 20</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 6、使用CAS机制的原子写入value的值，写入条件描述为：如果主存里面的value字段值等于所期待的21，那么就将该value字段值使用原子操作更新为新值30</span></span><br><span class="line">        <span class="keyword">boolean</span> isSet1= unsafe.compareAndSwapInt(counter,baseOffset,<span class="number">21</span>,<span class="number">30</span>);</span><br><span class="line">        <span class="comment">// 7、从第5点可知，主存里面的value字段值一定为20，显然不符合所期待的21，因此compareAndSwapInt会放弃本次对value写入（更新）</span></span><br><span class="line">        System.out.println(isSet1); <span class="comment">// false</span></span><br><span class="line">        System.out.println(unsafe.getInt(counter, baseOffset)); <span class="comment">// 20</span></span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>这里有个简单的类比：</p>
+<p>counter.value就好比桌子的一张白纸，假设白纸上当前写的初始值为0，同学A此时准备走到桌子前使用compareAndSwapInt去更改白纸的数字，但要满足这样条件：</p>
+<p>1、如果同学A走到桌子前发现白纸的数字是0，与他期待的数字0一致，说明当前没有其他同学抢先更改白纸数字，因此同学A能安全的原子性更改白纸的数字，对其加1，也即同学A使用CAS对白纸的数字改为1，CAS返回true。</p>
+<p>2、如果同学A走到桌子前发现白纸的数字是1，与他期待的数字0一致，说明在他之前已经有另外一个同学早就把白纸数字改为1，因此同学A此时需要放弃对白纸数字的写入，CAS返回false，那么同学A只能重新再到桌子上该，并且他期待白纸的数字是1</p>
+<p>再看一下说明：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">unsafe.compareAndSwapInt(counter, baseOffest, expect, update);</span><br></pre></td></tr></table></figure>
+<p>可以这样理解：对应counter实例，value字段对应的在主存相对地址为baseOffest，如果该value在主存的值等于线程栈空间存放的expect值，说明没有其他线程去主动更新主存的value字段，此时本线程使用compareAndSwapInt原子更新value字段一定不会产生冲突，而且能成功更新主存value的值。</p>
+<p>这里有个理解技巧：<code>compareAndSwapInt(counter, baseOffest, expect, update)</code> 首先expect跟update是没有任何联系的，不要混淆错看为：expect等于update时才写入，这是非常典型的误解。CAS整个用法只关注线程栈空间的expect值即可，expect会被native方法拿去跟主存中的value字段比较。</p>
+<p>有了以上“只关注线程栈空间的expect去比较主存的值”，接着我们再来理解Unsafe类的getAndSet：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">final</span> V <span class="title">getAndSet</span><span class="params">(V newValue)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">while</span> (<span class="keyword">true</span>) &#123;</span><br><span class="line">            V x = get();</span><br><span class="line">            <span class="keyword">if</span> (compareAndSet(x, newValue))</span><br><span class="line">                <span class="keyword">return</span> x;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"><span class="comment">// compareAndSet其实封装了`compareAndSwapInt(counter, baseOffest, expect, update)`</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">compareAndSet</span><span class="params">(V expect, V update)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> unsafe.compareAndSwapObject(<span class="keyword">this</span>, valueOffset, expect, update);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>显然getAndSet的思想是：</p>
+<p>1、先去主存去取值回来：x = get()</p>
+<p>2、将取出的值作为expect，也即compareAndSet(x, newValue)的x变量</p>
+<p>3、按照“只关注线程栈空间的expect去比较主存的值”思路：当前期待的值即为x，它被取出来后(暂时存放到线程栈空间)，然后再被拿去跟主存的x去比较，如果两者相等，说明在它之前没有其他线程去更改主存的x，这时当前线程就可以放心用newValue写入主存的x，而且写入操作是原子性的；否则进入下一次尝试</p>
+<p>有了上面的CAS机制铺垫，以下是无锁并发的编程demo:</p>
+<p>使用1万个线程对Counter类的value字段进行加1的CAS原子操作，如果能正确工作，那么最终打印counter.value的是10000</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> hashmap.demo;</span><br><span class="line"><span class="keyword">import</span> sun.misc.Unsafe;</span><br><span class="line"><span class="keyword">import</span> java.lang.reflect.Field;</span><br><span class="line"><span class="keyword">import</span> java.util.ArrayList;</span><br><span class="line"><span class="keyword">import</span> java.util.List;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Unsafe5</span> </span>&#123;</span><br><span class="line">    <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Counter</span> </span>&#123;</span><br><span class="line">        <span class="keyword">public</span> <span class="keyword">volatile</span> <span class="keyword">int</span> value; <span class="comment">// 多线程情况下爱，value字段需要使用volatile原语定义，以保证线程间对它的可见性</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 1、创建unsafe实例以及获取counter.value字段的相对地址，static块是按照源码组织形式的写法</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> Counter counter=<span class="keyword">new</span> Counter();</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> Unsafe unsafe;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">long</span> baseOffset;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Field field = Unsafe.class.getDeclaredField(<span class="string">&quot;theUnsafe&quot;</span>);</span><br><span class="line">            field.setAccessible(<span class="keyword">true</span>);</span><br><span class="line">            unsafe = (Unsafe) field.get(<span class="keyword">null</span>);</span><br><span class="line">            baseOffset = unsafe.objectFieldOffset(Counter.class.getDeclaredField(<span class="string">&quot;value&quot;</span>));</span><br><span class="line">            <span class="comment">//或者 baseOffset = unsafe.objectFieldOffset(counter.getClass().getDeclaredField(&quot;value&quot;));</span></span><br><span class="line"></span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line"></span><br><span class="line">        List&lt;Thread&gt; threadList = <span class="keyword">new</span> ArrayList&lt;&gt;();</span><br><span class="line">        <span class="comment">// 2、创建1万个线程，每个线程对counter.value进行加1操作，这里使用的自旋+CAS，也即直到当前线程能够成功完成对主存的value进行</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; <span class="number">10000</span>; i++) &#123;</span><br><span class="line">            Thread t = <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">                <span class="meta">@Override</span></span><br><span class="line">                <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                    <span class="keyword">for</span> (; ; ) &#123;</span><br><span class="line">                        <span class="comment">// 在每个线程内部，使用CAS无锁操作对主存中的 counter实例的value字段进行原子加1，如果写入成功，则当前线程退出</span></span><br><span class="line">                        <span class="keyword">int</span> x = counter.value;</span><br><span class="line">                        <span class="keyword">if</span> (unsafe.compareAndSwapInt(counter, baseOffset, x, x + <span class="number">1</span>)) &#123;</span><br><span class="line">                            <span class="keyword">break</span>;</span><br><span class="line">                        &#125;</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;);</span><br><span class="line"></span><br><span class="line">            threadList.add(t);</span><br><span class="line">            t.start();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">for</span>(Thread t:threadList)&#123;</span><br><span class="line">            t.join();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">// value最终的值应为100000</span></span><br><span class="line">        System.out.println(counter.value);</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>从此demo程序对于counter.value的加1操作设计，可以总结出一套基于unsafe的原子操作类的模板，这就是<code>java.util.concurrent.atomic</code>里面所有AtomicXXX的设计原理:</p>
+<p>具体来说，java.util.concurrent.atomic中的类可以分成4种：</p>
+<ul>
+<li><p>基本类型：AtomicBoolean，AtomicInteger，AtomicLong</p>
+</li>
+<li><p>引用类型：AtomicReference</p>
+</li>
+<li><p>数组类：AtomicIntegerArray，AtomicLongArray，AtomicReferenceArray</p>
+</li>
+<li><p>更新器类：AtomicLongFieldUpdater，AtomicIntegerFieldUpdater，AtomicReferenceFieldUpdater</p>
+</li>
+<li><p>复合变量类：AtomicMarkableReference，AtomicStampedReference</p>
+</li>
+</ul>
+<h4 id="CAS引起的ABA问题"><a href="#CAS引起的ABA问题" class="headerlink" title="CAS引起的ABA问题"></a>CAS引起的ABA问题</h4><p>CAS的思想主要是：如果主存的值跟expect值相同，说明主存的值没有被其他线程改动过，那么当前线程（以下称为T1）当然可以去原子写入</p>
+<p>这里有个重要的前提，“如果主存的值跟expect值相同”，包含以下两种情况：</p>
+<p>1、主存的值为A，在被T1更新前，这个A没有被其他线程更改过，那么就是我们熟悉的compareAndSet，T1一定可以CAS操作成功，这个没有问题。</p>
+<p>2、主存的值为A，中间被其他线程改为B，随后又被其他线程改回A，那么对于T1来说它看到主存的值还是A（实际上此A已经非彼A），因此T1使用compareAndSet成功操作，尽管在这里T1是操作成功了，但CAS竟然无法发现“A变为B再变为A”的特殊情况，这会引起一些潜在的bug：</p>
+<p>现在考察以下暴露的隐藏问题：</p>
+<p>多个线程对栈进行操作，这个栈为：A-&gt;B-&gt;C-&gt;D，现在线程T1要使用compareAndSet(A,F)对这个栈的栈顶改为B，在T1准备CAS时，线程T2被cpu优先调度执行</p>
+<p>线程T2对A,B,C出栈后，再对A入栈，此时栈变为A-&gt;D，线程T1此时被cpu调度执行</p>
+<p>线程T1使用compareAndSet(A,F)，此刻它认为栈顶的A和它期待的A显然是相同的，于是更新栈顶为B，T1返回的栈为为F-&gt;D，问题出现在哪里？</p>
+<p>正常来说在阻塞式多线程并发情况下：T1执行compareAndSet(A,F)后，T1返回的栈为F-&gt;B-&gt;C-&gt;D</p>
+<p>但是在并发CAS情况下，T1执行compareAndSet(A,F)后，T1返回的栈为F-&gt;D，B和C两个元素就这样凭空消失了！！！</p>
+<p>这就是所谓的“ABA问题”，根本原因就是CAS只是简单比较主存的值和expect的值比较是否相同，它无法发现主存的值是否被改变了多次</p>
+<h4 id="如何解决ABA问题？"><a href="#如何解决ABA问题？" class="headerlink" title="如何解决ABA问题？"></a>如何解决ABA问题？</h4><p>CAS为对A添加一个版本号，即[A,oldVersion]，执行CAS时，不仅要比较主存的值和A是否相同，而且也要比较主存的值的版本号oldVersion有无变化，只有当</p>
+<p>[主存的值,oldVersion] 等于[A,oldVersion]时，才可以执行原子写入操作。</p>
+<p>这就是AtomicStampedReference的设计原理，它有一个内部类Pair，目的就是构造一个具有值和版本号标识的”结对子对象”：Pair(reference,stamp)，它可以唯一表示出</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Pair</span>&lt;<span class="title">T</span>&gt; </span>&#123;</span><br><span class="line">    <span class="keyword">final</span> T reference;</span><br><span class="line">    <span class="keyword">final</span> <span class="keyword">int</span> stamp;</span><br><span class="line">    <span class="function"><span class="keyword">private</span> <span class="title">Pair</span><span class="params">(T reference, <span class="keyword">int</span> stamp)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">this</span>.reference = reference;</span><br><span class="line">        <span class="keyword">this</span>.stamp = stamp;</span><br><span class="line">    &#125;</span><br><span class="line"><span class="keyword">private</span> <span class="keyword">volatile</span> Pair&lt;V&gt; pair;</span><br></pre></td></tr></table></figure>
+<p>还是以“A同学更改桌子上白纸上的数字（或者字符）”作为例子说明</p>
+<p>1、首先白纸上已经写着一个初始值“A”，在A的旁边还写着一个版本0</p>
+<p>2、A同学成功更改白纸字符对应的过程：A同学手上拿着期待值“A”和版本号0走到桌子前，看到白纸上值恰好写着A而且版本也是0，说明没有其他同学主动来更改白纸，因此A同学可以使用CAS原子更改白纸的值，对应代码如下</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Unsafe6</span> </span>&#123;</span><br><span class="line">    <span class="keyword">static</span> String paper = <span class="string">&quot;A&quot;</span>;</span><br><span class="line">    <span class="comment">//asr：模拟桌子上的白纸，白纸的初始值为A，初始版本为0</span></span><br><span class="line">    <span class="keyword">static</span> AtomicStampedReference&lt;String&gt; asr = <span class="keyword">new</span> AtomicStampedReference&lt;&gt;(paper, <span class="number">0</span>);</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">            <span class="meta">@Override</span></span><br><span class="line">            <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                <span class="comment">// 白纸被更新前对应的值和版本号</span></span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp()); <span class="comment">// A:0</span></span><br><span class="line">                <span class="comment">// A同学手上拿着期待值A和期待版本0，以及准备写入的新值B，准备写入的新版号</span></span><br><span class="line">                <span class="keyword">boolean</span> isSet = asr.compareAndSet(<span class="string">&quot;A&quot;</span>, <span class="string">&quot;B&quot;</span>, <span class="number">0</span>, <span class="number">1</span>); </span><br><span class="line">                System.out.println(isSet); <span class="comment">//true</span></span><br><span class="line">              	<span class="comment">// 白纸被CAS成功更新后对应的值和版本号</span></span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp());<span class="comment">// B:1</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;).start();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>3、A同学放弃此次更改白纸字符对应的过程：同学A手上拿着期待值“A”和版本号0走到桌子，看到白纸上写着A但是版本号写着2，虽然值相同，但两者版本不一样，说明其他同学主动来更改白纸的值A，A同学放弃本次更新。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">Unsafe6</span> </span>&#123;</span><br><span class="line">    <span class="keyword">static</span> String paper = <span class="string">&quot;A&quot;</span>;</span><br><span class="line">    <span class="keyword">static</span> AtomicStampedReference&lt;String&gt; asr = <span class="keyword">new</span> AtomicStampedReference&lt;&gt;(paper, <span class="number">0</span>);</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">        <span class="comment">// B同学优先使用CAS对白纸进行写入</span></span><br><span class="line">        <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">            <span class="meta">@Override</span></span><br><span class="line">            <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp()); <span class="comment">// A:0</span></span><br><span class="line">                <span class="keyword">boolean</span> isSet = asr.compareAndSet(<span class="string">&quot;A&quot;</span>, <span class="string">&quot;B&quot;</span>, <span class="number">0</span>, <span class="number">1</span>);</span><br><span class="line">                System.out.println(isSet);<span class="comment">// true</span></span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp());<span class="comment">//B:1</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;).start();</span><br><span class="line">        Thread.sleep(<span class="number">1</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// C同学优先使用CAS对白纸进行写入</span></span><br><span class="line">        <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">            <span class="meta">@Override</span></span><br><span class="line">            <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp()); <span class="comment">//B:1</span></span><br><span class="line">                <span class="keyword">boolean</span> isSet = asr.compareAndSet(<span class="string">&quot;B&quot;</span>, <span class="string">&quot;A&quot;</span>, <span class="number">1</span>, <span class="number">2</span>);</span><br><span class="line">                System.out.println(isSet);<span class="comment">//true</span></span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp());<span class="comment">//A:2</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;).start();</span><br><span class="line"></span><br><span class="line">        Thread.sleep(<span class="number">1</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 等前面两个同学对白纸完成CAS操作后，白纸的值和版本号为A:2</span></span><br><span class="line">        <span class="comment">// 此时A同学手上拿着期待值A和期待版本0，以及准备写入的新值B，准备写入的新版号</span></span><br><span class="line">        <span class="comment">// 结果发现白纸的值虽然为A，但是版本号为2，因此isSet为false也即CAS操作失败,白纸的值维持为A</span></span><br><span class="line">        <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">            <span class="meta">@Override</span></span><br><span class="line">            <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp());<span class="comment">// A:2</span></span><br><span class="line">                <span class="keyword">boolean</span> isSet = asr.compareAndSet(<span class="string">&quot;A&quot;</span>, <span class="string">&quot;B&quot;</span>, <span class="number">0</span>, <span class="number">1</span>);</span><br><span class="line">                System.out.println(isSet);<span class="comment">//false</span></span><br><span class="line">                System.out.println(asr.getReference() + <span class="string">&quot;:&quot;</span> + asr.getStamp());<span class="comment">//A:2</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;).start();</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>有了demo例子的铺垫，结合前面的unsafe多个demo的案例，AtomicStampedReference就是基于compareAndSwapObject方法进行设计的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">public final native boolean compareAndSwapObject(Object var1, long var2, Object var4, Object var5);</span><br></pre></td></tr></table></figure>
+<p>AtomicStampedReference在内部中</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">UNSAFE.compareAndSwapObject(<span class="keyword">this</span>, pairOffset, expectPair, newPair);</span><br></pre></td></tr></table></figure>
+<p>源码解析：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> java.util.concurrent.atomic;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">AtomicStampedReference</span>&lt;<span class="title">V</span>&gt; </span>&#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="class"><span class="keyword">class</span> <span class="title">Pair</span>&lt;<span class="title">T</span>&gt; </span>&#123;</span><br><span class="line">        <span class="keyword">final</span> T reference; <span class="comment">// 用于被比较的引用类型（当然可以传入任意类型，因为这里是T泛型)，在以下被称为值</span></span><br><span class="line">        <span class="keyword">final</span> <span class="keyword">int</span> stamp;  <span class="comment">//  版本号</span></span><br><span class="line">      </span><br><span class="line">      	<span class="comment">// 内部结对类，是辅助类，用于解决ABA的关键手段之一</span></span><br><span class="line">        <span class="function"><span class="keyword">private</span> <span class="title">Pair</span><span class="params">(T reference, <span class="keyword">int</span> stamp)</span> </span>&#123;</span><br><span class="line">            <span class="keyword">this</span>.reference = reference;</span><br><span class="line">            <span class="keyword">this</span>.stamp = stamp;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">// 用于构建一个值和版本号绑在一起的“结对”实例</span></span><br><span class="line">        <span class="keyword">static</span> &lt;T&gt; <span class="function">Pair&lt;T&gt; <span class="title">of</span><span class="params">(T reference, <span class="keyword">int</span> stamp)</span> </span>&#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">new</span> Pair&lt;T&gt;(reference, stamp);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  </span><br><span class="line">    <span class="comment">// unsafe进行CAS操作的实例object，考虑并发场景下，需要使用volatile内存可见性原语</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">volatile</span> Pair&lt;V&gt; pair;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 使用促使的引用类型实例和促使版本号构造AtomicStampedReference实例，例如</span></span><br><span class="line"><span class="comment">    AtomicStampedReference&lt;String&gt; asr = new AtomicStampedReference&lt;&gt;(&quot;A&quot;, 0);</span></span><br><span class="line"><span class="comment">    那么这里initialRef就是&quot;A&quot;，initialStamp就是0</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="title">AtomicStampedReference</span><span class="params">(V initialRef, <span class="keyword">int</span> initialStamp)</span> </span>&#123;</span><br><span class="line">        pair = Pair.of(initialRef, initialStamp);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 只能返回获取值</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> V <span class="title">getReference</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> pair.reference;</span><br><span class="line">    &#125;</span><br><span class="line">		<span class="comment">// 只能返回获取值对应的版本号</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">int</span> <span class="title">getStamp</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> pair.stamp;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">  </span><br><span class="line">  </span><br><span class="line">    <span class="comment">//可以同时返回值和版本号，注意这里返回的版本号是放在入参数组stampHolder[0]中,至于为何不是直接用整型变量返回版本号？使用整型数据更方便让get方法将版本号放在给定的入参数据里，算是普通思路。</span></span><br><span class="line">    <span class="comment">/*常见用法：</span></span><br><span class="line"><span class="comment">      int[] stampHolder=new int[1];</span></span><br><span class="line"><span class="comment">      这时asr.get(stampHolder)取到值，而stampHolder[0]就取到值对应的版本号</span></span><br><span class="line"><span class="comment">      System.out.println(&quot;ref:&quot;+asr.get(stampHolder)+&quot; stamp:&quot;+stampHolder[0]);</span></span><br><span class="line"><span class="comment">    */</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> V <span class="title">get</span><span class="params">(<span class="keyword">int</span>[] stampHolder)</span> </span>&#123;</span><br><span class="line">        Pair&lt;V&gt; pair = <span class="keyword">this</span>.pair;</span><br><span class="line">        stampHolder[<span class="number">0</span>] = pair.stamp;</span><br><span class="line">        <span class="keyword">return</span> pair.reference;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 跟compareAndSet类似，可以看做是弱CAS，不常用</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">weakCompareAndSet</span><span class="params">(V   expectedReference,</span></span></span><br><span class="line"><span class="function"><span class="params">                                     V   newReference,</span></span></span><br><span class="line"><span class="function"><span class="params">                                     <span class="keyword">int</span> expectedStamp,</span></span></span><br><span class="line"><span class="function"><span class="params">                                     <span class="keyword">int</span> newStamp)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> compareAndSet(expectedReference, newReference,</span><br><span class="line">                             expectedStamp, newStamp);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">    该方法就是用户调用的CAS方法，这里做了一个优化小技巧：如果新值和新版本号恰好等于主存的的值以及主存的版本号，显然连CAS操作都省了，直接返回true，有点点耍小聪明和碰运气</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">compareAndSet</span><span class="params">(V   expectedReference,</span></span></span><br><span class="line"><span class="function"><span class="params">                                 V   newReference,</span></span></span><br><span class="line"><span class="function"><span class="params">                                 <span class="keyword">int</span> expectedStamp,</span></span></span><br><span class="line"><span class="function"><span class="params">                                 <span class="keyword">int</span> newStamp)</span> </span>&#123;</span><br><span class="line">        Pair&lt;V&gt; current = pair;</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">          <span class="comment">// 通过对比期待值和主存值、期待版本号和主存值对应的版本号，可以确保不再出现所谓的ABA问题，能“感知”值的改变次数</span></span><br><span class="line">            expectedReference == current.reference &amp;&amp;</span><br><span class="line">            expectedStamp == current.stamp &amp;&amp;</span><br><span class="line">            ((newReference == current.reference &amp;&amp;</span><br><span class="line">              newStamp == current.stamp) ||</span><br><span class="line">             casPair(current, Pair.of(newReference, newStamp)));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">		<span class="comment">// 没有使用CAS去更新，只是简单的更新操作，这一方法适合用在单线程或者冲突不严重的并发情况，看你对业务的经验</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">set</span><span class="params">(V newReference, <span class="keyword">int</span> newStamp)</span> </span>&#123;</span><br><span class="line">        Pair&lt;V&gt; current = pair;</span><br><span class="line">        <span class="keyword">if</span> (newReference != current.reference || newStamp != current.stamp)</span><br><span class="line">            <span class="keyword">this</span>.pair = Pair.of(newReference, newStamp);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">   不管版本号是否相同，只要期待值和主存的值相等，就用新版本号更新主存值的旧版本号，</span></span><br><span class="line"><span class="comment">   注意：每次调用该方法都可能会更新失败，需要结合自旋直到更新成功为止</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">attemptStamp</span><span class="params">(V expectedReference, <span class="keyword">int</span> newStamp)</span> </span>&#123;</span><br><span class="line">        Pair&lt;V&gt; current = pair;</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">            expectedReference == current.reference &amp;&amp;</span><br><span class="line">            (newStamp == current.stamp ||</span><br><span class="line">             casPair(current, Pair.of(expectedReference, newStamp)));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// Unsafe mechanics</span></span><br><span class="line">		<span class="comment">// 以下就是前面我们熟悉的unsafe相关操作：创建unsafe实例、pair的相对地址</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> sun.misc.Unsafe UNSAFE = sun.misc.Unsafe.getUnsafe();</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">long</span> pairOffset =</span><br><span class="line">        objectFieldOffset(UNSAFE, <span class="string">&quot;pair&quot;</span>, AtomicStampedReference.class);</span><br><span class="line"></span><br><span class="line">  	<span class="comment">// 到了这里才是真正执行对主存对象进行操作的逻辑，可以看到这里使用compareAndSwapObject(Object var1, long var2, Object var4, Object var5);</span></span><br><span class="line">    <span class="comment">// 注意对比前面的unsafe.compareAndSwapInt(被更新的对象,相对地址,期待值,新值);</span></span><br><span class="line">    <span class="function"><span class="keyword">private</span> <span class="keyword">boolean</span> <span class="title">casPair</span><span class="params">(Pair&lt;V&gt; cmp, Pair&lt;V&gt; val)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> UNSAFE.compareAndSwapObject(<span class="keyword">this</span>, pairOffset, cmp, val);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">static</span> <span class="keyword">long</span> <span class="title">objectFieldOffset</span><span class="params">(sun.misc.Unsafe UNSAFE,</span></span></span><br><span class="line"><span class="function"><span class="params">                                  String field, Class&lt;?&gt; klazz)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">return</span> UNSAFE.objectFieldOffset(klazz.getDeclaredField(field));</span><br><span class="line">        &#125; <span class="keyword">catch</span> (NoSuchFieldException e) &#123;</span><br><span class="line">            <span class="comment">// Convert Exception to corresponding Error</span></span><br><span class="line">            NoSuchFieldError error = <span class="keyword">new</span> NoSuchFieldError(field);</span><br><span class="line">            error.initCause(e);</span><br><span class="line">            <span class="keyword">throw</span> error;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>与AtomicStampedReference的内部的结对对象是[值,版本]设计思想类似的还有AtomicMarkableReference，它内部是结对对象是[值,标志位]，也即[值,1]或者[值,0]，如下面所示</p>
+<p>AtomicStampedReference内部是结对类</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> T reference;</span><br><span class="line"><span class="keyword">final</span> <span class="keyword">int</span> stamp;</span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="title">Pair</span><span class="params">(T reference, <span class="keyword">int</span> stamp)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">this</span>.reference = reference;</span><br><span class="line">    <span class="keyword">this</span>.stamp = stamp;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>AtomicMarkableReference内部是结对类</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> T reference;</span><br><span class="line"><span class="keyword">final</span> <span class="keyword">boolean</span> mark;</span><br><span class="line"><span class="function"><span class="keyword">private</span> <span class="title">Pair</span><span class="params">(T reference, <span class="keyword">boolean</span> mark)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">this</span>.reference = reference;</span><br><span class="line">    <span class="keyword">this</span>.mark = mark;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>它们两个在使用场合有什么不同呢？</p>
+<p>AtomicStampedReference可以给值(reference)加上版本号后，可以追踪到这个值的整个变化过程，如：<br><code>[A,0] =&gt; [B,1] =&gt; [C,2] =&gt; [A,3]</code>，通过getStamp返回的版本号大小，可以知道值在中途被更改了3次。</p>
+<p>场景另外一种并发场景：也需要你并不关心值（reference）中途更改了多少次，而是只关注这个主存的值是否有被修改过，AtomicMarkableReference显然很适合。</p>
+<p>ABA 问题</p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/tiandao321/article/details/80811103?utm_medium=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7EBlogCommendFromMachineLearnPai2%7Edefault-1.control&amp;depth_1-utm_source=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7EBlogCommendFromMachineLearnPai2%7Edefault-1.control">https://blog.csdn.net/tiandao321/article/details/80811103?utm_medium=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7EBlogCommendFromMachineLearnPai2%7Edefault-1.control&amp;depth_1-utm_source=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7EBlogCommendFromMachineLearnPai2%7Edefault-1.control</a></p>
+<h4 id="ReentrantLock里面的阻塞锁和非柱塞锁的区别"><a href="#ReentrantLock里面的阻塞锁和非柱塞锁的区别" class="headerlink" title="ReentrantLock里面的阻塞锁和非柱塞锁的区别"></a>ReentrantLock里面的阻塞锁和非柱塞锁的区别</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> ReentrantLock reentrantLock= <span class="keyword">new</span> ReentrantLock();</span><br><span class="line"></span><br><span class="line"><span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        reentrantLock.lock();</span><br><span class="line">        System.out.println(<span class="string">&quot;线程A在运行中&quot;</span>);</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Thread.sleep(<span class="number">5</span>*<span class="number">1000</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        reentrantLock.unlock();</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;).start();</span><br><span class="line"></span><br><span class="line">    Thread.sleep(<span class="number">1</span>);<span class="comment">// 让线程A先运行</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 线程A在工作时，线程B被阻塞了，啥事都做不了，干等，浪费资源</span></span><br><span class="line">    <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">            reentrantLock.lock();</span><br><span class="line">            System.out.println(<span class="string">&quot;线程B在运行中&quot;</span>);</span><br><span class="line">            reentrantLock.unlock();</span><br><span class="line"></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;).start();</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>从上面的运行结果来看：线程A在工作时，线程B被阻塞了，啥事都做不了，干等，浪费资源</p>
+<p>如果使用非阻塞锁，那么线程A在工作时，线程B不会被阻塞，线程B可以自由做其他事情，没有白白自旋</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">final</span> ReentrantLock reentrantLock= <span class="keyword">new</span> ReentrantLock();</span><br><span class="line"></span><br><span class="line"><span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        reentrantLock.lock();</span><br><span class="line">        System.out.println(<span class="string">&quot;线程A在运行中&quot;</span>);</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Thread.sleep(<span class="number">5</span>*<span class="number">1000</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        reentrantLock.unlock();</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;).start();</span><br><span class="line"></span><br><span class="line">    Thread.sleep(<span class="number">1</span>);<span class="comment">// 让线程A先运行</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 线程A在工作时，使用tryLock非阻塞锁，这样线程B不会被线程A阻塞，线程A工作的同时，线程B也可以去干点别的事情！</span></span><br><span class="line">    <span class="keyword">new</span> Thread(<span class="keyword">new</span> Runnable() &#123;</span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">            <span class="keyword">while</span> (!reentrantLock.tryLock())&#123;</span><br><span class="line">                System.out.println(<span class="string">&quot;线程B在工作中，对链表扫描是否存在key节点&quot;</span>);</span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                    Thread.sleep(<span class="number">1000</span>);</span><br><span class="line">                &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">                    e.printStackTrace();</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">            &#125;</span><br><span class="line">            reentrantLock.unlock();</span><br><span class="line"></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;).start();</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>输出：可以看到在第5秒后，线程B获取到了锁因此退出while循环，使用trylock非阻塞锁后，在这5秒时间内，至少线程B没有白白浪费，而是干了一些查询key节点的工作，这就是scanAndLockForPut的设计思想</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">线程A在运行中</span><br><span class="line">线程B在工作中，对链表扫描是否存在key节点</span><br><span class="line">线程B在工作中，对链表扫描是否存在key节点</span><br><span class="line">线程B在工作中，对链表扫描是否存在key节点</span><br><span class="line">线程B在工作中，对链表扫描是否存在key节点</span><br><span class="line">线程B在工作中，对链表扫描是否存在key节点</span><br></pre></td></tr></table></figure>
+<p>对比scanAndLockForPut的<code>while (!tryLock())</code>即可理解其设计思想：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> HashEntry&lt;K,V&gt; <span class="title">scanAndLockForPut</span><span class="params">(K key, <span class="keyword">int</span> hash, V value)</span> </span>&#123;</span><br><span class="line">    HashEntry&lt;K,V&gt; first = entryForHash(<span class="keyword">this</span>, hash);</span><br><span class="line">    HashEntry&lt;K,V&gt; e = first;</span><br><span class="line">    HashEntry&lt;K,V&gt; node = <span class="keyword">null</span>;</span><br><span class="line">    <span class="keyword">int</span> retries = -<span class="number">1</span>; <span class="comment">// negative while locating node</span></span><br><span class="line">    <span class="keyword">while</span> (!tryLock()) &#123; <span class="comment">// 某线程没有获取锁的期间，顺便完成了链表的遍历以及新key节点的创建工作</span></span><br><span class="line"> <span class="comment">// ......         </span></span><br><span class="line">         node = <span class="keyword">new</span> HashEntry&lt;K,V&gt;(hash, key, value, <span class="keyword">null</span>);</span><br><span class="line">  			<span class="comment">// ...... </span></span><br><span class="line">    <span class="keyword">return</span> node;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/04/25/%E5%9F%BA%E4%BA%8EAQS%E9%A9%B1%E5%8A%A8%E7%9A%84ReentrantLock%E5%85%AC%E5%B9%B3%E9%94%81%E5%92%8C%E9%9D%9E%E5%85%AC%E5%B9%B3%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E8%A7%A3%E6%9E%90/" rel="prev" title="Java高级主题：基于AQS驱动的ReentrantLock公平锁和非公平锁实现原理解析">
+      <i class="fa fa-chevron-left"></i> Java高级主题：基于AQS驱动的ReentrantLock公平锁和非公平锁实现原理解析
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/05/16/AQS%E6%A0%B8%E5%BF%83%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0%E4%B9%8B%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F%E7%9A%84%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90/" rel="next" title="Java高级主题：AQS核心源代码实现之共享模式的深入解析">
+      Java高级主题：AQS核心源代码实现之共享模式的深入解析 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8unsafe%E6%93%8D%E4%BD%9C%E6%95%B0%E7%BB%84"><span class="nav-number">1.</span> <span class="nav-text">使用unsafe操作数组</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8Unsafe%E6%93%8D%E4%BD%9C%E8%87%AA%E5%AE%9A%E4%B9%89%E7%B1%BB%EF%BC%88%E9%9D%9E%E5%B9%B6%E5%8F%91%E6%9D%A1%E4%BB%B6%E4%B8%8B%EF%BC%89"><span class="nav-number">2.</span> <span class="nav-text">使用Unsafe操作自定义类（非并发条件下）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%85%B3%E4%BA%8E%E4%BD%BF%E7%94%A8getObject%E5%92%8CgetObjectVolatile%E8%BF%94%E5%9B%9E%E5%80%BC%E4%B8%BAObject%E7%9A%84%E8%BD%AC%E5%9E%8B%E8%AF%B4%E6%98%8E"><span class="nav-number">3.</span> <span class="nav-text">关于使用getObject和getObjectVolatile返回值为Object的转型说明</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8Unsafe%E6%93%8D%E4%BD%9C%E8%87%AA%E5%AE%9A%E4%B9%89%E7%B1%BB%EF%BC%88%E5%B9%B6%E5%8F%91%E5%86%99%E5%92%8C%E8%AF%BB%E6%9D%A1%E4%BB%B6%E4%B8%8B%EF%BC%89"><span class="nav-number">4.</span> <span class="nav-text">使用Unsafe操作自定义类（并发写和读条件下）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#CAS%E5%BC%95%E8%B5%B7%E7%9A%84ABA%E9%97%AE%E9%A2%98"><span class="nav-number">5.</span> <span class="nav-text">CAS引起的ABA问题</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E8%A7%A3%E5%86%B3ABA%E9%97%AE%E9%A2%98%EF%BC%9F"><span class="nav-number">6.</span> <span class="nav-text">如何解决ABA问题？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#ReentrantLock%E9%87%8C%E9%9D%A2%E7%9A%84%E9%98%BB%E5%A1%9E%E9%94%81%E5%92%8C%E9%9D%9E%E6%9F%B1%E5%A1%9E%E9%94%81%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="nav-number">7.</span> <span class="nav-text">ReentrantLock里面的阻塞锁和非柱塞锁的区别</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

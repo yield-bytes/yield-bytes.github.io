@@ -116,7 +116,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -211,7 +211,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -275,13 +275,12 @@
       
         <p>&#8195;&#8195;在此文章<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/102490212">《基于Centos7.5完整部署分布式Hadoop3.1.2》</a>里，已经给出详细的hadoop和yarn的部署过程，既然已经解决了大数据开发中“hdfs”的数据存储部署，那么就要考虑如何基于底层分布式文件基础上运行计算框架，以便进行更高层次的应用开发。在本篇文章中，将给出完整部署spark计算框架集群。</p>
 <a id="more"></a>
-
 <h3 id="1、spark版本（仅列出spark相关）"><a href="#1、spark版本（仅列出spark相关）" class="headerlink" title="1、spark版本（仅列出spark相关）"></a>1、spark版本（仅列出spark相关）</h3><p>spark-2.4.4-bin-hadoop2.7，该版本的spark支持hadoop2.7以及之后的版本</p>
 <p>scala-2.13.1：使用Scala语言开发数据处理逻辑，当然也可使用python进行spark数据处理逻辑开发，官网有给出pyspark相关指导教程。</p>
 <p>三台节点都需要配置，目录放置路径：</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# ls</span><br><span class="line">hadoop-3.1.2    jdk1.8.0_161  scala-2.13.1  spark-2.4.4-bin-hadoop2.7</span><br></pre></td></tr></table></figure>
-
 <p>spark HA集群规划，这里只列出spark HA集群的有关进程，hadoop的进程不再列出</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -292,7 +291,8 @@
 <th>物理内存</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td>192.188.0.4，nn</td>
 <td>master，worker，spark-history-server</td>
 <td>/opt/spark-2.4.4-bin-hadoop2.7</td>
@@ -313,48 +313,38 @@
 <td>/opt/scala-2.13.1</td>
 <td>1G</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <p>这里spark master节点nn的物理内存给了2G，因为该节点不仅仅启动了spark相关主服务，还得启动hadoop相关主服务，如果物理内存不足，在后面章节中启动spark-shell或者跑application都无法正常启动，提示资源不足。</p>
 <h3 id="2、设置path环境"><a href="#2、设置path环境" class="headerlink" title="2、设置path环境"></a>2、设置path环境</h3><p>三个节点都需要设置</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@nn opt]# vi /etc/profile</span><br><span class="line">export JAVA_HOME=/opt/jdk1.8.0_161</span><br><span class="line">export HADOOP_HOME=/opt/hadoop-3.1.2</span><br><span class="line">export SCALA_HOME=/opt/scala-2.13.1</span><br><span class="line">export SPARK_HOME=/opt/spark-2.4.4-bin-hadoop2.7/</span><br><span class="line">export PATH=$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$SPARK_HOME/bin:$SCALA_HOME/bin:</span><br><span class="line">export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar</span><br></pre></td></tr></table></figure>
-
-
-
 <h3 id="3、配置spark集群的相关文件"><a href="#3、配置spark集群的相关文件" class="headerlink" title="3、配置spark集群的相关文件"></a>3、配置spark集群的相关文件</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> 拷贝一份spark-env.sh文件用于配置spark环境</span></span><br><span class="line">[root@dn1 ~]# cp /opt/spark-2.4.4-bin-hadoop2.7/conf/spark-env.sh.template /opt/spark-2.4.4-bin-hadoop2.7/conf/spark-env.sh</span><br><span class="line">[root@dn1 ~]# cd /opt/spark-2.4.4-bin-hadoop2.7/</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# ls conf/</span><br><span class="line">docker.properties.template   slaves.template</span><br><span class="line">fairscheduler.xml.template   spark-defaults.conf.template</span><br><span class="line">log4j.properties.template    spark-env.sh</span><br><span class="line">metrics.properties.template  spark-env.sh.template</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# vi conf/spark-env.sh</span><br></pre></td></tr></table></figure>
-
-
 <p>只需在spark-env.sh文件头部加入以下环境变量</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">export SCALA_HOME=/opt/scala-2.12.8</span><br><span class="line">export JAVA_HOME=/opt/jdk1.8.0_161</span><br><span class="line"><span class="meta">#</span><span class="bash"> 设定192.188.0.4，nn节点为spark master</span></span><br><span class="line">export SPARK_MASTER_IP=nn</span><br><span class="line">export SPARK_WORKER_MEMORY=1g</span><br><span class="line"><span class="meta">#</span><span class="bash"> hadoop的配置文件**site.xml所在目录</span></span><br><span class="line">export HADOOP_CONF_DIR=/opt/hadoop-3.1.2/etc/hadoop</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-
 <p>修改conf目录下的slaves文件</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@dn1 conf]# cp slaves.template slaves</span><br><span class="line">[root@dn1 conf]# vi slaves</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure>
 <p>为减少spark主节点nn的内存资源消耗，这里不再将nn设为Worker角色</p>
 <p>将修改过的两个文件拷贝到其他两个节点</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# scp -r conf&#x2F; dn1:&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;</span><br><span class="line"></span><br><span class="line">[root@dn1 spark-2.4.4-bin-hadoop2.7]# scp -r conf&#x2F; dn2:&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;</span><br></pre></td></tr></table></figure>
-
 <h3 id="4、启动spark集群进程"><a href="#4、启动spark集群进程" class="headerlink" title="4、启动spark集群进程"></a>4、启动spark集群进程</h3><h4 id="4-1-启动spark-master进程"><a href="#4-1-启动spark-master进程" class="headerlink" title="4.1 启动spark-master进程"></a>4.1 启动spark-master进程</h4><p>spark的进程启动是有步骤的，需先启动master服务，再启动worker进程，因为worker启动需要通过spark://nn:7077 spark协议的7077端口与master节点通信，否则master节点和worker之间无法形成集群。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# .&#x2F;start-master.sh </span><br><span class="line">starting org.apache.spark.deploy.master.Master, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.master.Master-1-nn.out</span><br><span class="line"></span><br><span class="line"># nn节点上</span><br><span class="line">[root@nn sbin]# jps</span><br><span class="line">24292 DataNode</span><br><span class="line">24155 NameNode</span><br><span class="line">25339 NodeManager</span><br><span class="line">30638 Master</span><br><span class="line">30750 Jps</span><br><span class="line"></span><br><span class="line"># dn1节点上：</span><br><span class="line">[root@dn1 ~]# jps</span><br><span class="line">18480 Jps</span><br><span class="line">12805 ResourceManager</span><br><span class="line">12365 DataNode</span><br><span class="line">12942 NodeManager</span><br><span class="line"># dn2节点上：</span><br><span class="line">[root@dn2 ~]# jps</span><br><span class="line">13144 DataNode</span><br><span class="line">13244 SecondaryNameNode</span><br><span class="line">19437 Jps</span><br><span class="line">13599 NodeManager</span><br></pre></td></tr></table></figure>
-
 <p>以上表示主节点已经启动Master进程，其他节点dn1和dn2还未启动Worker进程。可以通过log日志文件内容看到其启动过程，这里不再给出，当然更直观的方式是在web端查看：页面<code>http://nn:8080/</code>或者<code>http://192.188.0.4:8080</code>可以直观看到master状态，此时workers还未启动,可以按到显示workers数量为0</p>
 <h4 id="4-2-在spark-master启动后，启动Worker节点"><a href="#4-2-在spark-master启动后，启动Worker节点" class="headerlink" title="4.2 在spark master启动后，启动Worker节点"></a>4.2 在spark master启动后，启动Worker节点</h4><p>在spark主节点上nn，启动workers，这些workers的对应的节点就是路径<code>/opt/spark-2.4.4-bin-hadoop2.7/conf</code>下slaves文件配置到2个节点：dn1,dn2。</p>
 <ul>
-<li><p>启动spark集群上所有的workers节点命令：start-slaves.sh</p>
-</li>
+<li>启动spark集群上所有的workers节点命令：start-slaves.sh</li>
 <li><p>启动本节点上的work进程：start-slave.sh</p>
 </li>
 <li><p>可以对比其shell脚本的差别，在start-slaves.sh脚本后面可以看到</p>
 </li>
 </ul>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&quot;$&#123;SPARK_HOME&#125;&#x2F;sbin&#x2F;start-slave.sh&quot; &quot;spark:&#x2F;&#x2F;$SPARK_MASTER_HOST:$SPARK_MASTER_PORT&quot;</span><br></pre></td></tr></table></figure>
-
 <p>start-slaves.sh其实是在其他节点运行<code>./start-slave.sh spark://nn:7077</code>实现批量启动其他work节点</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;sbin</span><br><span class="line">[root@nn sbin]# .&#x2F;start-slaves.sh </span><br><span class="line">dn1: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn1.out</span><br><span class="line">dn2: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn2.out</span><br><span class="line"></span><br><span class="line"># # nn节点上spark Master</span><br><span class="line">[root@nn sbin]# jps</span><br><span class="line">24292 DataNode</span><br><span class="line">24155 NameNode</span><br><span class="line">25339 NodeManager</span><br><span class="line">30638 Master</span><br><span class="line">30750 Jps</span><br><span class="line"></span><br><span class="line"># dn1节点上spark Worker进程</span><br><span class="line">[root@dn1 ~]# jps</span><br><span class="line">12805 ResourceManager</span><br><span class="line">23045 Jps</span><br><span class="line">23000 Worker</span><br><span class="line">12365 DataNode</span><br><span class="line">12942 NodeManager</span><br><span class="line"></span><br><span class="line"># dn2节点上spark Worker进程</span><br><span class="line">[root@dn2 ~]# jps</span><br><span class="line">24789 Worker</span><br><span class="line">24837 Jps</span><br><span class="line">13144 DataNode</span><br><span class="line">13244 SecondaryNameNode</span><br><span class="line">13599 NodeManager</span><br></pre></td></tr></table></figure>
 <p>在spark的master web端:<code>http://nn:8080</code>或者<code>http://192.188.0.4:8080</code>可以看到2个worker均active<br><img src="https://img-blog.csdnimg.cn/20191013195910122.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">每个worker的最大可用内存512m，vCPU 1颗</p>
 <h3 id="5、设置启动spark-shell的默认环境（非常关键的配置）"><a href="#5、设置启动spark-shell的默认环境（非常关键的配置）" class="headerlink" title="5、设置启动spark-shell的默认环境（非常关键的配置）"></a>5、设置启动spark-shell的默认环境（非常关键的配置）</h3><h4 id="5-1-配置spark-defaults-conf"><a href="#5-1-配置spark-defaults-conf" class="headerlink" title="5.1 配置spark-defaults.conf"></a>5.1 配置spark-defaults.conf</h4><p>注意，在启动spark-shell之前，如果需要对/opt/spark-2.4.4-bin-hadoop2.7/conf目录下的配置文件：<code>spark-defaults.conf.template</code>相关参数进行修改，例如需要结合spark-history-server的配置，那么除了新建一份<code>spark-defaults.conf</code>，还需要对里面参数正确，否则启动spark-shell会提示出错并退出</p>
 <p>因为本文测试使用2G内存，所以需要对配置文件里面做修改，修改如下</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# cp spark-defaults.conf.template spark-defaults.conf</span><br><span class="line">[root@nn conf] spark-defaults.conf</span><br><span class="line"></span><br><span class="line"># spark集群主节点的入口</span><br><span class="line">spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"># 在hadoop core-site.xml设置的hdfs入口地址，directory需自行在hdfs文件系统上创建</span><br><span class="line"># 通过命令可创建：hdfs dfs -mkdir &#x2F;directory</span><br><span class="line"># 同时日志目录作为spark-history-server的日志目录</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line"></span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line"># spark主节点driver内存，默认为5G，这里设为1g</span><br><span class="line">spark.driver.memory              1g</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure>
-
 <p>如果以上入口地址设错，或者未在namenode节点的hdfs文件系统上创建directory目录，都会导致无法启动spark-shell</p>
 <p>==若不对spark-defaults.conf.template参数修改，例如不需要启动history服务，则无需创建spark-defaults.conf文件，也无需进行上述设置，可以直接启动spark-shell==</p>
 <h4 id="5-2-spark-defaults-conf的详细的设置"><a href="#5-2-spark-defaults-conf的详细的设置" class="headerlink" title="5.2  spark-defaults.conf的详细的设置"></a>5.2  spark-defaults.conf的详细的设置</h4><p>参考<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/configuration.html">官网配置指引</a><br>其实该配置就是用来spark集群调优的关键配置</p>
@@ -363,7 +353,7 @@
 <li>Application Properties</li>
 <li>Runtime Environment</li>
 <li>Spark UI</li>
-<li> Compression and Serialization</li>
+<li>Compression and Serialization</li>
 <li>Memory Management</li>
 <li>Execution Behavior</li>
 <li>Networking</li>
@@ -372,10 +362,7 @@
 </ul>
 <h4 id="5-3-启动spark-shell"><a href="#5-3-启动spark-shell" class="headerlink" title="5.3 启动spark-shell"></a>5.3 启动spark-shell</h4><p>首次启动spark-shell时，会出现‘WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform’的提示，参考文章提示：centos预装的glibc库是2.17版本，而hadoop期望是2.14版本，可以忽略该警告，在hadoop日志配置文件设置：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@dn2 ~]# vi &#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop&#x2F;log4j.properties </span><br><span class="line"># 新增以下内容</span><br><span class="line">log4j.logger.org.apache.hadoop.util.NativeCodeLoader&#x3D;ERROR</span><br></pre></td></tr></table></figure>
-
-
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"># 启动成功提示</span><br><span class="line">[root@nn bin]# spark-shell                </span><br><span class="line">Setting default log level to &quot;WARN&quot;.</span><br><span class="line">To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).</span><br><span class="line">Spark context Web UI available at http:&#x2F;&#x2F;nn:4040</span><br><span class="line">Spark context available as &#39;sc&#39; (master &#x3D; spark:&#x2F;&#x2F;nn:7077, app id &#x3D; app-2019*****-0004).</span><br><span class="line">Spark session available as &#39;spark&#39;.</span><br><span class="line">Welcome to</span><br><span class="line">      ____              __</span><br><span class="line">     &#x2F; __&#x2F;__  ___ _____&#x2F; &#x2F;__</span><br><span class="line">    _\ \&#x2F; _ \&#x2F; _ &#96;&#x2F; __&#x2F;  &#39;_&#x2F;</span><br><span class="line">   &#x2F;___&#x2F; .__&#x2F;\_,_&#x2F;_&#x2F; &#x2F;_&#x2F;\_\   version 2.4.4</span><br><span class="line">      &#x2F;_&#x2F;</span><br><span class="line">         </span><br><span class="line">Using Scala version 2.11.12 (Java HotSpot(TM) 64-Bit Server VM, Java 1.8.0_161)</span><br><span class="line">Type in expressions to have them evaluated.</span><br><span class="line">Type :help for more information.</span><br><span class="line"></span><br><span class="line">scala&gt; </span><br></pre></td></tr></table></figure>
-
 <p>可以在<code>http://nn:4040</code>查看，若有计算任务提交，可以直观查看spark job 、excutors等进度，参考官方说明：</p>
 <blockquote>
 <p>Every SparkContext launches a web UI, by default on port 4040, that displays useful information about the application. This includes:</p>
@@ -393,123 +380,66 @@
 <p>导致job一直waiting状态<br>解决办法：<br>启动spark-shell限制相关资源的使用:</p>
 <p><code>spark-shell --executor-memory 512m  --total-executor-cores 3 --executor-cores 1</code></p>
 <h3 id="6、在spark-shell交互式计算words"><a href="#6、在spark-shell交互式计算words" class="headerlink" title="6、在spark-shell交互式计算words"></a>6、在spark-shell交互式计算words</h3><h4 id="6-1-存放words的文件已经上传到hdfs文件系统上的-app目录下"><a href="#6-1-存放words的文件已经上传到hdfs文件系统上的-app目录下" class="headerlink" title="6.1 存放words的文件已经上传到hdfs文件系统上的/app目录下"></a>6.1 存放words的文件已经上传到hdfs文件系统上的/app目录下</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# hdfs dfs -ls &#x2F;app</span><br><span class="line">Found 2 items</span><br><span class="line">-rw-r--r--   3 root supergroup         41 ** &#x2F;app&#x2F;title.txt</span><br><span class="line">-rw-r--r--   3 root supergroup         76 ** &#x2F;app&#x2F;words.txt</span><br><span class="line"></span><br><span class="line"># title.txt内容：</span><br><span class="line">hadoop spark zookeeper</span><br><span class="line"> spark zookeeper</span><br><span class="line"></span><br><span class="line"># words.txt内容：</span><br><span class="line">foo is foo</span><br><span class="line">bar is not bar</span><br><span class="line">hadoop file system is the infrastructure of big data </span><br></pre></td></tr></table></figure>
-
-
 <h4 id="6-2带参数启动spark-shell"><a href="#6-2带参数启动spark-shell" class="headerlink" title="6.2带参数启动spark-shell"></a>6.2带参数启动spark-shell</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 ~]# spark-shell --master spark:&#x2F;&#x2F;nn:7077 --executor-memory 512m  --total-executor-cores 3 --executor-cores 1  --num-executors 2</span><br><span class="line"></span><br><span class="line"># SparkContext,也可以在web端查看http:&#x2F;&#x2F;nn:4040</span><br><span class="line">scala&gt; sc</span><br><span class="line">res2: org.apache.spark.SparkContext &#x3D; org.apache.spark.SparkContext@e71bd92</span><br><span class="line"></span><br><span class="line"># 统计hdfs目录&#x2F;app下所有文件里面words，scala语言的链式调用</span><br><span class="line">scala&gt; sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false).collect</span><br><span class="line"></span><br><span class="line"># 统计结果返回一个scala数组</span><br><span class="line">res0: Array[(String, Int)] &#x3D; Array((is,3), (&quot;&quot;,2), (bar,2), (foo,2), (spark,2), (hadoop,2), (zookeeper,2), (not,1), (system,1), (big,1), (infrastructure,1), (the,1), (data,1), (file,1))</span><br></pre></td></tr></table></figure>
-
 <p>或者在此spark-shell上交互式使用Scala写简单的统计语句</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">scala&gt; val file&#x3D;sc.textFile(&quot;hdfs:&#x2F;&#x2F;nn:9000&#x2F;app&quot;)</span><br><span class="line">file: org.apache.spark.rdd.RDD[String] &#x3D; hdfs:&#x2F;&#x2F;nn:9000&#x2F;app MapPartitionsRDD[21] at textFile at &lt;console&gt;:24</span><br><span class="line"></span><br><span class="line">scala&gt; val rdd &#x3D; file.flatMap(line &#x3D;&gt; line.split(&quot; &quot;)).map(word &#x3D;&gt; (word,1)).reduceByKey(_+_).sortBy(_._2,false)</span><br><span class="line">rdd: org.apache.spark.rdd.RDD[(String, Int)] &#x3D; MapPartitionsRDD[29] at sortBy at &lt;console&gt;:25</span><br><span class="line"></span><br><span class="line">scala&gt; rdd.collect()</span><br><span class="line">res6: Array[(String, Int)] &#x3D; Array((is,3), (&quot;&quot;,2), (bar,2), (foo,2), (hadoop,2), (zookeeper,2), (spark,2), (not,1), (system,1), (data,1), (file,1), (big,1), (infrastructure,1), (the,1))</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
 <h3 id="7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）"><a href="#7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）" class="headerlink" title="7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）"></a>7、使用spark的相关web服务页面查看application执行计算作业的详细过程（非常重要）</h3><p>下面以一个Application 执行job前和执行job后的页面来说明application，job，task等内容</p>
 <p>==<strong>Application 执行job前</strong>==</p>
 <p><strong>A、查看application执行的详情页面</strong></p>
 <p>在nn节点上，启动一个名字为word-count的application：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn sbin]# spark-shell --executor-memory 512m  --total-executor-cores 3 --executor-cores 1  --num-executors 2 --name word-count</span><br></pre></td></tr></table></figure>
-<p>在spark-shell启动后，会提示：<br>Spark context Web UI available at <code>http://nn:4040</code><br>Spark context available as ‘sc’ (master = spark://nn:7077, app id = app-2019*****-0002).</p>
+<p>在spark-shell启动后，会提示：<br>Spark context Web UI available at <code>http://nn:4040</code><br>Spark context available as ‘sc’ (master = spark://nn:7077, app id = app-2019*<em>**</em>-0002).</p>
 <p><code>http://nn:4040</code>针对当前运行application的job详情，如果执行统计命令后退出spark-shell，那么web服务退出，<code>http://nn:4040</code>将无法访问，也即无法查看当前application执行过程的情况，所有需要配置application 的spark-history-server，用来查看之前已经完成或者未完成的application情况的历史记录<br><code>http://nn:4040</code>页面：<br>app id = app-2019*<strong><strong>-0002Jobs栏目内容：<br>可以看到目前该application没有job需要执行<br><img src="https://img-blog.csdnimg.cn/2019101320274522.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">app id = app-2019*</strong></strong>-0002的executor内容：<br>该application分配了两个executor，分别为dn1节点和dn2节点，nn节点则作为driver<br><img src="https://img-blog.csdnimg.cn/20191013203133344.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><strong>B、查看所有正在完成、已完成的application管理页面：spark master：</strong><code>http://nn:8080</code><br>该页面可以看到spark集群的资源分配情况、worker情况、正在runing的application以及已经完成的application<br><img src="https://img-blog.csdnimg.cn/20191013203738203.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br><strong>C、在A部分提到如果要回看已经完成application运行情况，则需要启动spark-history-server，这里给出配置文件说明</strong><br>==配置Spark History Server服务==<br>history只需在spark主节点上配置，无需在其他两个节点上配置。<br>spark-history-server其实就是一个web服务，spark.eventLog.dir存放所有application事件日志，web服务通过把这些application运行日志内容以web UI提供查看</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# vi spark-env.sh</span><br><span class="line"># 从配置说明可以看出，所有配置hisory服务的属性值可由以下属性设定</span><br><span class="line"># - SPARK_HISTORY_OPTS, to set config properties only for the history server (e.g. &quot;-Dx&#x3D;y&quot;)</span><br><span class="line"></span><br><span class="line"># 配置history日志存放目录，可以配置多个属性值</span><br><span class="line"></span><br><span class="line">SPARK_HISTORY_OPTS&#x3D;&quot;</span><br><span class="line">-Dspark.history.ui.port&#x3D;9001 </span><br><span class="line">-Dspark.history.retainedApplications&#x3D;5</span><br><span class="line">-Dspark.history.fs.logDirectory&#x3D;hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory&quot;</span><br></pre></td></tr></table></figure>
 <p>web访问端口为9001，保留最近5个application的日志，application的日志存放在<code>hdfs://nn:9000/directory</code></p>
 <p>其他配置项</p>
 <p>其他相关参数:</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
-<th align="center">Property Name</th>
-<th align="center">Default</th>
-<th align="center">Meaning</th>
+<th style="text-align:center">Property Name</th>
+<th style="text-align:center">Default</th>
+<th style="text-align:center">Meaning</th>
 </tr>
 </thead>
-<tbody><tr>
-<td align="center">spark.history.fs.update.interval</td>
-<td align="center">10s</td>
-<td align="center">文件系统历史提供程序在日志目录中检查新日志或更新日志的周期。较短的间隔可以更快地检测新应用程序，但代价是需要更多的服务器负载重新读取更新的应用程序。一旦更新完成，已完成和未完成的应用程序的清单将反映更改</td>
+<tbody>
+<tr>
+<td style="text-align:center">spark.history.fs.update.interval</td>
+<td style="text-align:center">10s</td>
+<td style="text-align:center">文件系统历史提供程序在日志目录中检查新日志或更新日志的周期。较短的间隔可以更快地检测新应用程序，但代价是需要更多的服务器负载重新读取更新的应用程序。一旦更新完成，已完成和未完成的应用程序的清单将反映更改</td>
 </tr>
 <tr>
-<td align="center">spark.history.retainedApplications</td>
-<td align="center">50</td>
-<td align="center">在缓存中保留UI数据的应用程序数量。如果超过这个上限，那么最老的应用程序将从缓存中删除。如果应用程序不在缓存中，则必须从磁盘加载它(如果是从UI访问它)</td>
+<td style="text-align:center">spark.history.retainedApplications</td>
+<td style="text-align:center">50</td>
+<td style="text-align:center">在缓存中保留UI数据的应用程序数量。如果超过这个上限，那么最老的应用程序将从缓存中删除。如果应用程序不在缓存中，则必须从磁盘加载它(如果是从UI访问它)</td>
 </tr>
 <tr>
-<td align="center">spark.history.fs.cleaner.enabled</td>
-<td align="center">false</td>
-<td align="center">是否周期性的删除storage中的event log(生产必定是true)</td>
+<td style="text-align:center">spark.history.fs.cleaner.enabled</td>
+<td style="text-align:center">false</td>
+<td style="text-align:center">是否周期性的删除storage中的event log(生产必定是true)</td>
 </tr>
 <tr>
-<td align="center">spark.history.fs.cleaner.interval</td>
-<td align="center">1d</td>
-<td align="center">多久删除一次</td>
+<td style="text-align:center">spark.history.fs.cleaner.interval</td>
+<td style="text-align:center">1d</td>
+<td style="text-align:center">多久删除一次</td>
 </tr>
 <tr>
-<td align="center">spark.history.fs.cleaner.maxAge</td>
-<td align="center">7d</td>
-<td align="center">每次删除多久的event log，配合上一个参数就是每天删除前七天的数据</td>
+<td style="text-align:center">spark.history.fs.cleaner.maxAge</td>
+<td style="text-align:center">7d</td>
+<td style="text-align:center">每次删除多久的event log，配合上一个参数就是每天删除前七天的数据</td>
 </tr>
-<tr>
-<td align="center">spark-history页面截图：</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"><img src="https://img-blog.csdnimg.cn/2019101321104720.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">==<strong>Application 执行job后</strong>==</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">当application开始runing后，可以看到相关job运行情况</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"><strong>A、application的jobs图示</strong></td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">该word-count app启动了两个job</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"><img src="https://img-blog.csdnimg.cn/20191013214149503.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">job-0主要负责作业中Transformation链操作：</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center"><code>sc.textFile(&quot;hdfs://nn:9000/app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</code></td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-<tr>
-<td align="center">job-0分解</td>
-<td align="center"></td>
-<td align="center"></td>
-</tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
+<p>spark-history页面截图：<br><img src="https://img-blog.csdnimg.cn/2019101321104720.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">==<strong>Application 执行job后</strong>==<br>当application开始runing后，可以看到相关job运行情况<br><strong>A、application的jobs图示</strong><br>该word-count app启动了两个job<br><img src="https://img-blog.csdnimg.cn/20191013214149503.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>job-0主要负责作业中Transformation链操作：<br><code>sc.textFile(&quot;hdfs://nn:9000/app&quot;).flatMap(_.split(&quot; &quot;)).map((_,1)).reduceByKey(_+_).sortBy(_._2,false)</code><br>job-0分解</p>
 <p>job-1负责作业最后阶段Action操作：<br><code>.collect</code></p>
 <p>application、job、stage、task构成关系<br>这里job-1的stage2是skip的，因为job-0已经完成了同样的操作，其他job无法重复执行。<br><img src="https://img-blog.csdnimg.cn/2019101322183877.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><strong>B、job-0、job-1对于的stage图</strong><br>job-0：stage-0和stage-1<br><img src="https://img-blog.csdnimg.cn/20191013222359342.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">job-1：stage-2、stage-3、stage-4<br><img src="https://img-blog.csdnimg.cn/20191013222504141.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br><strong>C、以job-0为例：stage-0和stage-1的具体任务执行图DAG调度过程</strong><br>==job-0：stage-0，其实就是map阶段，对应shuffle write==<br><img src="https://img-blog.csdnimg.cn/20191013222734564.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>==job-1：stage-1，其实就是reduce阶段，对应shuffle read==<br><img src="https://img-blog.csdnimg.cn/20191013222849671.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <h3 id="8、启动spark-HA集群"><a href="#8、启动spark-HA集群" class="headerlink" title="8、启动spark HA集群"></a>8、启动spark HA集群</h3><p>前面的测试都是基于一个master带2个slave节点的集群，若nn节点上的master进程挂了，显然无法达到高可用集群，因此本章节也给出其配置过程，后面多篇文章会有大数据实时项目相关组件的部署，全部组件都基于HA方式运行，近可能贴近生产环境。<br>spark HA集群基于zookeeper集群实现，因此需要环境配置好并启动zookeeper服务，这里不再累赘，可以参考本人blog中有关zk集群的配置过程。</p>
 <h4 id="8-1-配置文件"><a href="#8-1-配置文件" class="headerlink" title="8.1 配置文件"></a>8.1 配置文件</h4><p>spark HA配置相对简单，改动三个文件： spark-defaults.conf，slaves，spark-env.sh</p>
-<p>将三个节点spark-defaults.conf都做以下配置：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@nn conf] vi  spark-defaults.conf</span><br><span class="line"># 因为spark要配成HA模式，因此不再指定nn节点为active节点</span><br><span class="line">#spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"># 注意这里eventLog.dir，因为本文中hadoop 集群还不是HA模式，NameNode主节点仅有nn节点，因此设为nn:9000。若hadoop集群为HA模式，这里的路径需要设为  ：hdfs:&#x2F;&#x2F;hdapp&#x2F;directory。在后面的spark on yarn 文章也还会提到这一点。</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line">spark.driver.memory              512m</span><br><span class="line">spark.driver.cores               1</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure>
-
-
-<p>将3个节点都为加入到slaves文件，每个节点都需配置该slaves文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@dn1 conf]# cp slaves.template slaves</span><br><span class="line">[root@dn1 conf]# vi slaves</span><br><span class="line">nn</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure>
-<p>更改spark-env.sh</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">export SCALA_HOME&#x3D;&#x2F;opt&#x2F;scala-2.12.8</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line"># spark HA配置里，不再指定某个节点为master</span><br><span class="line">#export SPARK_MASTER_IP&#x3D;182.10.0.4</span><br><span class="line">export SPARK_WORKER_MEMORY&#x3D;512m</span><br><span class="line"># 加入zookeeper集群，由zk统一管理</span><br><span class="line">export SPARK_DAEMON_JAVA_OPTS&#x3D;&quot;-Dspark.deploy.recoveryMode&#x3D;ZOOKEEPER</span><br><span class="line">-Dspark.deploy.zookeeper.url&#x3D;nn:2181,dn1:2181,dn2:2181 -Dspark.deploy.zookeeper.dir&#x3D;&#x2F;spark&quot;</span><br><span class="line">#hadoop的配置文件**site.xml所在目录</span><br><span class="line">export HADOOP_CONF_DIR&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br></pre></td></tr></table></figure>
-<p>在三个节点上都需按以上内容做相同配置。</p>
-<h4 id="8-2-启动和测试spark-HA"><a href="#8-2-启动和测试spark-HA" class="headerlink" title="8.2 启动和测试spark HA"></a>8.2 启动和测试spark HA</h4><p>首先启动nn节点上slaves进程,此时三个节点都是worker角色</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-slaves.sh </span><br><span class="line">nn: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-nn.out</span><br><span class="line">dn1: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn1.out</span><br><span class="line">dn2: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn2.out</span><br></pre></td></tr></table></figure>
-<p>接着在nn节点上启动master进程，此时nn节点将被选举为active状态</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-master.sh </span><br><span class="line">starting org.apache.spark.deploy.master.Master, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.master.Master-1-nn.out</span><br></pre></td></tr></table></figure>
-<p>最后，分别在dn1和dn2节点上启动master进程，此时因nn节点已经优先成为active角色，故这两个节点虽然启动master，但会处于standby模式<br>通过spark web UI查看以上集群情况：<br>首先访问<code>http://nn:8080</code>，可以看到当前nn节点为active状态且有3个alive workers<br><img src="https://img-blog.csdnimg.cn/20191205225822814.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn1:8080</code>，dn1节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230110964.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn2:8080</code>，dn2节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230256782.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">kill掉nn上master进程，观测spark 集群的master切换情况。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# jps</span><br><span class="line">7094 Master</span><br><span class="line">7322 Jps</span><br><span class="line">7019 Worker</span><br><span class="line">4892 QuorumPeerMain</span><br><span class="line">5853 NameNode</span><br><span class="line">5933 DataNode</span><br><span class="line">6253 DFSZKFailoverController</span><br><span class="line">6062 JournalNode</span><br><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# kill -9 7094</span><br></pre></td></tr></table></figure>
-
+<p>将三个节点spark-defaults.conf都做以下配置：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@nn conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@nn conf] vi  spark-defaults.conf</span><br><span class="line"># 因为spark要配成HA模式，因此不再指定nn节点为active节点</span><br><span class="line">#spark.master                     spark:&#x2F;&#x2F;nn:7077</span><br><span class="line">spark.eventLog.enabled           true</span><br><span class="line"># 注意这里eventLog.dir，因为本文中hadoop 集群还不是HA模式，NameNode主节点仅有nn节点，因此设为nn:9000。若hadoop集群为HA模式，这里的路径需要设为  ：hdfs:&#x2F;&#x2F;hdapp&#x2F;directory。在后面的spark on yarn 文章也还会提到这一点。</span><br><span class="line">spark.eventLog.dir               hdfs:&#x2F;&#x2F;nn:9000&#x2F;directory</span><br><span class="line">spark.serializer                 org.apache.spark.serializer.KryoSerializer</span><br><span class="line">spark.driver.memory              512m</span><br><span class="line">spark.driver.cores               1</span><br><span class="line">spark.executor.extraJavaOptions  -XX:+PrintGCDetails -Dkey&#x3D;value -Dnumbers&#x3D;&quot;one two three&quot;</span><br></pre></td></tr></table></figure></p>
+<p>将3个节点都为加入到slaves文件，每个节点都需配置该slaves文件。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@dn1 conf]# pwd</span><br><span class="line">&#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;conf</span><br><span class="line">[root@dn1 conf]# cp slaves.template slaves</span><br><span class="line">[root@dn1 conf]# vi slaves</span><br><span class="line">nn</span><br><span class="line">dn1</span><br><span class="line">dn2</span><br></pre></td></tr></table></figure><br>更改spark-env.sh<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">export SCALA_HOME&#x3D;&#x2F;opt&#x2F;scala-2.12.8</span><br><span class="line">export JAVA_HOME&#x3D;&#x2F;opt&#x2F;jdk1.8.0_161</span><br><span class="line"># spark HA配置里，不再指定某个节点为master</span><br><span class="line">#export SPARK_MASTER_IP&#x3D;182.10.0.4</span><br><span class="line">export SPARK_WORKER_MEMORY&#x3D;512m</span><br><span class="line"># 加入zookeeper集群，由zk统一管理</span><br><span class="line">export SPARK_DAEMON_JAVA_OPTS&#x3D;&quot;-Dspark.deploy.recoveryMode&#x3D;ZOOKEEPER</span><br><span class="line">-Dspark.deploy.zookeeper.url&#x3D;nn:2181,dn1:2181,dn2:2181 -Dspark.deploy.zookeeper.dir&#x3D;&#x2F;spark&quot;</span><br><span class="line">#hadoop的配置文件**site.xml所在目录</span><br><span class="line">export HADOOP_CONF_DIR&#x3D;&#x2F;opt&#x2F;hadoop-3.1.2&#x2F;etc&#x2F;hadoop</span><br></pre></td></tr></table></figure><br>在三个节点上都需按以上内容做相同配置。</p>
+<h4 id="8-2-启动和测试spark-HA"><a href="#8-2-启动和测试spark-HA" class="headerlink" title="8.2 启动和测试spark HA"></a>8.2 启动和测试spark HA</h4><p>首先启动nn节点上slaves进程,此时三个节点都是worker角色<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-slaves.sh </span><br><span class="line">nn: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-nn.out</span><br><span class="line">dn1: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn1.out</span><br><span class="line">dn2: starting org.apache.spark.deploy.worker.Worker, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.worker.Worker-1-dn2.out</span><br></pre></td></tr></table></figure><br>接着在nn节点上启动master进程，此时nn节点将被选举为active状态<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# .&#x2F;sbin&#x2F;start-master.sh </span><br><span class="line">starting org.apache.spark.deploy.master.Master, logging to &#x2F;opt&#x2F;spark-2.4.4-bin-hadoop2.7&#x2F;&#x2F;logs&#x2F;spark-root-org.apache.spark.deploy.master.Master-1-nn.out</span><br></pre></td></tr></table></figure><br>最后，分别在dn1和dn2节点上启动master进程，此时因nn节点已经优先成为active角色，故这两个节点虽然启动master，但会处于standby模式<br>通过spark web UI查看以上集群情况：<br>首先访问<code>http://nn:8080</code>，可以看到当前nn节点为active状态且有3个alive workers<br><img src="https://img-blog.csdnimg.cn/20191205225822814.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn1:8080</code>，dn1节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230110964.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">访问<code>http://dn2:8080</code>，dn2节点为standby模式，而且无自己的workers<br><img src="https://img-blog.csdnimg.cn/20191205230256782.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述">kill掉nn上master进程，观测spark 集群的master切换情况。<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# jps</span><br><span class="line">7094 Master</span><br><span class="line">7322 Jps</span><br><span class="line">7019 Worker</span><br><span class="line">4892 QuorumPeerMain</span><br><span class="line">5853 NameNode</span><br><span class="line">5933 DataNode</span><br><span class="line">6253 DFSZKFailoverController</span><br><span class="line">6062 JournalNode</span><br><span class="line">[root@nn spark-2.4.4-bin-hadoop2.7]# kill -9 7094</span><br></pre></td></tr></table></figure></p>
 <p>访问<code>http://dn1:8080</code>，dn1节点由standby变为active模式且有3个alive workers，而dn2仍然standby模式，说明HA部署正常。<br><img src="https://img-blog.csdnimg.cn/20191205230624602.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"></p>
 <h3 id="9、结束"><a href="#9、结束" class="headerlink" title="9、结束"></a>9、结束</h3><p>本文详细讨论了基于hadoop上搭建spark HA集群，并对执行的application做了简单的介绍，注意到，这里spark HA集群并没有引入yarn资源调度服务，后面的文章会给出配置过程。同时本文没有对spark架构及其原理做更多的探讨，相关文章也在之后给出。</p>
 
@@ -604,27 +534,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -655,7 +585,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -664,12 +594,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="在前面有多篇关于jdk1.8的ConcurrentHashMap研究是基于源代码给出的深度分析，要知道多线程环境下的ConcurrentHashMap内部运行机制是相对复杂的，好在IDEA提供的相关断点和Debug功能确实好用，使得多线程调试起来直观，通过这种方式能加深多线程操作CHM的执行流程。 前期准备这部内容请参考文章中的小节部分，本文不再累赘。 使用埋点打印法观测此方法相对繁琐，难度并不大">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：深度讨论jdk1.8 ConcurrentHashMap并发环境下transfer方法桶位分配过程">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/08/15/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BAjdk1.8%20ConcurrentHashMap%E5%B9%B6%E5%8F%91%E7%8E%AF%E5%A2%83%E4%B8%8Btransfer%E6%96%B9%E6%B3%95%E6%A1%B6%E4%BD%8D%E5%88%86%E9%85%8D%E8%BF%87%E7%A8%8B/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="在前面有多篇关于jdk1.8的ConcurrentHashMap研究是基于源代码给出的深度分析，要知道多线程环境下的ConcurrentHashMap内部运行机制是相对复杂的，好在IDEA提供的相关断点和Debug功能确实好用，使得多线程调试起来直观，通过这种方式能加深多线程操作CHM的执行流程。 前期准备这部内容请参考文章中的小节部分，本文不再累赘。 使用埋点打印法观测此方法相对繁琐，难度并不大">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/e2067f18b8c22bc1b20b494096de4fa3.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/b7c5eeb0d924c663a7d5c6750d53e527.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/5235db69397ebffedd635cdeba214b7a.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/dcb029b159551701428cc0405b8af90a.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/4e7a0a685b1365bcff918cc5c3b444b2.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/98a8833484149545a0b677c51e45cff1.png">
+<meta property="article:published_time" content="2021-08-14T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-09T13:55:32.571Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/img_convert/e2067f18b8c22bc1b20b494096de4fa3.png">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/08/15/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BAjdk1.8%20ConcurrentHashMap%E5%B9%B6%E5%8F%91%E7%8E%AF%E5%A2%83%E4%B8%8Btransfer%E6%96%B9%E6%B3%95%E6%A1%B6%E4%BD%8D%E5%88%86%E9%85%8D%E8%BF%87%E7%A8%8B/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：深度讨论jdk1.8 ConcurrentHashMap并发环境下transfer方法桶位分配过程 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/08/15/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BAjdk1.8%20ConcurrentHashMap%E5%B9%B6%E5%8F%91%E7%8E%AF%E5%A2%83%E4%B8%8Btransfer%E6%96%B9%E6%B3%95%E6%A1%B6%E4%BD%8D%E5%88%86%E9%85%8D%E8%BF%87%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：深度讨论jdk1.8 ConcurrentHashMap并发环境下transfer方法桶位分配过程
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-08-15 00:00:00" itemprop="dateCreated datePublished" datetime="2021-08-15T00:00:00+08:00">2021-08-15</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-09 21:55:32" itemprop="dateModified" datetime="2022-05-09T21:55:32+08:00">2022-05-09</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>8.6k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>8 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>在前面有多篇关于jdk1.8的ConcurrentHashMap研究是基于源代码给出的深度分析，要知道多线程环境下的ConcurrentHashMap内部运行机制是相对复杂的，好在IDEA提供的相关断点和Debug功能确实好用，使得多线程调试起来直观，通过这种方式能加深多线程操作CHM的执行流程。</p>
+<h5 id="前期准备"><a href="#前期准备" class="headerlink" title="前期准备"></a>前期准备</h5><p>这部内容请参考文章中的小节部分，本文不再累赘。</p>
+<h5 id="使用埋点打印法观测"><a href="#使用埋点打印法观测" class="headerlink" title="使用埋点打印法观测"></a>使用埋点打印法观测</h5><p>此方法相对繁琐，难度并不大，要求使用者对源代码设计足够理解，否则埋点位置不佳影响观测效果</p>
+<p>1、测试代码</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> concurrent.demo;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ResizeStampBugTest</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> </span>&#123;</span><br><span class="line">      	<span class="comment">// 设置64个线程并发put</span></span><br><span class="line">        <span class="keyword">int</span> maxThreads = <span class="number">64</span>;</span><br><span class="line">      	<span class="comment">// 初始容量为8，内部会被调整为16</span></span><br><span class="line">        ConcurrentHashMap&lt;Long, String&gt; map = <span class="keyword">new</span> ConcurrentHashMap&lt;&gt;(<span class="number">8</span>);</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; maxThreads; i++) &#123;</span><br><span class="line">            Thread t = <span class="keyword">new</span> Thread(() -&gt; map.put(Thread.currentThread().getId(),Thread.currentThread().getName()));</span><br><span class="line">            t.setName(<span class="string">&quot;Thread-&quot;</span>+i);</span><br><span class="line">            t.start();</span><br><span class="line">            <span class="comment">// 因为多个线程并发执行不方便查看打印结果，可以让前一个线程领先后面线程一丁点，以便观察打印结果，当然也可以不需要，多执行几次看看打印结果即可。</span></span><br><span class="line">            <span class="comment">// Thread.sleep(1);</span></span><br><span class="line"></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>可以看到这里ConcurrentHashMap类用的是项目concurrent.demo包下的ConcurrentHashMap.java 源码文件</p>
+<p>2、更改桶位分配步长，将源码的16改为4，方便观察</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> MIN_TRANSFER_STRIDE = <span class="number">4</span>;</span><br><span class="line"><span class="comment">// private static final int MIN_TRANSFER_STRIDE = 16;</span></span><br></pre></td></tr></table></figure>
+<p>3、transfer方法加入打印每个线程分配的桶位区间</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">           <span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt</span><br><span class="line">                    (<span class="keyword">this</span>, TRANSFERINDEX, nextIndex,</span><br><span class="line">                     nextBound = (nextIndex &gt; stride ?</span><br><span class="line">                                  nextIndex - stride : <span class="number">0</span>))) &#123;</span><br><span class="line">               bound = nextBound;</span><br><span class="line">               i = nextIndex - <span class="number">1</span>;</span><br><span class="line">               advance = <span class="keyword">false</span>;</span><br><span class="line"><span class="comment">// 以下三行是新增代码</span></span><br><span class="line">               String s=String.format(<span class="string">&quot;%s分配的捅位区间为:[%d,%d]并挂起&quot;</span>,Thread.currentThread().getName(),bound,i);</span><br><span class="line">               System.out.println(s);</span><br><span class="line">               <span class="comment">// 在这里加一句挂起已经分配好桶位区间的线程，用于观察线程</span></span><br><span class="line">               LockSupport.park(<span class="keyword">this</span>);</span><br><span class="line">               </span><br><span class="line">           &#125;</span><br></pre></td></tr></table></figure>
+<p>4、其他地方需要埋入打印语句</p>
+<p>pulVal方法：当key定位到的桶位为空，直接放入key节点。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">         </span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> ((f = tabAt(tab, i = (n - <span class="number">1</span>) &amp; hash)) == <span class="keyword">null</span>) &#123;</span><br><span class="line">             <span class="keyword">if</span> (casTabAt(tab, i, <span class="keyword">null</span>,</span><br><span class="line">                          <span class="keyword">new</span> Node&lt;K,V&gt;(hash, key, value, <span class="keyword">null</span>))) &#123;</span><br><span class="line">         <span class="comment">// 埋入打印语句</span></span><br><span class="line">         System.out.println(Thread.currentThread().getName() + <span class="string">&quot;在桶位[&quot;</span>+i+<span class="string">&quot;]put入Node节点并退出&quot;</span>);</span><br><span class="line"></span><br><span class="line">                 <span class="keyword">break</span>;                   <span class="comment">// no lock when adding to empty bin</span></span><br><span class="line">             &#125;</span><br><span class="line">         &#125;</span><br></pre></td></tr></table></figure>
+<p>addCount方法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))&#123;</span><br><span class="line">     <span class="comment">// 埋入打印语句</span></span><br><span class="line">        System.out.println(Thread.currentThread().getName()+<span class="string">&quot;后续进入扩容逻辑transfer方法&quot;</span>);</span><br><span class="line">        transfer(tab, nt);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc,</span><br><span class="line">                             (rs &lt;&lt; RESIZE_STAMP_SHIFT) + <span class="number">2</span>))&#123;</span><br><span class="line">  	<span class="comment">// 埋入打印语句</span></span><br><span class="line">    System.out.println(Thread.currentThread().getName()+<span class="string">&quot;第1个进入扩容逻辑transfer方法&quot;</span>);</span><br><span class="line">    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<a id="more"></a>
+<p>5、预期执行</p>
+<p>打印结果如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">Thread-<span class="number">0</span>在桶位[<span class="number">9</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">1</span>在桶位[<span class="number">10</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">2</span>在桶位[<span class="number">11</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">3</span>在桶位[<span class="number">12</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">4</span>在桶位[<span class="number">13</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">5</span>在桶位[<span class="number">14</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">6</span>在桶位[<span class="number">15</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">7</span>在桶位[<span class="number">0</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">8</span>在桶位[<span class="number">1</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">9</span>在桶位[<span class="number">2</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">10</span>在桶位[<span class="number">3</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">11</span>在桶位[<span class="number">4</span>]put入Node节点并退出</span><br><span class="line">Thread-11第1个进入扩容逻辑transfer方法 # 注意此线程</span><br><span class="line">Thread-<span class="number">12</span>在桶位[<span class="number">5</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">12</span>进入扩容逻辑transfer方法</span><br><span class="line">Thread-<span class="number">13</span>在桶位[<span class="number">6</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">13</span>进入扩容逻辑transfer方法</span><br><span class="line">Thread-<span class="number">14</span>在桶位[<span class="number">7</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">14</span>进入扩容逻辑transfer方法</span><br><span class="line">Thread-<span class="number">15</span>在桶位[<span class="number">8</span>]put入Node节点并退出</span><br><span class="line">Thread-<span class="number">12</span>分配的捅位区间为:[<span class="number">12</span>,<span class="number">15</span>]并挂起</span><br><span class="line">Thread-<span class="number">13</span>分配的捅位区间为:[<span class="number">4</span>,<span class="number">7</span>]并挂起</span><br><span class="line">Thread-<span class="number">14</span>分配的捅位区间为:[<span class="number">0</span>,<span class="number">3</span>]并挂起</span><br><span class="line">Thread-<span class="number">11</span>分配的捅位区间为:[<span class="number">8</span>,<span class="number">11</span>]并挂起</span><br></pre></td></tr></table></figure>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/e2067f18b8c22bc1b20b494096de4fa3.png" alt="transfer埋点打印"></p>
+<p>打印结果说明①</p>
+<p>因为CHM的底层table容量为16也即有16个桶位，  此外使用线程ID作为节点的key，根据桶位定位算法<code>i = (n - 1) &amp; hash</code>，前面16个线程（第0号线程到第15号线程）并发将16个key恰好能放到table16个桶位上，这也是为何将打印点放在putVal对应位置，线程put完后break退出后进入addCount，因此才有以下类似的打印：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">Thread-0在桶位[9]put入Node节点并退出</span><br><span class="line">Thread-1在桶位[10]put入Node节点并退出</span><br><span class="line">Thread-2在桶位[11]put入Node节点并退出</span><br><span class="line">Thread-3在桶位[12]put入Node节点并退出</span><br><span class="line">Thread-4在桶位[13]put入Node节点并退出</span><br><span class="line">Thread-5在桶位[14]put入Node节点并退出</span><br><span class="line">Thread-6在桶位[15]put入Node节点并退出</span><br><span class="line">Thread-7在桶位[0]put入Node节点并退出</span><br><span class="line">Thread-8在桶位[1]put入Node节点并退出</span><br><span class="line">Thread-9在桶位[2]put入Node节点并退出</span><br><span class="line">Thread-10在桶位[3]put入Node节点并退出</span><br><span class="line">Thread-11在桶位[4]put入Node节点并退出</span><br><span class="line"></span><br><span class="line">Thread-12在桶位[5]put入Node节点并退出</span><br><span class="line"></span><br><span class="line">Thread-13在桶位[6]put入Node节点并退出</span><br><span class="line"></span><br><span class="line">Thread-14在桶位[7]put入Node节点并退出</span><br><span class="line"></span><br><span class="line">Thread-15在桶位[8]put入Node节点并退出</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>打印结果说明②</p>
+<p>在打印结果中你会发现Thread-11的特别之处，如下：这个线程在put节点后进入addCount，此时因为前面第0号到10号线程总共put 入了11个节点，当线程Thread-11去put节点完后发现此时CHM节点数量达到扩容阈值12（16*0.75），</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">Thread-10在桶位[3]put入Node节点并退出</span><br><span class="line">Thread-11在桶位[4]put入Node节点并退出</span><br><span class="line"><span class="meta">#</span><span class="bash"> Thread-11 写入节点后发现s达到扩容阈值</span></span><br><span class="line">Thread-11第1个进入扩容逻辑transfer方法</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<p>因此线程Thread-11进入addCount方法的分支2且进入了扩容逻辑transfer，而且是作为第1个线程进入扩容逻辑</p>
+<p>这就是为何要在addCount以下位置埋入打印点，捕获第1个进入扩容逻辑transfer方法的线程：线程Thread-11</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc,</span><br><span class="line">                             (rs &lt;&lt; RESIZE_STAMP_SHIFT) + <span class="number">2</span>))&#123;</span><br><span class="line">  	<span class="comment">// 埋入打印语句</span></span><br><span class="line">    System.out.println(Thread.currentThread().getName()+<span class="string">&quot;第1个进入扩容逻辑transfer方法&quot;</span>);</span><br><span class="line">    transfer(tab, <span class="keyword">null</span>);</span><br></pre></td></tr></table></figure>
+<p>打印结果说明③</p>
+<p>因为继线程Thread-11put节点后使得s=12达到扩容阈值，因此后来的线程Thread-12、Thread-13、Thread-14在它们put完节点也发现需要扩容，因此也都进入的transfer方法，显然它们分别作为第2个、第3个、第4个进入transfer的线程。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">Thread-11在桶位[4]put入Node节点并退出</span><br><span class="line">Thread-11第1个进入扩容逻辑transfer方法</span><br><span class="line">Thread-12在桶位[5]put入Node节点并退出</span><br><span class="line">Thread-12进入扩容逻辑transfer方法</span><br><span class="line">Thread-13在桶位[6]put入Node节点并退出</span><br><span class="line">Thread-13进入扩容逻辑transfer方法</span><br><span class="line">Thread-14在桶位[7]put入Node节点并退出</span><br><span class="line">Thread-14进入扩容逻辑transfer方法</span><br><span class="line">Thread-15在桶位[8]put入Node节点并退出</span><br><span class="line"><span class="meta">#</span><span class="bash"> 线程Thread-15没能进入扩容逻辑transfer方法</span></span><br><span class="line">Thread-12分配的捅位区间为:[12,15]并挂起</span><br><span class="line">Thread-13分配的捅位区间为:[4,7]并挂起</span><br><span class="line">Thread-14分配的捅位区间为:[0,3]并挂起</span><br><span class="line">Thread-11分配的捅位区间为:[8,11]并挂起</span><br></pre></td></tr></table></figure>
+<p>这里为何线程Thread-15没能进入transfer方法？还记得上面将桶位分配步长设为4的说明吗</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> MIN_TRANSFER_STRIDE = <span class="number">4</span>;</span><br><span class="line"><span class="comment">// private static final int MIN_TRANSFER_STRIDE = 16;</span></span><br></pre></td></tr></table></figure>
+<p>因为一开始CHM容量为16，也即16个桶位，又因为桶位步长设定为4，因此只能有4个线程能成功cas分配到桶位区间。由于线程Thread-11第1个先进入transfer方法、线程Thread-12第2个进入、线程Thread-13第3个进入、线程Thread-14第4个进入，这4个线程恰好“瓜分”完16个桶位</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Thread-12分配的捅位区间为:[12,15]并挂起</span><br><span class="line">Thread-13分配的捅位区间为:[4,7]并挂起</span><br><span class="line">Thread-14分配的捅位区间为:[0,3]并挂起</span><br><span class="line">Thread-11分配的捅位区间为:[8,11]并挂起</span><br></pre></td></tr></table></figure>
+<p>之后transferIndex=0，表示全部桶位已经分配出去，那么再来的线程Thread-15，恰好满足下面条件<code>transferIndex &lt;= 0)</code> ，因此Thread-15不能进入transfer并break结束<br><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (sc &lt; <span class="number">0</span>) &#123;</span><br><span class="line">    <span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + <span class="number">1</span> ||</span><br><span class="line">        sc == rs + MAX_RESIZERS || (nt = nextTable) == <span class="keyword">null</span> ||</span><br><span class="line">        transferIndex &lt;= <span class="number">0</span>)&#123;</span><br><span class="line">        <span class="keyword">break</span>;</span><br></pre></td></tr></table></figure></p>
+<p>为什么线程Thread-11、Thread-12、Thread-13、Thread-14在transfer方法分配完桶位区间后没有退出？</p>
+<p>这就是为何使用<code>LockSupport.park(this)</code>将线程挂起的原因，以便持续观察CHM的桶位分配机制，同时也能将CHM容量16扩容到32的过程暂停，使得CHM停留在第一轮扩容的过程中，而且暂停在桶位分配完之后，节点迁移之前。<br>“使得CHM扩容处理流程暂停在第一轮扩容的过程中”，这有什么用处呢，请看下面：</p>
+<p>打印结果说明④</p>
+<p>在AddCount方法下面位置埋入打印语句：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + <span class="number">1</span> ||</span><br><span class="line">    sc == rs + MAX_RESIZERS || (nt = nextTable) == <span class="keyword">null</span> ||</span><br><span class="line">    transferIndex &lt;= <span class="number">0</span>)&#123;</span><br><span class="line">    System.out.println(Thread.currentThread().getName()+<span class="string">&quot;因无桶位可分配，此线程直接退出&quot;</span>);</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>目的就是考察线程Thread-11、Thread-12、Thread-13、Thread-14在transfer方法分配完桶位区间后并挂起，后续的Thread-15到Thread-63是如何安排的</p>
+<p>打印如下：其实无需打印也能知道，因为Thread-15进入AddCount分支2后，transferIndex已经是0，也即无桶位可分配，只好break退出，后面来更多的其他线程也同理。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br></pre></td><td class="code"><pre><span class="line">Thread-15在桶位[8]put入Node节点并退出</span><br><span class="line">Thread-15因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-16因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-17因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-18因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-19因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-20因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-21因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-22因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-23因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-24因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-25因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-26因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-27因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-28因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-11分配的捅位区间为:[12,15]并挂起</span><br><span class="line">Thread-13分配的捅位区间为:[4,7]并挂起</span><br><span class="line">Thread-14分配的捅位区间为:[0,3]并挂起</span><br><span class="line">Thread-12分配的捅位区间为:[8,11]并挂起</span><br><span class="line">Thread-29因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-30因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-31因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-32因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-33因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-34因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-35因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-36因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-37因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-38因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-39因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-40因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-41因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-42因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-43因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-44因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-45因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-46因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-47因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-48因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-49因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-50因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-51因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-52因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-53因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-54因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-55因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-56因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-57因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-58因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-59因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-60因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-61因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-62因无桶位可分配，此线程直接退出</span><br><span class="line">Thread-63因无桶位可分配，此线程直接退出</span><br></pre></td></tr></table></figure>
+<p>以上就是使用埋入打印点调试transfer机制，通过“print”来观察其运行机制先对入门，其实debug模式才是真正便捷的调试方式，继续查阅下面内容。</p>
+<h5 id="使用IDEA-断点debug方式观测"><a href="#使用IDEA-断点debug方式观测" class="headerlink" title="使用IDEA 断点debug方式观测"></a>使用IDEA 断点debug方式观测</h5><p>1、只需在transfer以下位置打一个断点即可，也即在桶位区间cas分配的逻辑里的<code>advance=true</code>，如下，<br><img src="https://img-blog.csdnimg.cn/img_convert/b7c5eeb0d924c663a7d5c6750d53e527.png" alt="transfer break point位置"></p>
+<p>并将断点的Suspend设为Thread，如下：<br><img src="https://img-blog.csdnimg.cn/img_convert/5235db69397ebffedd635cdeba214b7a.png" alt="Thread Option断点设定"></p>
+<p>2、启动debug，IDEA进入debug操作，此处无需图。</p>
+<p>3、在Watchs栏目加入要“观测的变量”，这里当然是关注每个线程分配到的桶位区间的左边界bound和右边界i<br><img src="https://img-blog.csdnimg.cn/img_convert/dcb029b159551701428cc0405b8af90a.png" alt="Watchs加入bound和i变量观测"><br>Frames栏目可以显示每个线程的方法调用栈，在点选Thread-11作为观察目标，你可以清晰看到Thread-11的方法调用栈：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">transfer <span class="comment">// 栈顶</span></span><br><span class="line">addCount</span><br><span class="line">putval</span><br><span class="line">put</span><br><span class="line">main主函数入口  <span class="comment">// 栈底</span></span><br></pre></td></tr></table></figure>
+<p>点选“transfer”方法帧，然后右侧Variables栏目会展示该方法内部的局部变量值，由于我们想观测线程桶位区间的左边界bound和右边界i，因此在Watches加入这两个变量，图中可以非常直观看出Thread-11的桶位区间为[bound=12,i=15]</p>
+<p>若想看其他线程分配的桶位，很简单，在下拉框选中其他线程即可，如Thread-12，可以在Watches栏目看到Thread-12的桶位区间为[bound=8,i=11]<br><img src="https://img-blog.csdnimg.cn/img_convert/4e7a0a685b1365bcff918cc5c3b444b2.png" alt="transfer Thread12桶位区间"><br>同理也可以看出Thread-13、Thread-14的界面，这里不再一一展示。</p>
+<p>5、所观测的方法帧里面的变量和Watches对应<br><img src="https://img-blog.csdnimg.cn/img_convert/98a8833484149545a0b677c51e45cff1.png" alt="方法帧与watches变量对应"></p>
+<p>如上图所示，Watches提示无法找到局部变量i和局部bound变量，这是因为当前观测的是在addCount这个方法帧，显然</p>
+<p>addCount内部没有i和bound变量。此外，也可从addCount的局部变量表Variables栏目看Watches是否在里面。</p>
+<p><strong>为何Frames只显示4个线程在RUNING状态？</strong></p>
+<p>答案已经在第一小节的“使用埋点打印法观测”后面给出了详细的解释，这里也简要说明：</p>
+<p>（1）第0到第15号线程put完节点后，其中第0到第10号线程结束退出，第11号线程发现put完后CHM节点数量达到扩容阈值12，因此进入AddCount分支2，并作为第1个进入扩容逻辑transfer的线程，故Thread-11分配到了桶位区间[12,15]</p>
+<p>（2）线程Thread-12、Thread-13、Thread-14 put完节点也因为s节点数量达到扩容阈值，都进入到transfer方法，也分配到对应的桶位区间</p>
+<p>（3）等线程Thread-15 put完节点后，发现已无桶位可分配，因此Thread-15 结束</p>
+<p>（4）其他剩余的线程第16到第63号线程也同样因为“已无桶位可分配而结束”</p>
+<h5 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h5><p>可以看出，IDEA调试并发环境的CHM确实小有难度，最好能在掌握源代码情况下debug，通过这种实践而非源代码分析的观测方式，你能任意控制多线程并发执行流以及观测其内部协调机制、竞争机制，从而能深入掌握JUC并发设计和源代码实现。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/08/07/%E5%9F%BA%E4%BA%8EAQS%E5%AE%9E%E7%8E%B0%E7%9A%84ReentrantReadWriteLock%E6%BA%90%E4%BB%A3%E7%A0%81%E6%B7%B1%E5%85%A5%E5%88%86%E6%9E%90/" rel="prev" title="Java高级主题：基于AQS实现的ReentrantReadWriteLock源代码深入分析">
+      <i class="fa fa-chevron-left"></i> Java高级主题：基于AQS实现的ReentrantReadWriteLock源代码深入分析
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/09/12/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84resizeStamp%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/" rel="next" title="Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑">
+      Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%89%8D%E6%9C%9F%E5%87%86%E5%A4%87"><span class="nav-number">1.</span> <span class="nav-text">前期准备</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E5%9F%8B%E7%82%B9%E6%89%93%E5%8D%B0%E6%B3%95%E8%A7%82%E6%B5%8B"><span class="nav-number">2.</span> <span class="nav-text">使用埋点打印法观测</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8IDEA-%E6%96%AD%E7%82%B9debug%E6%96%B9%E5%BC%8F%E8%A7%82%E6%B5%8B"><span class="nav-number">3.</span> <span class="nav-text">使用IDEA 断点debug方式观测</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%B0%8F%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">小结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

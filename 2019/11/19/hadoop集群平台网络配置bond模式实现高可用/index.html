@@ -28,7 +28,7 @@
 <meta property="og:description" content="&amp;#8195;&amp;#8195;在前面文章关于hadoop大数据项目开发中，每台服务器之间其实存在大量的IO，例如NameNode服务器和DataNode服务器同步fimag文件件，DataNode之间的数据IO，为压榨服务器对于超大数据的吞吐量，在服务器的网络层使用bond模式配置Linux网卡，可以将该服务器上多个物理网卡虚拟成一张网卡，由该虚拟网卡对外提供统一网络服务，实现多个网卡自适应负载均衡">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2019-11-19T12:54:57.000Z">
-<meta property="article:modified_time" content="2020-11-21T16:56:57.296Z">
+<meta property="article:modified_time" content="2020-11-21T16:56:57.290Z">
 <meta property="article:tag" content="hadoop集群网络配置">
 <meta name="twitter:card" content="summary">
 
@@ -100,7 +100,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -195,7 +195,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -259,44 +259,36 @@
       
         <p>&#8195;&#8195;在前面文章关于hadoop大数据项目开发中，每台服务器之间其实存在大量的IO，例如NameNode服务器和DataNode服务器同步fimag文件件，DataNode之间的数据IO，为压榨服务器对于超大数据的吞吐量，在服务器的网络层使用bond模式配置Linux网卡，可以将该服务器上多个物理网卡虚拟成一张网卡，由该虚拟网卡对外提供统一网络服务，实现多个网卡自适应负载均衡以及提高数据的吞吐量，同时也实现链路双备份功能，保证服务器底层网络高可用性。bond虚拟网卡可以绑定多个网络，例如绑定2两个网卡，一般物理服务器有4个千兆网卡，所以也可以绑定4个网卡，绑定的网卡类型需要一致，否则无法进行bond模式配置。<br>&#8195;&#8195;以centos7.5 的两个网卡配成bond模式作为示例，其中在之前的hadoop的相关文章里，nn节点与dn2节点构成HA，dn节点作为DataNode，当这三个节点的底层网络都配成bond模式，将进一步提高本blog之前搭建大数据开发平台的高可用性。作为全栈开发者，这些涉及简单网络的配置，应该需要掌握。</p>
 <a id="more"></a>
-
 <h4 id="1、为测试服务器添加多个网卡"><a href="#1、为测试服务器添加多个网卡" class="headerlink" title="1、为测试服务器添加多个网卡"></a>1、为测试服务器添加多个网卡</h4><p>在VMware workstations中，给相应服务器新增一个网卡，选择NAT模式，这样这是基于虚拟机操作，实际生成环境中，我的开发项目会部署在真实服务器上，真实服务器不需要NAT模式。</p>
 <h4 id="2、查看测试服务器的网卡信息"><a href="#2、查看测试服务器的网卡信息" class="headerlink" title="2、查看测试服务器的网卡信息"></a>2、查看测试服务器的网卡信息</h4><p>原网卡ens33是配有IP的，新增的网卡ens37无IP绑定。</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# ip a</span><br><span class="line"></span><br><span class="line">2: ens33: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.188.0.5/24 brd 192.188.0.255 scope global noprefixroute ens33</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">3: ens37: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f2 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet6 ***/64 scope link noprefixroute </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
-
 <p>可以看到两个网卡ens33和ens37，都是千兆网速，都为up状态</p>
 <h4 id="3、配置两个网卡"><a href="#3、配置两个网卡" class="headerlink" title="3、配置两个网卡"></a>3、配置两个网卡</h4><h5 id="3-1-这里需要先把原网卡配置拷贝一份作为备份。"><a href="#3-1-这里需要先把原网卡配置拷贝一份作为备份。" class="headerlink" title="3.1 这里需要先把原网卡配置拷贝一份作为备份。"></a>3.1 这里需要先把原网卡配置拷贝一份作为备份。</h5><p>备份网卡ens33的配置文件</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# pwd</span><br><span class="line">/etc/sysconfig/network-scripts</span><br><span class="line">[root@nn network-scripts]# cp ifcfg-ens33 ifcfg-ens33.bak</span><br></pre></td></tr></table></figure>
-
 <p>新增网卡ens37是没有对应配置文件，只需要从ens33拷贝一份即可</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# cp ifcfg-ens33 ifcfg-ens37</span><br></pre></td></tr></table></figure>
-
 <h5 id="3-2-将ens33和ens37配成slave模式"><a href="#3-2-将ens33和ens37配成slave模式" class="headerlink" title="3.2 将ens33和ens37配成slave模式"></a>3.2 将ens33和ens37配成slave模式</h5><p>这里不再需要配置ip和dns，mac地址也不需要配置，linux自动识别。</p>
 <p>配置ens33，</p>
 <p>注意该网卡已配置有IP，在改完该网卡配置后，请勿直接重启网卡，否则ssh无法远程连接，因为slave模式下，该网卡配置文件里面是无IP地址的。</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=ens33</span><br><span class="line">NAME=ens33</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">ONBOOT=yes</span><br><span class="line">NM_CONTROLLED=yes</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line"><span class="meta">#</span><span class="bash"> bond网卡的名字</span></span><br><span class="line">MASTER=bond0</span><br><span class="line"><span class="meta">#</span><span class="bash"> ens33网卡启用slave模式</span></span><br><span class="line">SLAVE=yes</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
 <p>配置ens37 ，同上</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=ens37</span><br><span class="line">NAME=ens37</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">ONBOOT=yes</span><br><span class="line">NM_CONTROLLED=yes</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line"><span class="meta">#</span><span class="bash"> bond网卡的名字</span></span><br><span class="line">MASTER=bond0</span><br><span class="line"><span class="meta">#</span><span class="bash"> ens33网卡启用slave模式</span></span><br><span class="line">SLAVE=yes</span><br></pre></td></tr></table></figure>
-
 <p>若有更多的网卡需要绑定为bond0模式，则按以上配置改即可。</p>
 <h4 id="4、配置bond0虚拟网卡"><a href="#4、配置bond0虚拟网卡" class="headerlink" title="4、配置bond0虚拟网卡"></a>4、配置bond0虚拟网卡</h4><p>在 <code>/etc/sysconfig/network-scripts</code>下，需要创建一个<code>ifcfg-bond0</code>文件，用于配置名字为bond0的虚拟网卡，注意这里bond0只是一个名字，可以按需要命名，例如mybond。</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# vi ifcfg-bond0</span><br></pre></td></tr></table></figure>
-
 <p>配置文件如下</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">DEVICE=bond0</span><br><span class="line">TYPE=Ethernet</span><br><span class="line">NM_CONTROLLER=no</span><br><span class="line">BONDING_OPTS=&quot;miimon=100 mode=6&quot;</span><br><span class="line">BOOTPROTO=none</span><br><span class="line">USERCTL=no</span><br><span class="line">ONBOOT=yes</span><br><span class="line">IPADDR=192.188.0.5</span><br><span class="line">NETMASK=255.255.255.0</span><br><span class="line">GATEWAY=192.188.0.1</span><br><span class="line">DNS1=114.114.114.114</span><br><span class="line">DNS2=114.114.114.115</span><br></pre></td></tr></table></figure>
-
 <p>若不想在bond0配置文件写入<code>BONDING_OPTS=&quot;miimon=100 mode=6&quot;</code></p>
 <p>也可以在/etc/modprobe.d/dist.conf</p>
 <p>新增如下两行：</p>
-<p><code>alias bond0 bonding options bond0 miimon=100 mode=6</code></p>
+<p><code>alias bond0 bonding
+options bond0 miimon=100 mode=6</code></p>
 <p>但个人建议直接在bond0网卡配置mod模式，方便后期查看和更改。</p>
 <h4 id="5、bond0的配置说明和工作原理"><a href="#5、bond0的配置说明和工作原理" class="headerlink" title="5、bond0的配置说明和工作原理"></a>5、bond0的配置说明和工作原理</h4><p>重点配置项为：BONDING_OPTS=”miimon=100 mode=6”</p>
 <p>该配置文件:miimon=100，意思是linux每100ms监测一次本服务器网络链路连接状态（这里说的网络连接，是指该服务器网卡与接入层交换机端口连接的状态），如果有其中网卡例如ens33中断，那么bond0会将网络连接切到可用ens37；</p>
 <p>mode的值表示工作模式，共有0，1，2，3，4，5，6六种模式，常用为0，6，1三种</p>
 <ul>
-<li><p>mode=0，表示load balancing (round-robin)为负载均衡方式，两块网卡都工作，但是与网卡相连的交换必须做特殊配置（ 这两个端口需要配置成聚合方式），因为做bonding的这两块网卡是使用同一个MAC地址</p>
-</li>
+<li>mode=0，表示load balancing (round-robin)为负载均衡方式，两块网卡都工作，但是与网卡相连的交换必须做特殊配置（ 这两个端口需要配置成聚合方式），因为做bonding的这两块网卡是使用同一个MAC地址</li>
 <li><p>mode=1，表示fault-tolerance (active-backup)提供冗余功能，工作方式是主备的工作方式，也就是说默认情况下只有一块网卡工作，另一块做备份 。</p>
 </li>
 <li><p>mode=6，表示load balancing (round-robin)为负载均衡方式，两块网卡都工作，该模式下无需配置交换机，因为做bonding的这两块网卡是使用不同的MAC地址。</p>
@@ -307,21 +299,11 @@
 </li>
 </ul>
 <h4 id="6、-加载内核bond模块-modprobe-bonding"><a href="#6、-加载内核bond模块-modprobe-bonding" class="headerlink" title="6、 加载内核bond模块 modprobe bonding"></a>6、 加载内核bond模块 modprobe bonding</h4><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# modprobe bonding</span><br><span class="line">[root@nn network-scripts]# lsmod |grep bond </span><br><span class="line">bonding               152656  0 </span><br></pre></td></tr></table></figure>
-
 <p>重启网络</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# service network restart</span><br><span class="line">Restarting network (via systemctl):                        [  OK  ]</span><br></pre></td></tr></table></figure>
-
-
-
 <h4 id="7、查看bond0虚拟网卡状态并测试主备网卡切换"><a href="#7、查看bond0虚拟网卡状态并测试主备网卡切换" class="headerlink" title="7、查看bond0虚拟网卡状态并测试主备网卡切换"></a>7、查看bond0虚拟网卡状态并测试主备网卡切换</h4><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# cat /proc/net/bonding/bond0 </span><br><span class="line">Ethernet Channel Bonding Driver: v3.7.1 (April 27, 2011)</span><br><span class="line"></span><br><span class="line"><span class="meta">#</span><span class="bash"> 负载均衡模式</span></span><br><span class="line">Bonding Mode: adaptive load balancing</span><br><span class="line">Primary Slave: None</span><br><span class="line"><span class="meta">#</span><span class="bash"> 当前对外连接网络额度是网卡ens33</span></span><br><span class="line">Currently Active Slave: ens33</span><br><span class="line"><span class="meta">#</span><span class="bash"> 状态up</span></span><br><span class="line">MII Status: up</span><br><span class="line">MII Polling Interval (ms): 100</span><br><span class="line">Up Delay (ms): 0</span><br><span class="line">Down Delay (ms): 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens33</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f1</span><br><span class="line">Slave queue ID: 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f2</span><br><span class="line">Slave queue ID: 0</span><br></pre></td></tr></table></figure>
-
-
-
 <p>查看bond0的mac地址，跟ens33的mac地址一样：12:1d:21:fg:43:f1 </p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@nn ~]# ip a</span><br><span class="line"></span><br><span class="line">2: ens33: &lt;BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast master bond0 state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">3: ens37: &lt;BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast master bond0 state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f2 brd ff:ff:ff:ff:ff:ff</span><br><span class="line"></span><br><span class="line">191: bond0: &lt;BROADCAST,MULTICAST,MASTER,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 12:1d:21:fg:43:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.142.4/24 brd 192.168.142.255 scope global noprefixroute bond0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
-
-
-
 <p>关闭ens33网卡，看看bond0是否会切换到ens37</p>
 <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">[root@nn network-scripts]# ifdown ens33</span><br><span class="line">Device &#x27;ens33&#x27; successfully disconnected.</span><br><span class="line"></span><br><span class="line">[root@localhost network-scripts]# cat /proc/net/bonding/bond0 </span><br><span class="line">Ethernet Channel Bonding Driver: v3.7.1 (April 27, 2011)</span><br><span class="line"></span><br><span class="line">Bonding Mode: adaptive load balancing</span><br><span class="line">Primary Slave: None</span><br><span class="line"><span class="meta">#</span><span class="bash"> 可以看到当ens33不工作后，网络连接已经切换到ens37</span></span><br><span class="line">Currently Active Slave: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">MII Polling Interval (ms): 100</span><br><span class="line">Up Delay (ms): 0</span><br><span class="line">Down Delay (ms): 0</span><br><span class="line"></span><br><span class="line">Slave Interface: ens37</span><br><span class="line">MII Status: up</span><br><span class="line">Speed: 1000 Mbps</span><br><span class="line">Duplex: full</span><br><span class="line">Link Failure Count: 0</span><br><span class="line">Permanent HW addr: 12:1d:21:fg:43:f2</span><br><span class="line">Slave queue ID: 0</span><br></pre></td></tr></table></figure>
 
@@ -416,27 +398,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -467,7 +449,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -476,12 +458,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

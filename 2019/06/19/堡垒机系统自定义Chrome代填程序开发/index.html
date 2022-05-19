@@ -38,7 +38,7 @@
 <meta property="og:image" content="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==">
 <meta property="article:published_time" content="2019-06-19T13:29:10.000Z">
 <meta property="article:modified_time" content="2020-02-04T04:40:12.000Z">
-<meta property="article:tag" content="Python,BigData,Web开发,数据分析,深度学习">
+<meta property="article:tag" content="Java高级后端,大数据开发,Python数据分析与挖掘">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:image" content="https://img-blog.csdnimg.cn/20190731130451317.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70">
 
@@ -110,7 +110,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -205,7 +205,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -269,7 +269,6 @@
       
         <p>&#8195;&#8195;企业内部有多个业务系统、管理系统，而这些系统相互独立，也无相关审计工具对操作人员进行审计，使用人员或者管理员在对账户等也存在一定疏忽，为加强网络安全以及保证内部信息安全，一般都要求这些管理系统接入堡垒机，堡垒机的审计原理：使用人员登录堡垒机系统，选中要登录的管理系统，堡垒机自动打开远程桌面，并代自动填入需要访问系统的账户和密码，这一过程对使用者透明，但堡垒机可通过录制使用者操作视频以及记录相关登入登出操作，达到对多个管理系统统一管理。</p>
 <a id="more"></a>
-
 <p>&#8195;&#8195;关键功能配置在此：</p>
 <p>&#8195;&#8195;需在堡垒机系统上配置纳入审计的URL、账号和密码，其自带功能仅支持ie浏览器登录，而内部使用多个系统已不支持ie或者IE体验极差（包括旧管理系统和新管理系统），在应用类型选项仅有“IE代填以及自定义代填”两项选择，却没有类似“IE代填、Chrome代填、FireFox代填这些选项”， 而实际使用场景为使用Chrome浏览器代填，堡垒机厂家提供的自定义代填功能竟然无相关程序。</p>
 <p><img src="https://img-blog.csdnimg.cn/20190731130451317.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="img"><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
@@ -293,16 +292,15 @@
 <h4 id="（2）建议将chromedriver-exe和autoFillingIn-py放在同一目录下"><a href="#（2）建议将chromedriver-exe和autoFillingIn-py放在同一目录下" class="headerlink" title="（2）建议将chromedriver.exe和autoFillingIn.py放在同一目录下"></a>（2）建议将chromedriver.exe和autoFillingIn.py放在同一目录下</h4><p>这里放在c:\ chromeTools目录下</p>
 <p>程序逻辑如下</p>
 <figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> os</span><br><span class="line"><span class="keyword">import</span> re</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> argparse</span><br><span class="line"><span class="keyword">from</span> selenium <span class="keyword">import</span> webdriver</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">def</span> <span class="title">keep_double_quotes</span>(<span class="params">xpath</span>):</span></span><br><span class="line">    <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">    通过Chrome右键Copy Xpath获取目标url账户、密码、登录按钮输入框的Xpath有两种通用形式：</span></span><br><span class="line"><span class="string">    第一种在其html元素显示给出id值的：//*[@id=&quot;usernameInput&quot;] 以及 //*[@id=&quot;loginForm&quot;]/fieldset/div[1]/input</span></span><br><span class="line"><span class="string">    第二种在其html元素没有id索引的：/html/body/form/table[1]/tbody/tr[5]/td[3]/input 或 /html/body/form/table[1]/tbody/tr[5]/td[3]/img</span></span><br><span class="line"><span class="string">    对于第一种Xpath，当使用入参 -up //*[@id=&quot;login_input&quot;]时，会被argparse解析为 //*[@id=login_input],双引号没了！因此需要还原输入参数的格式，</span></span><br><span class="line"><span class="string">    否则find_element_by_xpath将无法定位，无法实现自动代填</span></span><br><span class="line"><span class="string">    该bug相对隐藏！</span></span><br><span class="line"><span class="string">    &quot;&quot;&quot;</span></span><br><span class="line">    m=re.search(<span class="string">r&#x27;=(.*?)\]&#x27;</span>,xpath)</span><br><span class="line">    <span class="keyword">if</span> m:</span><br><span class="line">        id_name=m.group(<span class="number">1</span>)</span><br><span class="line">        quotes_id_name=<span class="string">&#x27;&quot;&#x27;</span>+id_name+<span class="string">&#x27;&quot;&#x27;</span></span><br><span class="line">        double_quotes_path=re.sub(<span class="string">r&#x27;&#123;&#125;&#x27;</span>.<span class="built_in">format</span>(id_name),quotes_id_name,xpath)</span><br><span class="line">        <span class="keyword">return</span> double_quotes_path</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        <span class="keyword">return</span> xpath</span><br><span class="line"></span><br><span class="line">parser=argparse.ArgumentParser(description=<span class="string">&#x27;自动代填&#x27;</span>)</span><br><span class="line">parser.add_argument(<span class="string">&#x27;-url&#x27;</span>,<span class="built_in">type</span>=<span class="built_in">str</span>,required=<span class="literal">True</span>,<span class="built_in">help</span>=<span class="string">&#x27;网站url,支持http和https&#x27;</span>) </span><br><span class="line">parser.add_argument(<span class="string">&#x27;-user&#x27;</span>,<span class="built_in">type</span>=<span class="built_in">str</span>,required=<span class="literal">True</span>,<span class="built_in">help</span>=<span class="string">&#x27;用户名&#x27;</span>) </span><br><span class="line">parser.add_argument(<span class="string">&#x27;-psw&#x27;</span>,<span class="built_in">type</span>=<span class="built_in">str</span>,required=<span class="literal">True</span>,<span class="built_in">help</span>=<span class="string">&#x27;密码&#x27;</span>) </span><br><span class="line">parser.add_argument(<span class="string">&#x27;-wait&#x27;</span>,<span class="built_in">type</span>=<span class="built_in">int</span>,default=<span class="number">5</span>,<span class="built_in">help</span>=<span class="string">&#x27;网页加载等待秒数，保证元素加载出来后才能定位成功&#x27;</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">parser.add_argument(<span class="string">&#x27;-up&#x27;</span>,<span class="built_in">type</span>=keep_double_quotes,<span class="built_in">help</span>=<span class="string">&#x27;用户input提示元素的Xpath,取第一个input元素的id，style为&quot;display: block;&quot;，如没有该id，则可忽略该-up选项&#x27;</span>)</span><br><span class="line">parser.add_argument(<span class="string">&#x27;-hup&#x27;</span>,<span class="built_in">type</span>=keep_double_quotes,required=<span class="literal">True</span>,<span class="built_in">help</span>=<span class="string">&#x27;用户input存放用户名元素的Xpath,style为&quot;display: none;&quot;，表示隐藏用户名输入&#x27;</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">parser.add_argument(<span class="string">&#x27;-pp&#x27;</span>,<span class="built_in">type</span>=keep_double_quotes,<span class="built_in">help</span>=<span class="string">&#x27;密码input提示元素的Xpath,取第一个input元素的id，style为&quot;display: block;&quot;，如没有该id，则可忽略该-pp选项&#x27;</span>)</span><br><span class="line">parser.add_argument(<span class="string">&#x27;-hpp&#x27;</span>,<span class="built_in">type</span>=keep_double_quotes,required=<span class="literal">True</span>,<span class="built_in">help</span>=<span class="string">&#x27;密码input真实密码填入元素的Xpath,style为&quot;display: none;&quot;，表示隐藏密码输入&#x27;</span>)</span><br><span class="line"></span><br><span class="line">parser.add_argument(<span class="string">&#x27;-lp&#x27;</span>,<span class="built_in">type</span>=keep_double_quotes,<span class="built_in">help</span>=<span class="string">&#x27;登录按钮的Xpath，使用Chrome的Copy Xpath定位元素路径&#x27;</span>) </span><br><span class="line">parser.add_argument(<span class="string">&#x27;-al&#x27;</span>,<span class="built_in">type</span>=<span class="built_in">str</span>,<span class="built_in">help</span>=<span class="string">&#x27;指定是否自动登录,如指定自动，填入Y或y，如需要填入验证码、短信等二次认证的输入框，请填入N或n&#x27;</span>)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># 获取输入参数</span></span><br><span class="line">inputs=parser.parse_args()</span><br><span class="line">target_url=inputs.url</span><br><span class="line">username=inputs.user</span><br><span class="line">password=inputs.psw</span><br><span class="line">sleep_time=inputs.wait</span><br><span class="line">u_inp=inputs.up</span><br><span class="line">hidden_u_inp=inputs.hup</span><br><span class="line">psw_inp=inputs.pp</span><br><span class="line">hidden_psw_inp=inputs.hpp</span><br><span class="line">login_input=inputs.lp</span><br><span class="line">auto_login=inputs.al</span><br><span class="line"></span><br><span class="line"><span class="comment"># 获取chrome_driver所在路径</span></span><br><span class="line">chrome_name = <span class="string">&#x27;chromedriver.exe&#x27;</span></span><br><span class="line">dir_name = os.path.dirname(os.path.abspath(__file__))</span><br><span class="line">chrome_driver_path = os.path.join(dir_name, chrome_name)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># 添加chrome的一些优化设置例如不弹出无意义的提示栏、容许不安全访问、最大窗口访问、禁止gpu加速，</span></span><br><span class="line"><span class="comment"># 如不设置，Chrome会弹出一些警告栏甚至提示安全禁止打开url，将无法自动代填或自动代填后自动登入系统进入首页</span></span><br><span class="line">options=webdriver.ChromeOptions()</span><br><span class="line">options.add_argument(<span class="string">&#x27;--disable-popup-blocking&#x27;</span>)</span><br><span class="line">options.add_argument(<span class="string">&#x27;--disable-infobars&#x27;</span>)</span><br><span class="line">options.add_argument(<span class="string">&#x27;--allow-running-insecure-content&#x27;</span>)</span><br><span class="line">options.add_argument(<span class="string">&#x27;--start-maximized&#x27;</span>)</span><br><span class="line">options.add_argument(<span class="string">&#x27;--disable-gpu&#x27;</span>)</span><br><span class="line">driver=webdriver.Chrome(chrome_driver_path,chrome_options=options)</span><br><span class="line"></span><br><span class="line"><span class="comment"># Chrome浏览器打开一个窗口并打开该url</span></span><br><span class="line">driver.get(target_url)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 等待</span></span><br><span class="line">time.sleep(sleep_time)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 定位相关输入框或按钮位置并填入值</span></span><br><span class="line">selector=driver.find_element_by_xpath</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># 用户名含有隐藏输入时，有两个input id，需要对第一个input进行focus</span></span><br><span class="line"><span class="keyword">if</span> u_inp:</span><br><span class="line">    u_inp_selector=selector(u_inp)</span><br><span class="line">    driver.execute_script(<span class="string">&quot;arguments[0].focus();&quot;</span>,u_inp_selector)</span><br><span class="line">    </span><br><span class="line"></span><br><span class="line"><span class="comment"># 用户名输入框第二个input id，隐藏输入用户名的id，也要对其进行focus</span></span><br><span class="line">hidden_u_inp_selector=selector(hidden_u_inp)</span><br><span class="line">driver.execute_script(<span class="string">&quot;arguments[0].focus();&quot;</span>, hidden_u_inp_selector)</span><br><span class="line">hidden_u_inp_selector.send_keys(username)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># 密码含有隐藏输入时，有两个input id，需要对第一个input进行focus</span></span><br><span class="line"><span class="keyword">if</span> psw_inp:</span><br><span class="line">    psw_inp_selector=selector(psw_inp)</span><br><span class="line">    driver.execute_script(<span class="string">&quot;arguments[0].focus();&quot;</span>,psw_inp_selector)</span><br><span class="line">    </span><br><span class="line"></span><br><span class="line"><span class="comment"># 密码输入框第二个input id，隐藏输入用户名的id，也要对其进行focus</span></span><br><span class="line">hidden_psw_inp_selector=selector(hidden_psw_inp)</span><br><span class="line">driver.execute_script(<span class="string">&quot;arguments[0].focus();&quot;</span>, hidden_psw_inp_selector)</span><br><span class="line">hidden_psw_inp_selector.send_keys(username)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">login=selector(login_input)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 是否自动登录</span></span><br><span class="line"><span class="keyword">if</span> auto_login <span class="keyword">in</span> (<span class="string">&#x27;Y&#x27;</span>,<span class="string">&#x27;y&#x27;</span>):</span><br><span class="line">    login.click()</span><br><span class="line"><span class="keyword">else</span>:</span><br><span class="line">    <span class="keyword">pass</span></span><br></pre></td></tr></table></figure>
-
 <p><img src="data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==" alt="点击并拖拽以移动"></p>
 <p>这里为何不设计为以下代码结构：</p>
 <p>def auto_filling_in(**kargs):</p>
 <p>​     pass</p>
-<p>if <strong>name</strong>==”__main__”:</p>
+<p>if <strong>name</strong>==”<strong>main</strong>”:</p>
 <p>​     获取入参</p>
 <p>​     调用auto_filling_in(**kargs)</p>
 <p>因为使用该形式运行时，selenium会以子进程运行chromedriver.exe</p>
-<p>if <strong>name</strong>==”__main__”:以下的代码作为父进程</p>
+<p>if <strong>name</strong>==”<strong>main</strong>”:以下的代码作为父进程</p>
 <p>而父进程在获取入参和调用auto_filling_in()后会结束，导致子进程运行的chrome也退出</p>
 <h4 id="（3）程序使用说明"><a href="#（3）程序使用说明" class="headerlink" title="（3）程序使用说明"></a>（3）程序使用说明</h4><p>最后在堡垒机上的配置该脚本：</p>
 <p>应用路径:c:\ chromeTools\ autoFillingIn.py</p>
@@ -346,8 +344,8 @@
       <i class="fa fa-chevron-left"></i> VMware虚拟化——基于VCSA6.7搭建生产可用小型服务器集群（非共享存储方式）
     </a></div>
       <div class="post-nav-item">
-    <a href="/2019/06/30/centos%E5%AD%98%E5%82%A8%E6%89%A9%E5%AE%B9%E9%85%8D%E7%BD%AE%EF%BC%88%E5%9F%BA%E4%BA%8ELVM%EF%BC%89/" rel="next" title="centos存储扩容配置（基于LVM）">
-      centos存储扩容配置（基于LVM） <i class="fa fa-chevron-right"></i>
+    <a href="/2019/06/30/%E5%9F%BA%E4%BA%8EKeepalived%E5%AE%9E%E7%8E%B0%E5%8F%8C%E6%9C%BA%E4%B8%BB%E5%A4%87/" rel="next" title="基于Keepalived实现双机主备">
+      基于Keepalived实现双机主备 <i class="fa fa-chevron-right"></i>
     </a></div>
     </div>
       </footer>
@@ -416,27 +414,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -467,7 +465,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -476,12 +474,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

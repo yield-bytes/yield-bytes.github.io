@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="前言首先给出以下open JDK版本的序号说明和Oracle JDK序号说明 （1）对于JDK8或者Java 8 即可指代openjdk-8-jdk或者java-1.8.0-openjdk， 也可指代Oracle家的Java SE 8或者JDK 8u211 and later （1）对于JDK16或者Java 16 即可指代openjdk的JDK 16.0.2 ，也可指代Oracle家的Java">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/09/12/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84resizeStamp%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="前言首先给出以下open JDK版本的序号说明和Oracle JDK序号说明 （1）对于JDK8或者Java 8 即可指代openjdk-8-jdk或者java-1.8.0-openjdk， 也可指代Oracle家的Java SE 8或者JDK 8u211 and later （1）对于JDK16或者Java 16 即可指代openjdk的JDK 16.0.2 ，也可指代Oracle家的Java">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/eb2c433432625b947c9577f66143aa89.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/97e83ffc401b68273676330e258d2250.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/1166b7e443f330f3baeb476bee50696c.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/ae8107dce306a9b66a3c2f7cf5d41b85.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/dea07fce20d299c5818f908ec2acada4.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/a045b2a6bb8c69277c4c7c465050d5d8.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/d4ac26eb1ebad97848cdb06a4845158b.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/33aa00f8570788a8f611b7a38b8b4ed0.png">
+<meta property="article:published_time" content="2021-09-11T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-09T13:57:56.523Z">
+<meta property="article:tag" content="JUC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/img_convert/eb2c433432625b947c9577f66143aa89.png">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/09/12/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84resizeStamp%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/09/12/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84resizeStamp%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的resizeStamp源代码修复逻辑
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-09-12 00:00:00" itemprop="dateCreated datePublished" datetime="2021-09-12T00:00:00+08:00">2021-09-12</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-09 21:57:56" itemprop="dateModified" datetime="2022-05-09T21:57:56+08:00">2022-05-09</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>21k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>19 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h4 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h4><p>首先给出以下open JDK版本的序号说明和Oracle JDK序号说明</p>
+<p>（1）对于JDK8或者Java 8</p>
+<p>即可指代openjdk-8-jdk或者java-1.8.0-openjdk，</p>
+<p>也可指代Oracle家的Java SE 8或者JDK 8u211 and later</p>
+<p>（1）对于JDK16或者Java 16</p>
+<p>即可指代openjdk的JDK 16.0.2 ，也可指代Oracle家的Java SE 16或者 jdk16.0.1，这里为何给出Java 8和Java 16版本说明？</p>
+<p>首先resizeStamp的bug在Java8出现，并在Java 12被修复，因此本文直接给出最新版Java 16作为bug修复前后对比即可。</p>
+<p>以下做个约定：统一以Java X形式作为版本称号，CHM：ConcurrentHashMap的简称，以此减少阅读障碍。</p>
+<p>在前面的文章中，关于Java 8 的CHM addCount方法里面分支2：<code>resizeStamp</code>和<code>sc==rs+1、sc==rs+MAX_RESIZERS</code>的讨论中，已经指出其bug嫌疑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">addCount</span><span class="params">(<span class="keyword">long</span> x, <span class="keyword">int</span> check)</span> </span>&#123;</span><br><span class="line"><span class="comment">// 分支1 省略...</span></span><br><span class="line">  </span><br><span class="line"><span class="comment">// 分支2 </span></span><br><span class="line"><span class="keyword">if</span> (check &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">            Node&lt;K,V&gt;[] tab, nt; <span class="keyword">int</span> n, sc;</span><br><span class="line">            <span class="keyword">while</span> (s &gt;= (<span class="keyword">long</span>)(sc = sizeCtl) &amp;&amp; (tab = table) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                   (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                <span class="keyword">int</span> rs = resizeStamp(n); <span class="comment">// 注意这里计算出的rs是正值</span></span><br><span class="line">                <span class="keyword">if</span> (sc &lt; <span class="number">0</span>) &#123;</span><br><span class="line">                  	<span class="comment">// sc是负值，怎么会等于rs+1或者rs + MAX_RESIZERS这个正值呢？ 有可能是个bug</span></span><br><span class="line">                    <span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + <span class="number">1</span> ||</span><br><span class="line">                        sc == rs + MAX_RESIZERS || (nt = nextTable) == <span class="keyword">null</span> ||</span><br><span class="line">                        transferIndex &lt;= <span class="number">0</span>)</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))</span><br><span class="line">                        transfer(tab, nt);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc,</span><br><span class="line">                                             (rs &lt;&lt; RESIZE_STAMP_SHIFT) + <span class="number">2</span>))</span><br><span class="line">                    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">                s = sumCount();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br></pre></td></tr></table></figure>
+<h4 id="官方bug描述"><a href="#官方bug描述" class="headerlink" title="官方bug描述"></a>官方bug描述</h4><p>其实这个bug在open jdk的官方bugs主页已经给出相关解释和修复过程，链接：<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/browse/JDK-8214427">官方bug描述页面</a>：<br><img src="https://img-blog.csdnimg.cn/img_convert/eb2c433432625b947c9577f66143aa89.png" alt="开发者在官方提交的resizeStamp的bug描述"></p>
+<p>从Detail这一块描述得到信息如下：</p>
+<p>bug的描述：ConcurrentHashMap.addCount()设计逻辑中可能存在bug。（这里虽然提到addCount()方法，但本人更想强调的是扩容分支的resizeStamp的bug）</p>
+<p>级别是：bug</p>
+<p>当前状态：已经修复</p>
+<p>影响的版本：Java 11、Java12</p>
+<p>在哪个版本得到修复：Java 12</p>
+<p>使用操作系统平台：所有</p>
+<p>bug页面创建时间：2018-11-26</p>
+<p>解决bug的最后时间：2018-12-11</p>
+<p>bug所属库：Java的核心库——core-libs</p>
+<h4 id="提交者的修复建议"><a href="#提交者的修复建议" class="headerlink" title="提交者的修复建议"></a>提交者的修复建议</h4><blockquote>
+<p>In the above code, condition of (sc == rs + 1 || sc == rs + MAX_RESIZERS ) would never be true , since the value of rs is positive and the value of sc is negative .</p>
+<p>译：条件 (sc == rs + 1 || sc == rs + MAX_RESIZERS )永远不可能true，因为rs的值为正数，而sc值为负数</p>
+</blockquote>
+<p>并建议修改为：</p>
+<blockquote>
+<p>The correct condition should be (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + 1 || (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + MAX_RESIZERS, which can be used to dedect if resizing process finished or resizing threads reaches maxmium limitation</p>
+<p>译：正常的条件应该是这样： (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + 1 || (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + MAX_RESIZERS，这两个条件表示扩容任务已结束或者参与扩容的线程总数达到最大值</p>
+</blockquote>
+<a id="more"></a>
+<p>确实，这个bug非常明显，以分支2作为说明</p>
+<p>int rs = resizeStamp(n)，以容量n=16作为说明，rs计算为下面的值</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">0000 0000 0000 0000 1000 0000 0001 1011</span><br></pre></td></tr></table></figure>
+<p>考察低16位，rs+1的结果显然是一个正数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">0000 0000 0000 0000 1000 0000 0001 1100</span><br></pre></td></tr></table></figure>
+<p>rs+MAX_RESIZERS同理也是一个正数，接着判断条件if(sc&lt;0)成立才能进入rs+1等条件，也即此时sc是一个负数（其实是因为首个扩容线程会将sc设为<code>(rs &lt;&lt; RESIZE_STAMP_SHIFT) + 2</code>的一个基础负数），基于此，有提交者在这里发现的了bug：sc是负数，而rs+1是正数，因此sc==rs+1永远不会成立</p>
+<h4 id="官方关于此bug的讨论过程"><a href="#官方关于此bug的讨论过程" class="headerlink" title="官方关于此bug的讨论过程"></a>官方关于此bug的讨论过程</h4><p>JCP  JSR-166 Expert Group （关于Java并发编程的规范提案的专家组）几个相关成员的对话过程即可知道他们对问题的思考和处理方式。</p>
+<p>在Activity这个栏目就是用于提交者已经相关专家bug讨论过程，“All”是显示所有他们的活动记录，一般无需关注，“Comments”显示他们的对话过程，bug的讨论过程就在这里，因此需要重点关注，具体如下：</p>
+<p>以下是来自“Comments”区域的内容：</p>
+<p>(最开始由Webbug Group 这个小组提交了该issue - 2018-11-26 00:53)</p>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=smarks">Stuart Marks</a> 说：</p>
+<blockquote>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=smarks">Stuart Marks</a> added a comment - 2018-11-28 09:10</p>
+<p>Martin, can you take a look at this?</p>
+<p>Martin，来，帮我看看这个bug？</p>
+</blockquote>
+<p>Martin的回答，主要意思是：bug提交者在查一个确实是由addCount产生错误计数，但Martin说他们也没有可以使用的压测案例，并建议使用者用多线程做压测来让addCount的这个bug复现，但这个bug不好复现。</p>
+<blockquote>
+<p>Resizing the internal bucket array is hairy race-prone code, and hard to stress test because resizes are relatively rare.</p>
+<p>The reporter probably investigated an actual occurrence of incorrect count (we could ask!), but we don’t have a stress test reproduction that could be used.</p>
+<p>One should be able to construct a stress test using multiple threads to trigger concurrent attempts to addCount, but it won’t be easy.</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dholmes">David Holmes</a> 对Martin说：</p>
+<blockquote>
+<p>What is your analysis just based on the code and the report? It certainly appears incorrect to me.</p>
+<p>你的分析只是基于代码以及提交的报告？这个bug在我看来显然是不正确的。</p>
+</blockquote>
+<p>Martin回答<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dholmes">David Holmes</a> ：</p>
+<p>Martin说自己也看了看源码但研究时间不够长，自己还没能搞懂其设计，然后说Doug应该记得这个设计！</p>
+<blockquote>
+<p>I stared at the code for a while, but not long enough to understand it. Doug will remember!</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dl">Doug Lea</a> added a comment - 2018-11-28 15:53:</p>
+<p>Doug Lea看到这个bug，做了基本的分析：这个bug会影响到CHM性能也即有些线程不能参与到扩容任务中，并指出这个bug只是影响性能而不是一个引起map发生错误的bug，指出这个bug需要修复。</p>
+<blockquote>
+<p>Yes. Some of this check now includes dead code, because of a change of representation at one point that wasn’t adjusted for. With the possible effect of some threads not helping resize (a performance, not map correctness bug) This should be fixed (and is committed in jdr166 repo):</p>
+</blockquote>
+<p>然后他贴出修复前后的源码diff</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">--- ConcurrentHashMap.java.~<span class="number">1.314</span>.~ <span class="number">2018</span>-<span class="number">10</span>-<span class="number">05</span> <span class="number">13</span>:<span class="number">42</span>:<span class="number">39.860409607</span> -<span class="number">0400</span></span><br><span class="line">+++ ConcurrentHashMap.java <span class="number">2018</span>-<span class="number">11</span>-<span class="number">28</span> <span class="number">18</span>:<span class="number">48</span>:<span class="number">55.998082379</span> -<span class="number">0500</span></span><br><span class="line">@@ -<span class="number">2307</span>,<span class="number">9</span> +<span class="number">2307</span>,<span class="number">9</span> @@</span><br><span class="line">                    (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                 <span class="keyword">int</span> rs = resizeStamp(n);</span><br><span class="line">                 <span class="keyword">if</span> (sc &lt; <span class="number">0</span>) &#123;</span><br><span class="line">- <span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + <span class="number">1</span> ||</span><br><span class="line">- sc == rs + MAX_RESIZERS || (nt = nextTable) == <span class="keyword">null</span> ||</span><br><span class="line">- transferIndex &lt;= <span class="number">0</span>)</span><br><span class="line">+ <span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + <span class="number">1</span> ||</span><br><span class="line">+ (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + MAX_RESIZERS ||</span><br><span class="line">+ (nt = nextTable) == <span class="keyword">null</span> || transferIndex &lt;= <span class="number">0</span>)</span><br><span class="line">                         <span class="keyword">break</span>;</span><br><span class="line">                     <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))</span><br><span class="line">                         transfer(tab, nt);</span><br></pre></td></tr></table></figure>
+<p>可以看到判断条件变为:</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + <span class="number">1</span> ||(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + MAX_RESIZERS ||(nt = nextTable) == <span class="keyword">null</span> || transferIndex &lt;= <span class="number">0</span>)</span><br></pre></td></tr></table></figure>
+<p>根据修复的条件，可知rs是负数，因此<code>(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs</code> 已经没有实际意义，因为(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT)是一个正数，rs是一个负数，显然是不相等，因此<code>(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs</code>是多余的。</p>
+<p>这就是最终定稿修复源码吗？  继续看后面的讨论</p>
+<p>Pallavi Sonal (Inactive)](<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=psonal">https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=psonal</a>) added a comment - 2018-11-29 01:09</p>
+<p>Pallavi Sonal收到提交者新的描述，</p>
+<blockquote>
+<p>Additional Information from submitter:<br>I need to change the correct conditions given by me in the bug description ï¼š</p>
+<p>The correct condition shuold be</p>
+<p>sc == ( rs&lt;&lt;&lt;RESIZE_STAMP_SHIFT ) +1 || sc == ( rs&lt;&lt;&lt;RESIZE_STAMP_SHIFT ) + MAX_RESIZERS</p>
+</blockquote>
+<p>其实就是说一开始提交bug的描述中，两个条件应该是这样的形式：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + <span class="number">1</span> || (sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) == rs + MAX_RESIZERS</span><br></pre></td></tr></table></figure>
+<p>现在提交者应该是自己对扩容移位理解深入后，发现按下面这样写更能准确表达：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//int rs = resizeStamp(n);</span></span><br><span class="line">sc == ( rs&lt;&lt;&lt;RESIZE_STAMP_SHIFT ) +<span class="number">1</span> || sc == ( rs&lt;&lt;&lt;RESIZE_STAMP_SHIFT ) + MAX_RESIZERS</span><br></pre></td></tr></table></figure>
+<p>本人也赞同这种建议：因为该if条件考察主体是以rs扩容戳的角度出发，因为rs由resizeStamp(n)计算出是正值:</p>
+<p><code>0000 0000 0000 0000 1000 0000 0001 1011</code></p>
+<p>因此将rs左移RESIZE_STAMP_SHIFT位后，扩容戳关键信息移动到高16位：</p>
+<p><code>1000 0000 0001 1011 0000 0000 0000 000</code> （此时是一个负数）</p>
+<p>然后再去判断<code>sc == ( rs&lt;&lt;&lt;RESIZE_STAMP_SHIFT ) +1</code> 是否成立，这样才能符合rs的移位设计逻辑：高16位存放扩容印记信息，低16位用于存放扩容线程数量。</p>
+<p>而<code>sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT</code> 的写法无法表达出“rs的高16位存放扩容印记信息，rs低16位用于存放扩容线程数量。”这种移位设计理念。</p>
+<h4 id="bug的复现方法"><a href="#bug的复现方法" class="headerlink" title="bug的复现方法"></a>bug的复现方法</h4><p>Pallavi Sonal最关键的贡献是提供了bug的复现方法，如下所示：</p>
+<p>这里有个tricky：将MAX_RESIZERS设为2以及在transfer中挂起进入transfer线程 suspend Threads</p>
+<blockquote>
+<p>This bug could be verifed by a small example :</p>
+<p>1、将ConcurrentHashMap源码拷贝自己测试包目录下</p>
+<p>First, copy the ConcurrentHashMap source code to your own package</p>
+<p>2、还有其他相关的ThreadLocalRandom源码也要拷到自己项目包</p>
+<p>Second, do some necessary modification to make it can be compiled (eg: change package declaration, make Unsafe instance works, copy ThreadLocalRandom to your package as well, since the ConcurrentHashMap used ThreadLocalRandom.probe() function, which is not public )</p>
+<p>3、写个demo测试代码，以及在源码加一些修改（注意源码无法直接修改，可以选择拷到自己包下，个人推荐：最好的方式是在IDEA将SDKs 的<code>Sourcepath</code>替换自定义的源码目录，这样JDK源码就可以直接编辑，比上面提的方式要方便）</p>
+<p>Third, reduce MAX_RESIZERS to 2, as the documentation shows, this should ensure there are at most 2 threads can do resizing concurrently</p>
+<p>// CHM源码将MAX_RESIZERS数量设为2，以便观察进入transfer的线程数量</p>
+<p>private static final int MAX_RESIZERS = 2;</p>
+<p>Fourth, add the following code snippet into the customized ConcurrentHashMap class</p>
+<p>public static void main(String[] args) {</p>
+<p>ConcurrentHashMap hashMap = new ConcurrentHashMap(8);</p>
+<p>for(int i = 0; i&lt; 300; i++)<br>{<br>new Thread() {<br>@Override<br>public void run() {<br>hashMap.put(Thread.currentThread().getId(),”id: “+Thread.currentThread().getId());<br>}<br>}.start();<br>}<br>}</p>
+<p>5、在transfer方法指定埋入一些让线程挂起的代码</p>
+<p>Fifth, add the following code snippet into the transfer function of ConcurrentHashMap . To suspend any thread that entered into transfer</p>
+<p>if (nextTab == null) { // initiating<br>try {<br>@SuppressWarnings(“unchecked”)<br>Node<K,V>[] nt = (Node<K,V>[])new Node&lt;?,?&gt;[n &lt;&lt; 1];<br>nextTab = nt;<br>} catch (Throwable ex) { // try to cope with OOME<br>sizeCtl = Integer.MAX_VALUE;<br>return;<br>}<br>nextTable = nextTab;<br>transferIndex = n;<br>}</p>
+<p>// The following added code here is to suspend Threads !!!! 在这里挂起线程<br>try {<br>String s = new String();<br>synchronized (s)<br>{<br>s.wait();<br>}<br>} catch (InterruptedException e) {<br>e.printStackTrace();<br>}</p>
+<p>6、在以下 addCount 代码片段加入断点，并使用IDEA的 “Thread” option来测试<br>Six, add the Thread break point in the following code line in addCount function</p>
+<p>( Tip: I used Idea Intellij , choose “Thread” option can suspend each thread in your application , otherwise it will only suspend only the first Thread which executed to the break point)</p>
+<p>​      if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))<br>​      transfer(tab, nt);<br>enter image description here</p>
+<p>debug后会发现进入transfer方法的线程数量超过2个，这就可以证明<code>sc==rs+MAX_RESIZERS</code>完全没有起效，因为按原始写法：sc是负值，rs是正值，<code>sc==rs+MAX_RESIZERS</code> 本身不会成立，当然无法限制进入扩容逻辑线程的总数量</p>
+<p>Then run the main function, you will see more than 2 threads entered transfer function, which means MAX_RESIZERS does not take any effect.</p>
+</blockquote>
+<p>复现这个bug设计思路确实操作性很高！</p>
+<p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=dl">Doug Lea</a> added a comment - 2018-12-02 08:00</p>
+<p>其实由于上面已经给出bug复现方法，Doug Lea肯定更加清楚问题所在，因此他说helpTransfer方法也有这个问题，最后他用了更加简化的移位表达式来修复这个bug，并且Doug Lea也亲自验证修复后条件是否能起到相关效果。</p>
+<blockquote>
+<p>A similar change is also necessary in helpTransfer. These together with a simplification of the shift expressions are now in jsr166 repo. I also verified that limits are maintained.</p>
+</blockquote>
+<h4 id="bug修复的代码最终提交到仓库："><a href="#bug修复的代码最终提交到仓库：" class="headerlink" title="bug修复的代码最终提交到仓库："></a>bug修复的代码最终提交到仓库：</h4><p><a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/secure/ViewProfile.jspa?name=hgupdate">HG Updates</a> added a comment - 2018-12-11 20:16</p>
+<blockquote>
+<p>URL: <a target="_blank" rel="noopener" href="http://hg.openjdk.java.net/jdk/jdk/rev/b4eaf570a588">http://hg.openjdk.java.net/jdk/jdk/rev/b4eaf570a588</a><br>User: martin<br>Date: 2018-12-12 04:13:15 +0000</p>
+</blockquote>
+<p>8214427: probable bug in logic of ConcurrentHashMap.addCount() Reviewed-by: martin, dholmes</p>
+<div class="table-container">
+<table>
+<thead>
+<tr>
+<th style="text-align:right">author</th>
+<th>dl</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">date</td>
+<td>Tue, 11 Dec 2018 19:55:27 -0800 (2018-12-12)</td>
+</tr>
+<tr>
+<td style="text-align:right">parents</td>
+<td><a target="_blank" rel="noopener" href="http://hg.openjdk.java.net/jdk/jdk/rev/c7c285b0b640">c7c285b0b640</a></td>
+</tr>
+<tr>
+<td style="text-align:right">children</td>
+<td><a target="_blank" rel="noopener" href="http://hg.openjdk.java.net/jdk/jdk/rev/a35f7a452257">a35f7a452257</a></td>
+</tr>
+<tr>
+<td style="text-align:right">files</td>
+<td><a target="_blank" rel="noopener" href="http://hg.openjdk.java.net/jdk/jdk/file/b4eaf570a588/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java">src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java</a></td>
+</tr>
+<tr>
+<td style="text-align:right">diffstat</td>
+<td>1 files changed, 7 insertions(+), 9 deletions(-) <a href="javascript:toggleDiffstat(">[<code>+</code>]</a>)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>修复代码提交者应该是Doug Lea，因为dl是(D)oug (L)ea的缩写，Reviewed-by：martin, dholmes</p>
+<p>具体为diff如下：</p>
+<figure class="highlight diff"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">+++ b/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java	Tue Dec 11 19:55:27 2018 -0800</span></span><br><span class="line">// 以下是addCount方法的源码修复 </span><br><span class="line"><span class="meta">@@ -2334,17 +2334,15 @@</span></span><br><span class="line">             Node&lt;K,V&gt;[] tab, nt; int n, sc;</span><br><span class="line">             while (s &gt;= (long)(sc = sizeCtl) &amp;&amp; (tab = table) != null &amp;&amp;</span><br><span class="line">                    (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                 // 删除原先的写法   </span><br><span class="line"><span class="deletion">-                int rs = resizeStamp(n);</span></span><br><span class="line">								 // 直接在这里对rs进行左移位操作</span><br><span class="line"><span class="addition">+                int rs = resizeStamp(n) &lt;&lt; RESIZE_STAMP_SHIFT;</span></span><br><span class="line">                 if (sc &lt; 0) &#123;</span><br><span class="line"><span class="deletion">-                    if ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||</span></span><br><span class="line"><span class="deletion">-                        sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||</span></span><br><span class="line"><span class="deletion">-                        transferIndex &lt;= 0)</span></span><br><span class="line">									// rs左移后，(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs是多余也是无实际意义条件，直接删除</span><br><span class="line">									</span><br><span class="line"><span class="addition">+                    if (sc == rs + MAX_RESIZERS || sc == rs + 1 ||</span></span><br><span class="line"><span class="addition">+                        (nt = nextTable) == null || transferIndex &lt;= 0)</span></span><br><span class="line">                         break;</span><br><span class="line">                     if (U.compareAndSetInt(this, SIZECTL, sc, sc + 1))</span><br><span class="line">                         transfer(tab, nt);</span><br><span class="line">                 &#125;</span><br><span class="line"><span class="deletion">-                else if (U.compareAndSetInt(this, SIZECTL, sc,</span></span><br><span class="line"><span class="deletion">-                                             (rs &lt;&lt; RESIZE_STAMP_SHIFT) + 2))</span></span><br><span class="line">				//显然这样看起来更容易理解：首个进入扩容逻辑的线程，将sizeCtl设为基础值rs+2</span><br><span class="line"><span class="addition">+                else if (U.compareAndSetInt(this, SIZECTL, sc, rs + 2))</span></span><br><span class="line">                     transfer(tab, null);</span><br><span class="line">                 s = sumCount();</span><br><span class="line">             &#125;</span><br><span class="line"><span class="meta">@@ -2358,11 +2356,11 @@</span></span><br><span class="line">				 // 以下是helpTransfer方法的源码修复 </span><br><span class="line">         Node&lt;K,V&gt;[] nextTab; int sc;</span><br><span class="line">         if (tab != null &amp;&amp; (f instanceof ForwardingNode) &amp;&amp;</span><br><span class="line">             (nextTab = ((ForwardingNode&lt;K,V&gt;)f).nextTable) != null) &#123;</span><br><span class="line">             // 同上</span><br><span class="line"><span class="deletion">-            int rs = resizeStamp(tab.length);</span></span><br><span class="line"><span class="addition">+            int rs = resizeStamp(tab.length) &lt;&lt; RESIZE_STAMP_SHIFT;</span></span><br><span class="line">             while (nextTab == nextTable &amp;&amp; table == tab &amp;&amp;</span><br><span class="line">                    (sc = sizeCtl) &lt; 0) &#123;</span><br><span class="line"><span class="deletion">-                if ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||</span></span><br><span class="line"><span class="deletion">-                    sc == rs + MAX_RESIZERS || transferIndex &lt;= 0)</span></span><br><span class="line"><span class="addition">+                if (sc == rs + MAX_RESIZERS || sc == rs + 1 ||</span></span><br><span class="line"><span class="addition">+                    transferIndex &lt;= 0)</span></span><br><span class="line">                     break;</span><br><span class="line">                 if (U.compareAndSetInt(this, SIZECTL, sc, sc + 1)) &#123;</span><br><span class="line">                     transfer(tab, nextTab);</span><br></pre></td></tr></table></figure>
+<h4 id="在Java-16源码验证其修复的代码"><a href="#在Java-16源码验证其修复的代码" class="headerlink" title="在Java 16源码验证其修复的代码"></a>在Java 16源码验证其修复的代码</h4><p>上面提到bug在Java 12就被修复了，考虑到当前最新的jdk版本为Java 16，因此可在JDK16验证其修复的源码，修改处为下面的三个更改：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">addCount</span><span class="params">(<span class="keyword">long</span> x, <span class="keyword">int</span> check)</span> </span>&#123;</span><br><span class="line">  CounterCell[] cs; <span class="keyword">long</span> b, s;   </span><br><span class="line">  		<span class="comment">// 省略部分...</span></span><br><span class="line">  		<span class="comment">// 分支2</span></span><br><span class="line">			<span class="keyword">if</span> (check &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">            Node&lt;K,V&gt;[] tab, nt; <span class="keyword">int</span> n, sc;</span><br><span class="line">            <span class="keyword">while</span> (s &gt;= (<span class="keyword">long</span>)(sc = sizeCtl) &amp;&amp; (tab = table) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                   (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                <span class="comment">// 更改1</span></span><br><span class="line">                <span class="keyword">int</span> rs = resizeStamp(n) &lt;&lt; RESIZE_STAMP_SHIFT;</span><br><span class="line">                <span class="keyword">if</span> (sc &lt; <span class="number">0</span>) &#123;</span><br><span class="line">                  	<span class="comment">// 更改2</span></span><br><span class="line">                    <span class="keyword">if</span> (sc == rs + MAX_RESIZERS || sc == rs + <span class="number">1</span> ||</span><br><span class="line">                        (nt = nextTable) == <span class="keyword">null</span> || transferIndex &lt;= <span class="number">0</span>)</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    </span><br><span class="line">                    <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))</span><br><span class="line">                        transfer(tab, nt);</span><br><span class="line">                &#125;</span><br><span class="line">              	<span class="comment">// 更改3</span></span><br><span class="line">                <span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, rs + <span class="number">2</span>))</span><br><span class="line">                    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">                s = sumCount();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    </span><br></pre></td></tr></table></figure>
+<p>可以看到，rs移位操作设计简化了，逻辑容易理解，这里再次给出分支2的解释：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">addCount</span><span class="params">(<span class="keyword">long</span> x, <span class="keyword">int</span> check)</span> </span>&#123;</span><br><span class="line">  CounterCell[] cs; <span class="keyword">long</span> b, s;   </span><br><span class="line">  		<span class="comment">// 省略部分...</span></span><br><span class="line">  		<span class="comment">// 分支2</span></span><br><span class="line">			<span class="keyword">if</span> (check &gt;= <span class="number">0</span>) &#123;</span><br><span class="line">            Node&lt;K,V&gt;[] tab, nt; <span class="keyword">int</span> n, sc;</span><br><span class="line">            <span class="keyword">while</span> (s &gt;= (<span class="keyword">long</span>)(sc = sizeCtl) &amp;&amp; (tab = table) != <span class="keyword">null</span> &amp;&amp;</span><br><span class="line">                   (n = tab.length) &lt; MAXIMUM_CAPACITY) &#123;</span><br><span class="line">                <span class="comment">// 更改1:将扩容印记先左移16位，以便低16位用于线程数量累计。显然此时rs是一个负数</span></span><br><span class="line">                <span class="keyword">int</span> rs = resizeStamp(n) &lt;&lt; RESIZE_STAMP_SHIFT;</span><br><span class="line">                <span class="keyword">if</span> (sc &lt; <span class="number">0</span>) &#123;</span><br><span class="line">                  	<span class="comment">// 更改2：原来的条件1已被删除，原因已在前面给出。</span></span><br><span class="line">                  	<span class="comment">// 若一个线程遇到以下四种情况之一就会自行break结束：扩容的线程总数达到最大限制值或者扩容任务已结束（所有扩容线程已退出）或者nextTable为空，或者已经没有可分配的桶位。条件1和条件2参考下图加深理解。</span></span><br><span class="line">                    <span class="keyword">if</span> (sc == rs + MAX_RESIZERS || sc == rs + <span class="number">1</span> ||</span><br><span class="line">                        (nt = nextTable) == <span class="keyword">null</span> || transferIndex &lt;= <span class="number">0</span>)</span><br><span class="line">                        <span class="keyword">break</span>;</span><br><span class="line">                    <span class="comment">// 除去首个扩容线程，以后每来一个扩容线程就对sc加1，参考下图</span></span><br><span class="line">                    <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))</span><br><span class="line">                        transfer(tab, nt);</span><br><span class="line">                &#125;</span><br><span class="line">              	<span class="comment">// 更改3：首个扩容线程对sc设为基础值为：rs+2后再进入transfer方法参与扩容，这种写法比之前版本要清晰很多，从这里也可以推导出：当sc的值为rs+1时，就能说明当前所有扩容线程都退出了扩容逻辑，CHM扩容完成。</span></span><br><span class="line">                <span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSetInt(<span class="keyword">this</span>, SIZECTL, sc, rs + <span class="number">2</span>))</span><br><span class="line">                    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">                <span class="comment">// 当前线程再次获取CHM的节点总数，然后回到上面while循环检查s有无达下一个阶段扩容阈值sizeCtl，如果需要进行下一阶段扩容，那么当前线程又会回到更改3的位置：作为下一节点扩容的首个扩容线程。</span></span><br><span class="line">                s = sumCount();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    </span><br></pre></td></tr></table></figure>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/97e83ffc401b68273676330e258d2250.png" alt="sc线程计数示意图.001"></p>
+<h4 id="解析本次bug的带来的技术收益"><a href="#解析本次bug的带来的技术收益" class="headerlink" title="解析本次bug的带来的技术收益"></a>解析本次bug的带来的技术收益</h4><p>为何要如此详细的分析官方修复的这个bug呢？ </p>
+<p>最直观明显的技术收益：当你能对源代码的bug有深刻认识，并且知道专家组成员对bug的讨论以及修复过程，那么其实你对CHM的设计理念和源码实现能掌握得相当深入，感觉像是你也参与了CHM的部分源码编写，无形中对提高个人高级开发能力有一定帮助。</p>
+<p>其次，当你知道有这么一个“open JDK bugs官方提交系统”，也许当你在研究难度比较高的源码设计时，若你能发现bug，你也可以提交，以此证明自身掌握高级研发能力程度。</p>
+<p>最后，这个官方bugs提交系统也可以帮助个人快速找到想要深入解析的包或者类的关键设计原理，因为页面含有非常详细的bug描述、bug复现方法、bug出现原因分析、bug的代码修复。</p>
+<p>查询页面如下：</p>
+<p>基本用法也简单：在Projects里面选择你关注的领域，例如JDK，若不想加其他条件，可以直接使用关键字去检索你想要研究的源码</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/1166b7e443f330f3baeb476bee50696c.png" alt="openJDKbug查询页面"></p>
+<h4 id="bugs系统还给出另外与resizeStamp相关的bug"><a href="#bugs系统还给出另外与resizeStamp相关的bug" class="headerlink" title="bugs系统还给出另外与resizeStamp相关的bug"></a>bugs系统还给出另外与resizeStamp相关的bug</h4><p>不过是这个bug是提交者自己闹的乌龙，<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/browse/JDK-8242464">bug页面链接</a></p>
+<p>提交者提交的描述：Bug in the logic of ConcurrentHashMap.addCount() when used in Threads</p>
+<p>他认为主要问题不是sc==rs+1这边负数那边正数，而是应该关注当前数组的容量要两倍于原表</p>
+<p>因此他认为if条件应该这么该：</p>
+<p>将<code>sc==rs+1</code> 应该改为<code>(sc &gt;&gt;&gt;RESIZE_STAMP_SHIFT) == (rs&gt;&gt;&gt;RESIZE_STAMP_SHIFT) + 1</code></p>
+<blockquote>
+<p>A DESCRIPTION OF THE PROBLEM :<br>At java.util.concurrent.ConcurrentHashMap#addCount:2339<br>i think the condition is if the thread is reach maximum or the new table size is twice as before or the nextTable is null or the transferIndex is lesss than zero; the bug in jdk8 is “<a target="_blank" rel="noopener" href="https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8214427">https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8214427</a>“ , i think the main thing is not one is positive another is negtive, but the new table size is twice as before.<br>at jdk12 i think is not fix it, “sc == rs + 1” compare the work thread but not array size, i think the code should be </p>
+<p>if (sc == rs + MAX_RESIZERS || (sc &gt;&gt;&gt;RESIZE_STAMP_SHIFT) == (rs&gt;&gt;&gt;RESIZE_STAMP_SHIFT) + 1 ||<br>           (nt = nextTable) == null || transferIndex &lt;= 0)<br>           break;<br>rather than </p>
+<p>if ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||<br>           sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||<br>           transferIndex &lt;= 0)<br>           break; </p>
+<p>REGRESSION : Last worked in version 8 </p>
+<p>FREQUENCY : always </p>
+</blockquote>
+<p>到后面，提交者发现原来是自己理解错了，并再次加了以下comments：</p>
+<p>他说很抱歉提交这样的bug，是他自己想错了，他以为<code>(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + 1</code> 这两个条件是用于描述检查数组size，其实不是的。他最终理解了<code>sc == rs + 1</code> 这样的条件目的在于对参与线程线程数量的计数</p>
+<blockquote>
+<p>Additional Information from Submiiter:<br>I am so sorry for submiting it. at jdk 1.8 “java.util.concurrent.ConcurrentHashMap#helpTransfer:2304”, i think “(sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 “ is check the array size ,but yesterday i found that thinking of “ sc == rs + 1” as checking the count of thread was better.</p>
+</blockquote>
+<p>个人评价：</p>
+<p>首先这个提交者没有真正理解和掌握resizeStamp的设计理念，以及这if中相关条件的用意，</p>
+<p>既然这个提交者说将<code>sc == rs + 1</code> 改为<code>(sc &gt;&gt;&gt;RESIZE_STAMP_SHIFT) == (rs&gt;&gt;&gt;RESIZE_STAMP_SHIFT) + 1</code>才合理，为何他又不会将<code>sc == rs + MAX_RESIZERS</code> 改为:</p>
+<p><code>(sc &gt;&gt;&gt;RESIZE_STAMP_SHIFT) == (rs&gt;&gt;&gt;RESIZE_STAMP_SHIFT) + MAX_RESIZERS</code></p>
+<p>基于此，说明提交者没有真正理解这两个条件的实际目的， 所以他提的描述以及修复是不合理的，从Comments也可以看到那些专家对提交者提到的bug不感冒也可看出，这次提交的bug修复申请似乎意义不大：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">We need a clearer explanation of what we&#39;re fixing here</span><br><span class="line">...</span><br><span class="line">but we need better input from the reporter.</span><br></pre></td></tr></table></figure>
+<p>最后由提交者回复<code>I am so sorry for submiting it.</code> 结束。</p>
+<p>从这个案例也告诉大家，对于JDK级别这种bug的提交，首先提交者自己能理解相关源码设计和实现，最好有测试case，然后给出详细的而准确的描述，如果提交者自己还未搞懂相关逻辑就急着提交，最后可能闹个笑话。</p>
+<h4 id="关于sizeCtl一个bug"><a href="#关于sizeCtl一个bug" class="headerlink" title="关于sizeCtl一个bug"></a>关于sizeCtl一个bug</h4><p>这个bug比较简单，<a target="_blank" rel="noopener" href="https://bugs.openjdk.java.net/browse/JDK-8202422">描述页面链接</a></p>
+<p>它指出：sizeCtl在构造方法初始化时，选用同一个容量，但用以下不同的构造方法，结果发现两者计算出的sizeCtl不一样</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="title">ConcurrentHashMap</span><span class="params">(<span class="keyword">int</span> initialCapacity,<span class="keyword">float</span> loadFactor, <span class="keyword">int</span> concurrencyLevel)</span></span></span><br><span class="line"><span class="function"></span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="title">ConcurrentHashMap</span><span class="params">(<span class="keyword">int</span> initialCapacity)</span></span></span><br></pre></td></tr></table></figure>
+<p>具体bug例子：</p>
+<blockquote>
+<p>The following two statements:</p>
+<p>new ConcurrentHashMap(22,0.75f,1);<br>new ConcurrentHashMap(22). </p>
+<p>The first construct method makes sizeCtl field value to 32, but the second one makes sizeCtl to 64.Both the two construct methods use the same parameter value. I think they should make the ‘sizeCtl’ value to be the same.</p>
+</blockquote>
+<p>对于给定的初始容量22来说，易知计算后sizeCtl正常值为32，但前一个构造方法计算出的sizeCtl是32，后一个构造方法计算出的sizeCtl是64，因此出现bug。</p>
+<p>感兴趣的同学，可以自行研究其修复过程，本文不再给出相关说明。</p>
+<h4 id="resizeStamp的bug复现方法（非常关键）"><a href="#resizeStamp的bug复现方法（非常关键）" class="headerlink" title="resizeStamp的bug复现方法（非常关键）"></a>resizeStamp的bug复现方法（非常关键）</h4><h5 id="源代码修复前的复现过程"><a href="#源代码修复前的复现过程" class="headerlink" title="源代码修复前的复现过程"></a>源代码修复前的复现过程</h5><p>文章最前面提到的JDK-8214427提交者确实是一个有水平且能深入理解源码的人，他还给Doug Lea他们提供了复现问题的6个步骤，思路清晰，因此本节也按其步骤给出IDEA debug过程，如下：</p>
+<p>1、使用IDEA创建一个普通（Java或者Maven）项目，并在java目录下创建包concurrent.demo（或者自行命名），将源码文件ConcurrentHashMap.java、ThreadLocalRandom.java拷贝到包concurrent.demo下，创建ResizeStampBugTest用于测试，最终项目结构如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">├── src</span><br><span class="line">│   ├── main</span><br><span class="line">│   │   ├── java</span><br><span class="line">│   │   │   └── concurrent</span><br><span class="line">│   │   │       └── demo</span><br><span class="line">│   │   │           ├── ConcurrentHashMap.java</span><br><span class="line">│   │   │           ├── ResizeStampBugTest.java</span><br><span class="line">│   │   │           └── ThreadLocalRandom.java</span><br><span class="line">│   │   └── resources</span><br></pre></td></tr></table></figure>
+<p>这两个源码文件在哪里找？简单问题不再回答。</p>
+<p>2、修改ConcurrentHashMap.java和ThreadLocalRandom.java里面的Unsafe代码，使得Unsafe类在自己项目上可以使用</p>
+<p>因为源码文件已经拷贝到自己项目下，因此可以对其进行编辑</p>
+<p>对于ConcurrentHashMap.java的Unsafe代码修改（注意有两个Unsfafe地方都需要修改）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 以下三行是新增，通过反射获得的Unsafe实例      </span></span><br><span class="line">      Field field = Unsafe.class.getDeclaredField(<span class="string">&quot;theUnsafe&quot;</span>);</span><br><span class="line">      field.setAccessible(<span class="keyword">true</span>);</span><br><span class="line">      U = (Unsafe) field.get(<span class="keyword">null</span>);</span><br><span class="line"></span><br><span class="line"><span class="comment">// 以下是源码获取Unsafe的写法，注释它即可</span></span><br><span class="line">    <span class="comment">// U = sun.misc.Unsafe.getUnsafe();</span></span><br></pre></td></tr></table></figure>
+<p>对于ThreadLocalRandom.java的Unsafe代码修改方法也同上：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">    <span class="comment">// 以下三行是新增，通过反射获得的Unsafe实例      </span></span><br><span class="line">       Field field = Unsafe.class.getDeclaredField(<span class="string">&quot;theUnsafe&quot;</span>);</span><br><span class="line">       field.setAccessible(<span class="keyword">true</span>);</span><br><span class="line">       UNSAFE = (Unsafe) field.get(<span class="keyword">null</span>);</span><br><span class="line"><span class="comment">// 以下是源码获取Unsafe实例的写法，注释它即可</span></span><br><span class="line"><span class="comment">// UNSAFE = sun.misc.Unsafe.getUnsafe();</span></span><br></pre></td></tr></table></figure>
+<p>3、在transfer方法的代码片段位置加上能让当然线程挂起的代码</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">        <span class="keyword">if</span> (nextTab == <span class="keyword">null</span>) &#123;            <span class="comment">// initiating</span></span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span></span><br><span class="line">                Node&lt;K,V&gt;[] nt = (Node&lt;K,V&gt;[])<span class="keyword">new</span> Node&lt;?,?&gt;[n &lt;&lt; <span class="number">1</span>];</span><br><span class="line">                nextTab = nt;</span><br><span class="line">            &#125; <span class="keyword">catch</span> (Throwable ex) &#123;      <span class="comment">// try to cope with OOME</span></span><br><span class="line">                sizeCtl = Integer.MAX_VALUE;</span><br><span class="line">                <span class="keyword">return</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            nextTable = nextTab;</span><br><span class="line">            transferIndex = n;</span><br><span class="line">    <span class="comment">// 打印挂起的线程      </span></span><br><span class="line">            System.out.println(Thread.currentThread().getName()+<span class="string">&quot;:线程挂起&quot;</span>);</span><br><span class="line">    <span class="comment">// 本文使用的是LockSupport的park方法将当前线程挂起，其实内部调用了UNSAFE.park。this表示当前代码块。这种写法在TreeBin的读写锁竞争设计里面有被运用过。    </span></span><br><span class="line">            LockSupport.park(<span class="keyword">this</span>);</span><br><span class="line"><span class="comment">// 以下是提交者提供让线程挂起的写法之一，建议使用park方法来简直明了        </span></span><br><span class="line"><span class="comment">// The following added code here is to suspend Threads !</span></span><br><span class="line"><span class="comment">//            try &#123;</span></span><br><span class="line"><span class="comment">//                String s = new String();</span></span><br><span class="line"><span class="comment">//                synchronized (s)</span></span><br><span class="line"><span class="comment">//                &#123;</span></span><br><span class="line"><span class="comment">//                    System.out.println(Thread.currentThread().getName()+&quot;:线程暂停&quot;);</span></span><br><span class="line"><span class="comment">//                    s.wait();</span></span><br><span class="line"><span class="comment">//                &#125;</span></span><br><span class="line"><span class="comment">//            &#125; catch (InterruptedException e) &#123;</span></span><br><span class="line"><span class="comment">//                e.printStackTrace();</span></span><br><span class="line"><span class="comment">//            &#125;</span></span><br></pre></td></tr></table></figure>
+<p>4、更改其他常量属性</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"> 	<span class="comment">// 将桶位分配步长改为2，也即对一个容量为16的CHM，可以同时4个线程并发迁移各种桶位，也即至多有个4个线程能进入transfer方法</span></span><br><span class="line">	<span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> MIN_TRANSFER_STRIDE = <span class="number">4</span>;</span><br><span class="line"><span class="comment">// 注释对应源码</span></span><br><span class="line">  <span class="comment">//private static final int MIN_TRANSFER_STRIDE = 16;</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br><span class="line">	<span class="comment">//将MAX_RESIZERS设为3，由之前的CHM文章可知，实际参与到扩容线程数量为MAX_RESIZERS-1个，</span></span><br><span class="line">	<span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> MAX_RESIZERS = <span class="number">3</span>;</span><br><span class="line">	<span class="comment">//注释对应源码</span></span><br><span class="line">	<span class="comment">//private static final int MAX_RESIZERS = (1 &lt;&lt; (32 - RESIZE_STAMP_BITS)) - 1;</span></span><br></pre></td></tr></table></figure>
+<p>5、使用断点位置1复现bug</p>
+<p>JDK-8214427的提交者给出可以在AddCount的分支2以下两行打上断点</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))&#123;</span><br><span class="line">    transfer(tab, nt);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>在IDEA执行debug可以查看到以下每个线程方法调用栈的情况：（以下默认读者已经熟悉IDEA多线程调试操作以及相关界面的含义。）</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/ae8107dce306a9b66a3c2f7cf5d41b85.png" alt="sc+1位置断点debug图1"></p>
+<p>而且是多个线程被观测：从线程Thread-12到Thread63都可以被观测。</p>
+<p>这里需要解释为何是从IDEA捕抓到RUNNING状态的是线程Thread-12开始，而是不是从Thread-0开始？</p>
+<p>因为前面第0号到10号线程总共put 入了11个节点（put结束后，这些线程发现不用扩容故结束），接着线程Thread-11去put节点完后发现此时CHM节点数量达到扩容阈值12（16*0.75），线程Thread-11就开始进入以下代码，可见线程Thread-11是作为首个进入扩容线程，但这里不是IDEA断点位置，这就是前面0到11线程不会在IDEA Frames或者Threads界面出现。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc,</span><br><span class="line">                             (rs &lt;&lt; RESIZE_STAMP_SHIFT) + <span class="number">2</span>))&#123;</span><br><span class="line">    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>又因为后续来了线程Thread-12put如节点后也发生s达到扩容阈值，会进入以下代码对sc加1计数，而这恰好是断点位置，因此线程Thread-12会IDEA 放入观测Frames中，而且线程Thread-12还是处于RUNNING状态</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>))&#123;</span><br><span class="line">    transfer(tab, nt);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>同理后续的线程Thread-13、Thread-14…… 直到线程Thread-63都会被IDEA放入观测Frames中，如下图所示：<img src="https://img-blog.csdnimg.cn/img_convert/dea07fce20d299c5818f908ec2acada4.png" alt="sc+1位置断点debug图2"><br>有了以上铺垫，现在如何在Debug界面将bug复现？</p>
+<p>现在回顾文章开头提出源码（如下代码片段）中出现的问题：<code>sc=rs+1</code>以及<code>sc=rs+MAX_RESIZERS</code>不会成立，因此sc本身为负数，rs这边为正数，因此if中的<code>sc == rs + MAX_RESIZERS</code> 限制参与扩容线程的总数量的条件不会起效</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">if ((sc &gt;&gt;&gt; RESIZE_STAMP_SHIFT) !&#x3D; rs || sc &#x3D;&#x3D; rs + 1 ||</span><br><span class="line">    sc &#x3D;&#x3D; rs + MAX_RESIZERS || (nt &#x3D; nextTable) &#x3D;&#x3D; null ||</span><br><span class="line">    transferIndex &lt;&#x3D; 0)&#123;</span><br><span class="line">    System.out.println(Thread.currentThread().getName()+&quot;因无桶位可分配，此线程直接退出&quot;);</span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>那么如何证明呢？很简单，因为我们前面已经将 MAX_RESIZERS设为3，表示最多只允许 (MAX_RESIZERS-1)也即最多只能有2个线程进入扩容逻辑transfer方法，如果在IDEA界面观测到3个以上线程进入扩容逻辑transfer方法，说明bug成功复现，操作过程如下：</p>
+<p>（1）在Frames界面，线程选择下拉框中选中一个线程，例如Thread-12，点击<code>Step Over</code> 跳过断点位置1的sc+1计数，接着点击<code>Step Into</code> 让线程在断点位置2进入transfer方法 ，此时在Thread-12的方法调用栈上出现transfer方法帧：<br><img src="https://img-blog.csdnimg.cn/img_convert/a045b2a6bb8c69277c4c7c465050d5d8.png" alt="sc+1位置断点debug图3"></p>
+<p>（2）同理选中其他线程按（1）的“Step Over—&gt;（多次）Step Over—&gt;Step Into”操作,你发现超过2个线程都能进入transfer方法，其实后面的线程都可以进入transfer方法。这里不再一一给出图示。</p>
+<p>这里为何说是（多次）Step Over呢，因此Thread-12 抢到CAS对sc加1，那么Thread-13只能回到<code>While</code>处再次来到断点位置去竞争CAS，所以需要对Thread-13（多次）Step Over。</p>
+<p>（3）经过以上环节可以看到总共有64号到11号共24个线程能进入扩容逻辑，bug得到完美复现。</p>
+<p>6、使用断点位置2复现bug</p>
+<p>在5提到的方法中，需要手动Step Over—&gt;（多次）Step Over—&gt;Step Into操作将线程执行流进入到transfer方法，线程数量多，这么一个个操作去观察，显然方式很不smart。考虑另外一种方式：</p>
+<p>去掉原来两个断点，新增一个断点，打在以下位置：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">private</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">transfer</span><span class="params">(Node&lt;K,V&gt;[] tab, Node&lt;K,V&gt;[] nextTab)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">int</span> n = tab.length, stride;  <span class="comment">// 断点位置</span></span><br></pre></td></tr></table></figure>
+<p>给断点设置线程“Suspend条件”：<br><img src="https://img-blog.csdnimg.cn/img_convert/d4ac26eb1ebad97848cdb06a4845158b.png" alt="transfer内部位置断点debug图1"></p>
+<p>断点条件：<code>tab.length==16 &amp;&amp; nextTab !=null</code> ，表示CHM还在容量为16阶段的扩容流程中，那么此时一定会有线程进入到transfer方法里面，通过查看Frames，你可以发现有很多扩容线程，也再次使得bug完美复现，这里不再累赘。</p>
+<h5 id="源代码修复后的验证过程"><a href="#源代码修复后的验证过程" class="headerlink" title="源代码修复后的验证过程"></a>源代码修复后的验证过程</h5><p>本小节尝试将源代码修复后，观测进入transfer线程的数量是否与（MAX_RESIZERS-1）设定的总数一致，如果一致，说明源码修改的逻辑可接受：将AddCount方法的分支2改为正常的写法后，断点位置如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc, sc + <span class="number">1</span>)) &#123; <span class="comment">// 断点</span></span><br><span class="line">    transfer(tab, nt); <span class="comment">// 断点</span></span><br></pre></td></tr></table></figure>
+<p>在transfer方法中加入线程挂起代码<code>LockSupport.park(this)</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (nextTab == <span class="keyword">null</span>) &#123;            <span class="comment">// initiating</span></span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="meta">@SuppressWarnings(&quot;unchecked&quot;)</span></span><br><span class="line">        Node&lt;K,V&gt;[] nt = (Node&lt;K,V&gt;[])<span class="keyword">new</span> Node&lt;?,?&gt;[n &lt;&lt; <span class="number">1</span>];</span><br><span class="line">        nextTab = nt;</span><br><span class="line">    &#125; <span class="keyword">catch</span> (Throwable ex) &#123;      <span class="comment">// try to cope with OOME</span></span><br><span class="line">        sizeCtl = Integer.MAX_VALUE;</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    nextTable = nextTab;</span><br><span class="line">    transferIndex = n;</span><br><span class="line">    LockSupport.park(<span class="keyword">this</span>);</span><br></pre></td></tr></table></figure>
+<p>观测过程：根据前面分析可知，从线程Thread-12到Thread-63都会同一时刻来到sc+1计数逻辑进行CAS竞争，接下来的IDEA Debug步骤如下：</p>
+<p>（1）选中Thread-12，对其执行sc+1计数逻辑进行CAS竞争，因此Thread-12优先来sc+1这个位置并CAS竞争成功，它可进入transfer内部。</p>
+<p>（2）接着选中Thread-13，对其执行sc+1计数逻辑进行CAS竞争，因为竞争失败，因此回到While循环继续：</p>
+<p>图中可以清晰看见：sc==rs+MAX_RESIZERS 为true，表名当前参与到扩容线程的数量达到最大的限定值，Thread-13将会进入break然后退出</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/33aa00f8570788a8f611b7a38b8b4ed0.png" alt="rs修复后debug图1"></p>
+<p>（3）同理选中Thread-14等后续线程也会跟Thread-13同一逻辑，</p>
+<p>也即，Thread-13到Thread-63线程都会break掉</p>
+<p>（4）在（1）中只有1个线程Thread-12进入transfer内部，不是说好会有（MAX_RESIZERS-1），也即2个线程能进入transfer内部吗？  </p>
+<p>别忘记线程Thread-11已经通过以下逻辑作为第1个扩容线程进入了transfer方法内部</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">else</span> <span class="keyword">if</span> (U.compareAndSwapInt(<span class="keyword">this</span>, SIZECTL, sc, rs + <span class="number">2</span>))&#123;</span><br><span class="line">    transfer(tab, <span class="keyword">null</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>因此总共有2个线程：Thread-11和线程Thread-12进入到transfer方法内部，说明修复之后的代码逻辑正确。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/JUC/" rel="tag"># JUC</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/08/15/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BAjdk1.8%20ConcurrentHashMap%E5%B9%B6%E5%8F%91%E7%8E%AF%E5%A2%83%E4%B8%8Btransfer%E6%96%B9%E6%B3%95%E6%A1%B6%E4%BD%8D%E5%88%86%E9%85%8D%E8%BF%87%E7%A8%8B/" rel="prev" title="Java高级主题：深度讨论jdk1.8 ConcurrentHashMap并发环境下transfer方法桶位分配过程">
+      <i class="fa fa-chevron-left"></i> Java高级主题：深度讨论jdk1.8 ConcurrentHashMap并发环境下transfer方法桶位分配过程
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/10/10/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9A%E6%B7%B1%E5%BA%A6%E8%AE%A8%E8%AE%BA%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8Ejdk1.8ConcurrentHashMap%E7%9A%84computeIfAbsent%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E9%80%BB%E8%BE%91/" rel="next" title="Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的computeIfAbsent源代码修复逻辑">
+      Java高级主题：深度讨论官方关于jdk1.8ConcurrentHashMap的computeIfAbsent源代码修复逻辑 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%AE%98%E6%96%B9bug%E6%8F%8F%E8%BF%B0"><span class="nav-number">2.</span> <span class="nav-text">官方bug描述</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%8F%90%E4%BA%A4%E8%80%85%E7%9A%84%E4%BF%AE%E5%A4%8D%E5%BB%BA%E8%AE%AE"><span class="nav-number">3.</span> <span class="nav-text">提交者的修复建议</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%AE%98%E6%96%B9%E5%85%B3%E4%BA%8E%E6%AD%A4bug%E7%9A%84%E8%AE%A8%E8%AE%BA%E8%BF%87%E7%A8%8B"><span class="nav-number">4.</span> <span class="nav-text">官方关于此bug的讨论过程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#bug%E7%9A%84%E5%A4%8D%E7%8E%B0%E6%96%B9%E6%B3%95"><span class="nav-number">5.</span> <span class="nav-text">bug的复现方法</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#bug%E4%BF%AE%E5%A4%8D%E7%9A%84%E4%BB%A3%E7%A0%81%E6%9C%80%E7%BB%88%E6%8F%90%E4%BA%A4%E5%88%B0%E4%BB%93%E5%BA%93%EF%BC%9A"><span class="nav-number">6.</span> <span class="nav-text">bug修复的代码最终提交到仓库：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9C%A8Java-16%E6%BA%90%E7%A0%81%E9%AA%8C%E8%AF%81%E5%85%B6%E4%BF%AE%E5%A4%8D%E7%9A%84%E4%BB%A3%E7%A0%81"><span class="nav-number">7.</span> <span class="nav-text">在Java 16源码验证其修复的代码</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E8%A7%A3%E6%9E%90%E6%9C%AC%E6%AC%A1bug%E7%9A%84%E5%B8%A6%E6%9D%A5%E7%9A%84%E6%8A%80%E6%9C%AF%E6%94%B6%E7%9B%8A"><span class="nav-number">8.</span> <span class="nav-text">解析本次bug的带来的技术收益</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#bugs%E7%B3%BB%E7%BB%9F%E8%BF%98%E7%BB%99%E5%87%BA%E5%8F%A6%E5%A4%96%E4%B8%8EresizeStamp%E7%9B%B8%E5%85%B3%E7%9A%84bug"><span class="nav-number">9.</span> <span class="nav-text">bugs系统还给出另外与resizeStamp相关的bug</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%85%B3%E4%BA%8EsizeCtl%E4%B8%80%E4%B8%AAbug"><span class="nav-number">10.</span> <span class="nav-text">关于sizeCtl一个bug</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#resizeStamp%E7%9A%84bug%E5%A4%8D%E7%8E%B0%E6%96%B9%E6%B3%95%EF%BC%88%E9%9D%9E%E5%B8%B8%E5%85%B3%E9%94%AE%EF%BC%89"><span class="nav-number">11.</span> <span class="nav-text">resizeStamp的bug复现方法（非常关键）</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E5%89%8D%E7%9A%84%E5%A4%8D%E7%8E%B0%E8%BF%87%E7%A8%8B"><span class="nav-number">11.1.</span> <span class="nav-text">源代码修复前的复现过程</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#%E6%BA%90%E4%BB%A3%E7%A0%81%E4%BF%AE%E5%A4%8D%E5%90%8E%E7%9A%84%E9%AA%8C%E8%AF%81%E8%BF%87%E7%A8%8B"><span class="nav-number">11.2.</span> <span class="nav-text">源代码修复后的验证过程</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>

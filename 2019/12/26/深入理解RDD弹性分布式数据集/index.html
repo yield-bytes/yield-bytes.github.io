@@ -104,7 +104,7 @@
       <h1 class="site-title">yield-bytes</h1>
       <span class="logo-line-after"><i></i></span>
     </a>
-      <p class="site-subtitle" itemprop="description">分享与沉淀</p>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
   </div>
 
   <div class="site-nav-right">
@@ -199,7 +199,7 @@
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
       <meta itemprop="name" content="">
-      <meta itemprop="description" content="一个非常专注技术总结与分享的博客">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
     </span>
 
     <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
@@ -263,7 +263,6 @@
       
         <p>&#8195;&#8195;在前面的博客<a target="_blank" rel="noopener" href="https://blog.csdn.net/pysense/article/details/103641824">《深入理解Spark》 </a>深入探讨了Spark架构原理内容，该文提到Stage的划分，为什么要做Stage划分？是为了得到更小的Task计算单元，分发给Executor的线程运行，将规模庞大、多流程的计算任务划分为有序的小颗粒的计算单元，实现更高效的计算。那么Stage划分怎么实现？需依赖RDD(Resilient Distributed Datasets，弹性分布式数据集)，可以说，RDD是Spark最为核心的概念。本文内容部分参考了<a target="_blank" rel="noopener" href="https://github.com/heibaiying/BigData-Notes/blob/master/notes/Spark_RDD.md">《弹性式数据集RDDs》</a>以及<a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/rdd-programming-guide.html">《Spark官方文档》</a></p>
 <a id="more"></a>
-
 <h4 id="1、RDD简介"><a href="#1、RDD简介" class="headerlink" title="1、RDD简介"></a>1、RDD简介</h4><p>&#8195;&#8195;RDD 是分布式的、可容错的、只读的、分区记录的弹性数据集合（在开发角度来看，它是一种数据结构，并是绑定了多个方法和属性的一种object），支持并行操作，可以由外部数据集或其他 RDD 转换而来，细读Resilient Distributed  Dataset这三个单词，更深层的含义如下：</p>
 <ul>
 <li>Resilient: 弹性的，RDD如何体现出弹性呢？通过使用RDD血缘关系图——DAG，在丢失节点上重新计算上，弹性容错。</li>
@@ -272,10 +271,8 @@
 </ul>
 <p>更具体的说明：</p>
 <ul>
-<li><p>一个 RDD 由一个或者多个分区（Partitions）组成。对于 RDD 来说，每个分区会被一个计算任务所处理，用户可以在创建 RDD 时指定其分区个数，如果没有指定，则默认采用程序所分配到的 CPU 的核心数。<br>（这一特点体现出RDD的分布式，RDD的分区是在多个节点上指定的，注意不是指把master分区拷贝到其他节点上，spark强调的是”移动数据不如移动计算“，避免跨节点拷贝分区数据。做这样假设：RDD如果不设计为多个分区，那么一个RDD就是代表一个超大数据集，而且只能在单机行运行，这跟Pandas的DataFrame区别就不大了。）</p>
-</li>
-<li><p>Spark一个计算程序，往往会产生多个RDD，这些RDD会保存彼此间的依赖关系，RDD 的每次转换都会生成一个新的依赖关系，这种 RDD 之间的依赖关系就像流水线一样。在部分分区数据丢失后，可以通过这种依赖关系重新计算丢失的分区数据，而不是对 RDD 的所有分区进行重新计算。<br>（这个特点就体现了RDD可恢复性，）</p>
-</li>
+<li>一个 RDD 由一个或者多个分区（Partitions）组成。对于 RDD 来说，每个分区会被一个计算任务所处理，用户可以在创建 RDD 时指定其分区个数，如果没有指定，则默认采用程序所分配到的 CPU 的核心数。<br>（这一特点体现出RDD的分布式，RDD的分区是在多个节点上指定的，注意不是指把master分区拷贝到其他节点上，spark强调的是”移动数据不如移动计算“，避免跨节点拷贝分区数据。做这样假设：RDD如果不设计为多个分区，那么一个RDD就是代表一个超大数据集，而且只能在单机行运行，这跟Pandas的DataFrame区别就不大了。）</li>
+<li>Spark一个计算程序，往往会产生多个RDD，这些RDD会保存彼此间的依赖关系，RDD 的每次转换都会生成一个新的依赖关系，这种 RDD 之间的依赖关系就像流水线一样。在部分分区数据丢失后，可以通过这种依赖关系重新计算丢失的分区数据，而不是对 RDD 的所有分区进行重新计算。<br>（这个特点就体现了RDD可恢复性，）</li>
 <li><p>Key-Value 型的 RDD 还拥有 Partitioner(分区器)，用于决定数据被存储在哪个分区中，目前 Spark 中支持 HashPartitioner(按照哈希分区) 和 RangeParationer(按照范围进行分区)。<br>（其实很多中间件或者组件只要涉及到Partition，必然少不了使用Partitioner(分区器)，例如kafka的partition，Producer可通过对消息key取余将消息写入到不同副本分区上，例如redis的key在slot上分配，也是通过对key取余。）</p>
 </li>
 <li><p>一个优先位置列表 (可选)，用于存储每个分区的优先位置 (prefered location)。对于一个 HDFS 文件来说，这个列表保存的就是每个分区所在的块的位置，按照“移动数据不如移动计算“的理念，Spark 在进行任务调度的时候，会尽可能的将计算任务分配到其所要处理数据块的存储位置。</p>
@@ -305,6 +302,7 @@
 <p><img src="https://img-blog.csdnimg.cn/20191224193522623.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3B5c2Vuc2U=,size_16,color_FFFFFF,t_70" alt="在这里插入图片描述"><br>正是有了以上对Stage的划分设计，Spark在执行作业时， 生成一个完整的、最优的执行计划，从而比MapReduce”更加聪明地利用资源地“完成计算作业。</p>
 <h4 id="5、RDD-持久化"><a href="#5、RDD-持久化" class="headerlink" title="5、RDD 持久化"></a>5、RDD 持久化</h4><p>&#8195;&#8195;这一章节内容直接翻译spark：<br>&#8195;&#8195;RDD最重要的特点是可将数据集缓存在内存（或者磁盘上），这也是Spark之所以快的原因。使用RDD persist时，每个节点都会存储当前RDD计算的dataset，以便被其他RDD直接在内存加载使用，这种效果将使得之后的action算子至少提高10倍上计算速度。<br>&#8195;&#8195;通过调用persist()或者cache()方法即可触发RDD persist，而且持久化另外一个作用：Spark’s cache is fault-tolerant – if any partition of an RDD is lost, it will automatically be recomputed using the transformations that originally created it.（可根据已有的算子重新计算丢失的RDD）<br>&#8195;&#8195;Spark 在持久化 RDDs 的时候提供了 3 种storage level：存在内存中的非序列化的 java 对象、存在内存中的序列化的数据以及存储在磁盘中。第一种选择的性能是最好的，因为 JVM 可以很快的访问 RDD 的每一个元素。第二种选择是在内存有限的情况下，使的用户可以以很低的性能代价而选择的比 java 对象图更加高效的内存存储的方式。如果内存完全不够存储的下很大的 RDDs，而且计算这个 RDD 又很费时的，那么选择第三种方式。</p>
 <p>The full set of storage levels is:</p>
+<div class="table-container">
 <table>
 <thead>
 <tr>
@@ -312,7 +310,8 @@
 <th>Meaning</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td>MEMORY_ONLY</td>
 <td>Store RDD as deserialized Java objects in the JVM. If the RDD does not fit in memory, some partitions will    not be cached and will be recomputed on the fly each time they’re needed. This is the default level.</td>
 </tr>
@@ -340,7 +339,9 @@
 <td>OFF_HEAP (experimental)</td>
 <td>Similar to MEMORY_ONLY_SER, but store the data in    <a target="_blank" rel="noopener" href="http://spark.apache.org/docs/latest/configuration.html#memory-management">off-heap memory</a>. This requires off-heap memory to be enabled.</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
+</div>
 <p>Note: In Python, stored objects will always be serialized with the Pickle library, so it does not matter whether you choose a serialized level. The available storage levels in Python include MEMORY_ONLY, MEMORY_ONLY_2, MEMORY_AND_DISK, MEMORY_AND_DISK_2, DISK_ONLY, and DISK_ONLY_2.<br>注意对使用Python来开发spark的话，它存储的对象都是由Pickle库实现序列化，因此对于python，除了OFF_HEAP这个level，其他level都适用。<br>Spark also automatically persists some intermediate data in shuffle operations (e.g. reduceByKey), even without users calling persist. This is done to avoid recomputing the entire input if a node fails during the shuffle. We still recommend users call persist on the resulting RDD if they plan to reuse it.<br>此外Spark在shuffle操作例如reduceByKey这类操作时会自动对RDD做持久化，以防止某些节点再做shuffle过程中挂了导致需要重新计算父RDD。Spark建议使用者在RDD需要重新使用的场景下可先持久化RDD。</p>
 <h4 id="6、RDD的checkpointing机制"><a href="#6、RDD的checkpointing机制" class="headerlink" title="6、RDD的checkpointing机制"></a>6、RDD的checkpointing机制</h4><p>&#8195;&#8195;前面提到对于要恢复某些丢失的RDD，可根据父 RDDs 的血缘关系recomputed，但是如果这个血缘关系链很长的话（例如业务逻辑里面有10来个transmissions以及有多个actions），则recomputed需要耗费很长时间，因此在这种场景下，将一些 RDDs 的数据持久化到稳定存储系统中是有必要的。<br>&#8195;&#8195;checkpointing 对具有很长的血缘关系链且包含了宽依赖的 RDDs 是非常有用的，比如spark给出的PageRank 例子，在这些场景下，集群中的某个节点的失败会导致每一个父亲 RDD 的一些数据的丢失，最惨的是这些父RDD都是宽依赖以及很长的窄依赖链关系，显然需要重新所有的计算。<br>&#8195;&#8195;对于普通的窄依赖的 RDDs（spark给出例子中线性回归例子中的 points 和 PageRank 中的 link 列表数据），checkpointing 可能一点用都没有。如果一个节点失败了，spark照应可以很快在其他的节点中并行的重新计算出丢失了数据的分区，这个成本只是备份整个 RDD 的成本的一点点而已。</p>
 <p>&#8195;&#8195;Spark 目前提供了一个 checkpointing 的 api（persist 中的标识为 REPLICATE，还有 checkpoint()），用户自行选择在一些最佳的 RDDs 来进行 checkpointing，以达到最小化恢复时间。（这就像你玩过关类游戏，总共20关，这个游戏本身没有自动保存检查点，必须用户自己触发，在第19关是最难的关卡耗费一周时间拿下，而你确忘记存档，能不崩溃吗）</p>
@@ -438,27 +439,27 @@
     <img class="site-author-image" itemprop="image" alt=""
       src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
   <p class="site-author-name" itemprop="name"></p>
-  <div class="site-description" itemprop="description">一个非常专注技术总结与分享的博客</div>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
 </div>
 <div class="site-state-wrap motion-element">
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">74</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
             <a href="/categories/">
           
-        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-count">19</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
             <a href="/tags/">
           
-        <span class="site-state-item-count">48</span>
+        <span class="site-state-item-count">50</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -489,7 +490,7 @@
 <div class="copyright">
   
   &copy; 2019 – 
-  <span itemprop="copyrightYear">2020</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
@@ -498,12 +499,12 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-area"></i>
     </span>
-    <span title="站点总字数">577k</span>
+    <span title="站点总字数">1.1m</span>
     <span class="post-meta-divider">|</span>
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="站点阅读时长">8:44</span>
+    <span title="站点阅读时长">17:22</span>
 </div>
 
         

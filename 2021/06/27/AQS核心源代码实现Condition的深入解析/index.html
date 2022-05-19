@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+<link rel="stylesheet" href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&display=swap&subset=latin,latin-ext">
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"yield-bytes.github.io","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","Pisces | Gemini":240,"width":300,"display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":true,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":true,"trigger":"auto","top_n_per_article":5,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},"path":"search.xml"};
+  </script>
+
+  <meta name="description" content="关于AQS的独占模式同步器设计原理（以ReentrantLock为例）以及共享模式的同步器设计原理（以Semaphore为例）在前面文章的已经讨论完毕，这两种模式让我们理解了AQS通过底层的FIFO阻塞队列（又称同步队列&#x2F;变体的CLH队列&#x2F;Sync queue）实现了相当巧妙的多线程协调调度的复杂逻辑。当然AQS还有一个更为关键的设计：结合FIFO阻塞队列+条件队列（又称condition que">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Java高级主题：AQS核心源代码实现Condition的深入解析">
+<meta property="og:url" content="https://yield-bytes.github.io/2021/06/27/AQS%E6%A0%B8%E5%BF%83%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0Condition%E7%9A%84%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90/index.html">
+<meta property="og:site_name" content="yield-bytes">
+<meta property="og:description" content="关于AQS的独占模式同步器设计原理（以ReentrantLock为例）以及共享模式的同步器设计原理（以Semaphore为例）在前面文章的已经讨论完毕，这两种模式让我们理解了AQS通过底层的FIFO阻塞队列（又称同步队列&#x2F;变体的CLH队列&#x2F;Sync queue）实现了相当巧妙的多线程协调调度的复杂逻辑。当然AQS还有一个更为关键的设计：结合FIFO阻塞队列+条件队列（又称condition que">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2021-06-26T16:00:00.000Z">
+<meta property="article:modified_time" content="2022-05-10T03:21:45.757Z">
+<meta property="article:tag" content="Java高级主题">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://yield-bytes.github.io/2021/06/27/AQS%E6%A0%B8%E5%BF%83%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0Condition%E7%9A%84%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Java高级主题：AQS核心源代码实现Condition的深入解析 | yield-bytes</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="yield-bytes" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">yield-bytes</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">沉淀、分享与无限进步</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th-large fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>搜索
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+  <span class="search-icon">
+    <i class="fa fa-search"></i>
+  </span>
+  <div class="search-input-container">
+    <input autocomplete="off" autocapitalize="off"
+           placeholder="搜索..." spellcheck="false"
+           type="search" class="search-input">
+  </div>
+  <span class="popup-btn-close">
+    <i class="fa fa-times-circle"></i>
+  </span>
+</div>
+<div id="search-result">
+  <div id="no-result">
+    <i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>
+  </div>
+</div>
+
+    </div>
+  </div>
+
+</div>
+    </header>
+
+    
+  <div class="reading-progress-bar"></div>
+  <a role="button" class="book-mark-link book-mark-link-fixed"></a>
+
+  <a href="https://gitee.com/yield-bytes" class="github-corner" title="Follow me on Gitee" aria-label="Follow me on Gitee" rel="noopener" target="_blank"><svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://yield-bytes.github.io/2021/06/27/AQS%E6%A0%B8%E5%BF%83%E6%BA%90%E4%BB%A3%E7%A0%81%E5%AE%9E%E7%8E%B0Condition%E7%9A%84%E6%B7%B1%E5%85%A5%E8%A7%A3%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="一个聪明的、友好的且专注于高水平技术总结的个人博客">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="yield-bytes">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Java高级主题：AQS核心源代码实现Condition的深入解析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2021-06-27 00:00:00" itemprop="dateCreated datePublished" datetime="2021-06-27T00:00:00+08:00">2021-06-27</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-05-10 11:21:45" itemprop="dateModified" datetime="2022-05-10T11:21:45+08:00">2022-05-10</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" itemprop="url" rel="index"><span itemprop="name">Java高级主题</span></a>
+                </span>
+            </span>
+
+          <br>
+            <span class="post-meta-item" title="本文字数">
+              <span class="post-meta-item-icon">
+                <i class="far fa-file-word"></i>
+              </span>
+                <span class="post-meta-item-text">本文字数：</span>
+              <span>24k</span>
+            </span>
+            <span class="post-meta-item" title="阅读时长">
+              <span class="post-meta-item-icon">
+                <i class="far fa-clock"></i>
+              </span>
+                <span class="post-meta-item-text">阅读时长 &asymp;</span>
+              <span>22 分钟</span>
+            </span>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>关于AQS的独占模式同步器设计原理（以ReentrantLock为例）以及共享模式的同步器设计原理（以Semaphore为例）在前面文章的已经讨论完毕，这两种模式让我们理解了AQS通过底层的FIFO阻塞队列（又称同步队列/变体的CLH队列/Sync queue）实现了相当巧妙的多线程协调调度的复杂逻辑。当然AQS还有一个更为关键的设计：结合FIFO阻塞队列+条件队列（又称condition queue/wait queue）实现一种基于条件的await和signal的多线程间的协调机制，也即本文内容。</p>
+<h4 id="关于条件队列和阻塞队列的说明"><a href="#关于条件队列和阻塞队列的说明" class="headerlink" title="关于条件队列和阻塞队列的说明"></a>关于条件队列和阻塞队列的说明</h4><p>对于阻塞队列，这里只给出独占模式的线程节点说明：阻塞队列其实有AQS内部定义的双向链表节点的属性如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">   <span class="keyword">static</span> <span class="keyword">final</span> <span class="class"><span class="keyword">class</span> <span class="title">Node</span> </span>&#123;</span><br><span class="line">       <span class="keyword">volatile</span> <span class="keyword">int</span> waitStatus;</span><br><span class="line">       <span class="keyword">volatile</span> Node prev;</span><br><span class="line">       <span class="keyword">volatile</span> Node next;</span><br><span class="line">       <span class="keyword">volatile</span> Thread thread;</span><br><span class="line">   &#125;</span><br><span class="line">Node head; <span class="comment">// Head of the wait queue</span></span><br><span class="line">Node tail; <span class="comment">// Tail of the wait queue</span></span><br></pre></td></tr></table></figure>
+<p>而条件队列中，它是有单向链表实现，该单向链表的节点的属性为：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Node firstWaiter; <span class="comment">// First node of condition queue.</span></span><br><span class="line">Node lastWaiter; <span class="comment">// Last node of condition queue.</span></span><br><span class="line">Node nextWaiter; <span class="comment">// Link to next node waiting on condition,</span></span><br></pre></td></tr></table></figure>
+<p>可以看到三个属性用于构成单向链表，而条件队里的nextWaiter指针是为了区别阻塞队列中的next指针。</p>
+<p>阻塞队列的作用在前面的文章已经给出很明确的说明：只要当前线程没有请求到锁资源（state），则需要进入CLH阻塞队列进行排队等候，那么AQS给出的条件队列到底是解决什么场景呢？</p>
+<p>这里不妨考虑这种场景：</p>
+<p>消费者线程：消费者线程原本在阻塞队列等待，当外界有线程释放了锁资源，那么此消费者线程从阻塞队列被唤醒后出队并拿到锁资源后，发现“存放货物的队列是空的”，这种未加入“条件限制”的等待线程调度策略则显得不够明智。</p>
+<p>因此可以这么设计：给当前独占锁lock对象添加添加一个条件队列：如果有一个或者多消费者线程过来取“货物”，当遇到“仓库没有货物可取”这种条件时，那么这些消费者线程先被安排在条件队列等待（阻塞自己）：</p>
+<p>firstWaiter(c0)-&gt;c1-&gt;c2-c3-&gt;c4-&gt;lastWaiter(c5)-&gt;null</p>
+<p>直到条件“仓库有货物可取时”，那么条件队列的消费者线程再转移到阻塞队列里面排队等候被唤醒去抢占锁资源以实施消费行为</p>
+<a id="more"></a>
+<h4 id="基于Condition实现的生产者和消费者模型"><a href="#基于Condition实现的生产者和消费者模型" class="headerlink" title="基于Condition实现的生产者和消费者模型"></a>基于Condition实现的生产者和消费者模型</h4><p>这里将以一个经典多线程间协调案例作为分析基于AQS实现的Condition底层工作机制</p>
+<p>生产者线程：每次向“仓库”生产1个产品，等待2秒后，并使用signal通知消费者线程</p>
+<p>消费者线程：在启动后如果条件“仓库为空”成立则进入await阻塞状态。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.ArrayList;</span><br><span class="line"><span class="keyword">import</span> java.util.List;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.locks.Condition;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.locks.ReentrantLock;</span><br><span class="line"><span class="keyword">public</span> <span class="class"><span class="keyword">class</span> <span class="title">ConditionDemo</span> </span>&#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> ReentrantLock lock=<span class="keyword">new</span> ReentrantLock(<span class="keyword">true</span>); <span class="comment">// 使用公平模式，以方便debug观察多个消费者线程的入队顺序和出队顺序等。</span></span><br><span class="line">    <span class="keyword">static</span>   Condition condition=lock.newCondition(); <span class="comment">// 可以看到锁对象关联了一个条件对象</span></span><br><span class="line">    <span class="keyword">static</span> List&lt;ElectricCar&gt;  teslaWarehouse=<span class="keyword">new</span> ArrayList&lt;&gt;(); <span class="comment">// 存放车的“仓库”</span></span><br><span class="line"></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">      	<span class="comment">// 启动5个消费者去“消费”车</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; <span class="number">5</span>; i++) &#123;</span><br><span class="line">            <span class="keyword">new</span> Consumer(condition,teslaWarehouse,lock).start();</span><br><span class="line">        &#125;</span><br><span class="line">      	<span class="comment">//让消费者线程先启动，接着再启动1个生产者线程，每隔2秒生产一台车并放入“仓库”</span></span><br><span class="line">        Thread.sleep(<span class="number">1</span>);</span><br><span class="line">        <span class="keyword">new</span> Producer(condition,teslaWarehouse,lock).start();</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">interface</span> <span class="title">ElectricCar</span> </span>&#123;&#125;</span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">ModelY</span> <span class="keyword">implements</span> <span class="title">ElectricCar</span></span>&#123;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Producer</span> <span class="keyword">extends</span> <span class="title">Thread</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> Condition condition;</span><br><span class="line">    <span class="keyword">private</span> List&lt;ElectricCar&gt; list;</span><br><span class="line">    <span class="keyword">private</span> ReentrantLock lock;</span><br><span class="line">    Producer(Condition condition,List&lt;ElectricCar&gt; list,ReentrantLock lock)&#123;</span><br><span class="line">        <span class="keyword">this</span>.condition=condition;</span><br><span class="line">        <span class="keyword">this</span>.list=list;</span><br><span class="line">        <span class="keyword">this</span>.lock=lock;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        <span class="keyword">while</span> (<span class="keyword">true</span>)&#123;</span><br><span class="line">            lock.lock(); <span class="comment">// 注意：Condition对象使用await或者signal方法前需要获得于条件对象关联的独占锁，否则抛出非法错误。至于为何这么设计，需要等到文章最后的解释。</span></span><br><span class="line">            <span class="keyword">this</span>.list.add(<span class="keyword">new</span> ModelY()); </span><br><span class="line">            System.out.println(<span class="string">&quot;生产了一台modelY&quot;</span>);</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                Thread.sleep(<span class="number">2000</span>);</span><br><span class="line">            &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">                e.printStackTrace();</span><br><span class="line">            &#125;</span><br><span class="line">            condition.signal(); <span class="comment">// 通知消费者线程可以“消费”车了，</span></span><br><span class="line">            lock.unlock();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Consumer</span> <span class="keyword">extends</span> <span class="title">Thread</span> </span>&#123;</span><br><span class="line">    <span class="keyword">private</span> Condition condition;</span><br><span class="line">    <span class="keyword">private</span> List&lt;ElectricCar&gt; list;</span><br><span class="line">    <span class="keyword">private</span> ReentrantLock lock;</span><br><span class="line"></span><br><span class="line">    Consumer(Condition condition, List&lt;ElectricCar&gt; list, ReentrantLock lock) &#123;</span><br><span class="line">        <span class="keyword">this</span>.condition = condition;</span><br><span class="line">        <span class="keyword">this</span>.list = list;</span><br><span class="line">        <span class="keyword">this</span>.lock = lock;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">        lock.lock();<span class="comment">// 注意：Condition对象使用await或者signal方法前需要获得于条件对象关联的独占锁，否则抛出非法错误。至于为何这么设计，需要等到文章最后的解释。</span></span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">if</span> (list.isEmpty())</span><br><span class="line">                condition.await(); <span class="comment">// 消费者线程会在此释放锁资源并进入条件队列且阻塞自己，直到收到生产者生产了车信号</span></span><br><span class="line">            list.remove(<span class="number">0</span>);</span><br><span class="line">            System.out.println(Thread.currentThread().getName() + <span class="string">&quot;消费一台modelY&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            lock.unlock();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>运行结果如下：生产者线程循环一次生产一台车，消费者线程有序的“消费”对应的一台车，由于只启动5个消费者线程，因此当生产者线程生产到第6台车时，此时已经没有其他新来的消费者线程来“消费车”，因此不断打印生产者生产车的信息。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">生产了一台modelY</span><br><span class="line">Thread-0消费一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">Thread-1消费一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">Thread-2消费一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">Thread-3消费一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">Thread-4消费一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">生产了一台modelY</span><br><span class="line">生产了一台modelY</span><br></pre></td></tr></table></figure>
+<p>以上的多个消费者线程await和生产者线程signal并发协调机制及其源码解析将在下面给出。</p>
+<h4 id="消费者线程的await底层设计解析"><a href="#消费者线程的await底层设计解析" class="headerlink" title="消费者线程的await底层设计解析"></a>消费者线程的await底层设计解析</h4><p>首先，注释<code>new Producer(condition,teslaWarehouse,lock).start()</code>这一行代码，以考察多个消费者线程<code>lock.lock()-&gt;await()</code>内部逻辑，main启动后会发现主程序阻塞了，你会好奇到底消费者线程在AQS的哪个地方阻塞了？是因为都进入条件队列导致的main阻塞，还是在阻塞队列里面导致main阻塞？根据之前关于<code>ReentrantLock</code>的独占模式原理解析，可知：</p>
+<p>（1）首先，考察5个线程并发执行时都使用<code>lock.lock()</code>争抢独占锁资源，由于lock对象使用公平模式实例化，因此Thread-0首先成功占有锁资源，而其他4个线程将有序进入lock对象的阻塞队列，state锁资源和阻塞队列的结构如下：</p>
+<p>Thread-0作为优先抢占了锁资源的独占线程，可以继续执行自己的逻辑</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exclusiveOwnerThread&#x3D;Thread-0</span><br></pre></td></tr></table></figure>
+<p>Thread-1到Thread-4因为并发执行<code>lock.lock()</code>因此进入lock对象关联的阻塞队列且线程状态处于waiting阻塞状态：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">head(null,-1)&lt;-&gt;node(Thread1,-1)&lt;-&gt;node(Thread2,-1)&lt;-&gt;node(Thread3,-1)&lt;-&gt;node(Thread4,0)-&gt;null</span><br></pre></td></tr></table></figure>
+<p>显然位于阻塞队列的第一个线程节点Thread-1正在等待Thread-0的唤醒。</p>
+<p>注意：此时条件队列还未出现！此时条件队列还未出现！</p>
+<p>（2） Thread-0可以继续执行自己逻辑，也即下面执行流（注意，此时锁资源还是由Thread-0占有！）:</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (list.isEmpty()) <span class="comment">// 由于消费者线程早于生产者线程启动，因此一开始“仓库列表”是空的，因此进入以下await逻辑</span></span><br><span class="line">    condition.await(); <span class="comment">// 这里是理解条件队列的关键入口</span></span><br></pre></td></tr></table></figure>
+<p><code>condition.await()</code>调用的是AQS内部类ConditionObject的await()方法，继续以消费者线程Thread-0作为分析对象：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">// 由于Thread-0已经作为独占锁线程，意味着await方法是线程安全的，因此在这里你不会看到自旋和CAS。</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">await</span><span class="params">()</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">      	<span class="comment">// await方法是响应外部中断的：当线程调用condition.await()前，被外部中断过，则这里马上响应中断</span></span><br><span class="line">        <span class="keyword">if</span> (Thread.interrupted())</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> InterruptedException();</span><br><span class="line">        <span class="comment">// ① 将Thread-0添加到条件队列（单向链表）</span></span><br><span class="line">        Node node = addConditionWaiter();</span><br><span class="line">      	<span class="comment">/* ② Thread-0添加到条件队列后，需要释放占有的锁资源。内部其实调用release方法，也即Thread-0会唤醒阻塞队列里面的第一个线程节点Thread-1，此外：</span></span><br><span class="line"><span class="comment">      	进入条件队列后，为何还要释放自己占有的锁资源？ 务必理解其设计原因，参考后面的解释。</span></span><br><span class="line"><span class="comment">        */</span> </span><br><span class="line">      	<span class="comment">// 注意这里：一旦Thread-0释放成功，那么就会唤醒位于阻塞队列的Thread-1</span></span><br><span class="line">        <span class="keyword">int</span> savedState = fullyRelease(node);</span><br><span class="line">      	<span class="comment">// ③ 记录Thread-0可能被外部中断的中断标记</span></span><br><span class="line">        <span class="keyword">int</span> interruptMode = <span class="number">0</span>;</span><br><span class="line">      	<span class="comment">// ④ 显然Thread-0节点不在阻塞队列（这里SyncQueue就是上面Thread-1~Thread-4所在的阻塞队列），</span></span><br><span class="line">        <span class="keyword">while</span> (!isOnSyncQueue(node)) &#123;</span><br><span class="line">           <span class="comment">//⑤ 将Thread-0进行阻塞处理，避免浪费cpu时间片,这里正是解释了为何在main在启动仅有5个消费者线程后，主程序一直被阻塞运行的原因</span></span><br><span class="line">            LockSupport.park(<span class="keyword">this</span>);</span><br><span class="line">        <span class="comment">// 以下的四个if都是为了处理“当线程被signal通知唤醒后响应中断或者取消在条件队列排队的情况，其设计思路会在文章后面给出，这里先分析其阻塞设计。</span></span><br><span class="line">            <span class="keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="number">0</span>)</span><br><span class="line">                <span class="keyword">break</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)</span><br><span class="line">            interruptMode = REINTERRUPT;</span><br><span class="line">        <span class="keyword">if</span> (node.nextWaiter != <span class="keyword">null</span>) <span class="comment">// clean up if cancelled</span></span><br><span class="line">            unlinkCancelledWaiters();</span><br><span class="line">        <span class="keyword">if</span> (interruptMode != <span class="number">0</span>)</span><br><span class="line">            reportInterruptAfterWait(interruptMode);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>以上就是消费者线程首次调用condition.await()的内部工作流程，此时阻塞队列结构和条件队列结构如下：</p>
+<p>Thread-0进入条件队列—&gt;释放自己占有的锁资源（此操作会唤醒阻塞队列的Thread-1）—&gt;在条件队列阻塞自己</p>
+<p>同理被唤醒的Thread-1会继续执行await()方法，跟Thread-0执行流类似，以此类推，最后，5个消费者线程都在条件队列里面阻塞了：</p>
+<p>firstWaiter(Thread-0,-2)-&gt;node(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>支持await的内部几个核心方法</p>
+<ul>
+<li>addConditionWaiter</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ①将Thread-0添加到条件队列（单向链表）</span></span><br><span class="line"><span class="function"><span class="keyword">private</span> Node <span class="title">addConditionWaiter</span><span class="params">()</span> </span>&#123;</span><br><span class="line">           Node t = lastWaiter; </span><br><span class="line">           <span class="comment">// If lastWaiter is cancelled, clean out.</span></span><br><span class="line">         	<span class="comment">// 只要条件队列的尾部线程节点是取消状态，那么将其剔除出队列。为何要从尾部判断呢？参考fullyRelease的解析</span></span><br><span class="line">           <span class="keyword">if</span> (t != <span class="keyword">null</span> &amp;&amp; t.waitStatus != Node.CONDITION) &#123;</span><br><span class="line">               unlinkCancelledWaiters();</span><br><span class="line">               t = lastWaiter; <span class="comment">// 从这里可以看出t的含义：指向非取消状态的尾部节点</span></span><br><span class="line">           &#125;</span><br><span class="line">         	<span class="comment">// 这里即可表明条件队列节点构成：将调用await的线程包装为节点，且状态值node.waitStatus为CONDITION</span></span><br><span class="line">           Node node = <span class="keyword">new</span> Node(Thread.currentThread(), Node.CONDITION);</span><br><span class="line">           <span class="keyword">if</span> (t == <span class="keyword">null</span>)</span><br><span class="line">               firstWaiter = node;</span><br><span class="line">           <span class="keyword">else</span></span><br><span class="line">               t.nextWaiter = node; <span class="comment">// 因为上面已经知道t不为null，那么才能将await新来的线程节点放入条件队列</span></span><br><span class="line">           lastWaiter = node;</span><br><span class="line">           <span class="keyword">return</span> node;</span><br><span class="line">       &#125;</span><br><span class="line"></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<ul>
+<li>fullyRelease</li>
+</ul>
+<p>当Thread-0线程使用addConditionWaiter进入条件队列后，需要释放自己占有的独占锁资源，但为何要安排释放独占锁资源的逻辑？</p>
+<p>以下可通过反证法考察其设计意图：</p>
+<p>如果Thread-0进入条件队列后且不释放独占锁资源就进入阻塞状态，那么就会生产者线程lock.lock()加锁失败从而进入阻塞队列队尾，而阻塞队列里面第一个线程节点Thread-1显然已经没有外面线程来唤醒，结果就是：整个main程序直接stuck（卡住了），而且此时阻塞队列结构和条件队列结构如下：</p>
+<p>head(null,-1)&lt;-&gt;node(Thread1,-1)&lt;-&gt;node(Thread2,-1)&lt;-&gt;node(Thread3,-1)&lt;-&gt;node(Thread4,-1)&lt;-&gt;node(生产者线程,0)-&gt;null</p>
+<p>条件队列结构：firstWaiter(Thread-0,-2)-&gt;null</p>
+<p>以上的流程可以这样通俗理解：你拿了办公室钥匙（唯一一把钥匙），你直接去休息室“休眠”了，且没有把钥匙“释放”给后面的同事，那么你的同事1、同事2….只能等你，如果你一直“休眠”，那么他们一直无法进入办公室。</p>
+<p>那么考察加入释放的独占锁资源逻辑后，其工作过程将如何？</p>
+<p>（1）Thread-0的fullyRelease会调用AQS的release方法，从而唤醒了阻塞队列里面的Thread-1，此时Thread-1独占锁资源，Thread-1继续执行业务代码await()，同理进入条件队列，并使用fullyRelease独占锁资源同时该操作也会唤醒阻塞队列里面的Thread-2，以此类推，这种进入条件队后释放独占锁资源的流程可以这样通俗理解：</p>
+<p>你拿了办公室钥匙（唯一一把钥匙），你直接去休息室“休眠”前，把钥匙“释放”给后面的同事1，接着，同事1也要去休息室“休眠”，去之前把钥匙“释放”给后面的同事2，以此类推</p>
+<p>（2）显然此时5个消费者线程都在条件队列里面阻塞着（5个同事都在休息室“休眠”），直到生产者线程使用使用signal后，条件队列的Thread-0将被唤醒，之后的逻辑就是signal支持实现。</p>
+<p>这就是fullyRelease的设计意图！</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 进入条件队列的线程释放自己占有的独占锁，可能释放一个或者多个锁资源，如何理解多个锁资源？由于是condition对象是关联ReentrantLock对象，支持同一线程的一次（state=1）或者多次重入占有锁（state&gt;1），因此这里fully是指：不管同一线程占用一个锁资源或者同一线程多次重入占用多个锁资源，都可以在这里一次性释放此线程占有的所有锁资源。</span></span><br><span class="line"> <span class="comment">// 如果释放失败，在finally里面将此节点标记为取消状态，从这里可以看出：条件队列的线程节点取消状态可以在这里产生。</span></span><br><span class="line">   <span class="function"><span class="keyword">final</span> <span class="keyword">int</span> <span class="title">fullyRelease</span><span class="params">(Node node)</span> </span>&#123;</span><br><span class="line">       <span class="keyword">boolean</span> failed = <span class="keyword">true</span>;</span><br><span class="line">       <span class="keyword">try</span> &#123;</span><br><span class="line">           <span class="keyword">int</span> savedState = getState();</span><br><span class="line">         	<span class="comment">// 如果Thread-0在release能成功释放锁资源，由于release方法（内部调用unparkSuccessor）会唤醒阻塞队列的第一个线程节点，因此Thread-0此时会唤醒阻塞队列里面的Thread-1</span></span><br><span class="line">           <span class="keyword">if</span> (release(savedState)) &#123;</span><br><span class="line">               failed = <span class="keyword">false</span>;</span><br><span class="line">               <span class="keyword">return</span> savedState;</span><br><span class="line">           &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">               <span class="keyword">throw</span> <span class="keyword">new</span> IllegalMonitorStateException();</span><br><span class="line">           &#125;</span><br><span class="line">       &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">   				<span class="comment">// 这里做了一个优化设计：每次新节点条件队列后，如果此节点出现异常，则马上将其标记为取消状态，意味着条件队列的队尾要么是正常节点要么就是被标记为取消状态的节点，这种设计将方便addConditionWaiter加入if (t != null &amp;&amp; t.waitStatus != Node.CONDITION) 的逻辑，也即：每次添加新节点到条件队列前，只需判断队列尾部是否存在取消状态的节点，如果有则先使用unlinkCancelledWaiters删除这类节点，然后再new Node入队。</span></span><br><span class="line">           <span class="keyword">if</span> (failed)</span><br><span class="line">               node.waitStatus = Node.CANCELLED;</span><br><span class="line">       &#125;</span><br><span class="line">   &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">   <span class="function"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">release</span><span class="params">(<span class="keyword">int</span> arg)</span> </span>&#123;</span><br><span class="line">       <span class="keyword">if</span> (tryRelease(arg)) &#123;</span><br><span class="line">           Node h = head;</span><br><span class="line">           <span class="keyword">if</span> (h != <span class="keyword">null</span> &amp;&amp; h.waitStatus != <span class="number">0</span>)</span><br><span class="line">               unparkSuccessor(h);</span><br><span class="line">           <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">       &#125;</span><br><span class="line">       <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">   &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<ul>
+<li>isOnSyncQueue</li>
+</ul>
+<p>判断刚进入条件队列的线程节点是否已经被转移到阻塞队列中，若不在，则使用 LockSupport.park(this)将当前条件队列的线程节点阻塞，避免浪费cpu时间片。对于Thread-0，显然刚进入条件队列，一定不在阻塞队列，因此将其阻塞在条件队列里等待，isOnSyncQueue就控制了条件队列节点的阻塞。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Returns true if a node, always one that was initially placed on</span></span><br><span class="line"><span class="comment"> * a condition queue, is now waiting to reacquire on sync queue.</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> node the node</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@return</span> true if is reacquiring</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">isOnSyncQueue</span><span class="params">(Node node)</span> </span>&#123;</span><br><span class="line">  	 <span class="comment">//① 节点状态为CONDITION，或者节点的prev为null（因为条件队列的节点只用到firstWaiter、lastWaiter、nextWaiter）说明该节点在条件队列，但一定不在阻塞队列</span></span><br><span class="line">    <span class="keyword">if</span> (node.waitStatus == Node.CONDITION || node.prev == <span class="keyword">null</span>)</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">  	<span class="comment">//② 阻塞队列使用next指针，因此当前节点的next不为空，必然是在阻塞队列里面</span></span><br><span class="line">    <span class="keyword">if</span> (node.next != <span class="keyword">null</span>) <span class="comment">// If has successor, it must be on queue</span></span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * node.prev can be non-null, but not yet on queue because</span></span><br><span class="line"><span class="comment">     * the CAS to place it on queue can fail. So we have to</span></span><br><span class="line"><span class="comment">     * traverse from tail to make sure it actually made it.  It</span></span><br><span class="line"><span class="comment">     * will always be near the tail in calls to this method, and</span></span><br><span class="line"><span class="comment">     * unless the CAS failed (which is unlikely), it will be</span></span><br><span class="line"><span class="comment">     * there, so we hardly ever traverse much.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">  	</span><br><span class="line">  	<span class="comment">//③ 在①和②都不满足时，官方注释做了这么一个特殊情况说明：在第一个if判断线程节点的prev不为空时表明此刻它还未进入阻塞队列（因为casTail尾部入队失败导致），但可能在下一个时刻就会进入阻塞队列尾部，因此需要重新读取阻塞队列也即在阻塞队列的尾部开始向前遍历，来判断当前node是否在阻塞队列。</span></span><br><span class="line">    <span class="keyword">return</span> findNodeFromTail(node);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>经过以上的<code>lock.lock()到condition.await()</code>的线程节点工作原理分析，现在可以清晰看到线程们在阻塞队列结构过渡到条件队列结构的过程：</p>
+<p>（1）5个消费者线程并发执行<code>lock.lock()</code>，形成的阻塞队列结构如下：</p>
+<p>Thread-0</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exclusiveOwnerThread&#x3D;Thread-0</span><br></pre></td></tr></table></figure>
+<p>Thread-1到Thread-4因为并发执行<code>lock.lock()</code>因此进入lock对象关联的阻塞队列且线程状态处于waiting阻塞状态：</p>
+<p>head(null,-1)&lt;-&gt;node(Thread1,-1)&lt;-&gt;node(Thread2,-1)&lt;-&gt;node(Thread3,-1)&lt;-&gt;node(Thread4,0)-&gt;null</p>
+<p>（2）5个消费者线程的执行流来到<code>condition.await()</code>，形成的条件队列结构如下(单向链表)，且每个消费者线程都处于阻塞状态：</p>
+<p>firstWaiter(Thread-0,-2)-&gt;node(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>在前面demo的mian方法，我们给出注释<code>new Producer(condition,teslaWarehouse,lock).start()</code>,也即没有生产者线程启动，也即没有调用condition.signal方法，那么消费者线程Thread-0只能在条件队列一直被阻塞，当然后面的Thread-1到Thread-4也同样处于阻塞状态。</p>
+<p>下面将加入生产者的signal后的工作过程分析</p>
+<h4 id="生产者线程的signal底层设计解析"><a href="#生产者线程的signal底层设计解析" class="headerlink" title="生产者线程的signal底层设计解析"></a>生产者线程的signal底层设计解析</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; <span class="number">5</span>; i++) &#123;</span><br><span class="line">        <span class="keyword">new</span> Consumer(condition,teslaWarehouse,lock).start();</span><br><span class="line">    &#125;</span><br><span class="line"><span class="comment">// 执行流到此，5个消费线程已经在条件队列阻塞中</span></span><br><span class="line">    Thread.sleep(<span class="number">1</span>);</span><br><span class="line"><span class="comment">// 启动生产者线程</span></span><br><span class="line">   <span class="keyword">new</span> Producer(condition,teslaWarehouse,lock).start();</span><br></pre></td></tr></table></figure>
+<p>Producer线程的运行逻辑</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">while</span> (<span class="keyword">true</span>)&#123;</span><br><span class="line">        lock.lock(); <span class="comment">// 此时没有其他线程和生产者线程抢锁资源，因此生产者线程成功持有独占锁</span></span><br><span class="line">        <span class="keyword">this</span>.list.add(<span class="keyword">new</span> ModelY()); </span><br><span class="line">        System.out.println(<span class="string">&quot;生产了一台modelY&quot;</span>);</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Thread.sleep(<span class="number">2000</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        condition.signal(); <span class="comment">//这里是关键：通知条件队列里面的第一个非取消节点：消费者Thread-0</span></span><br><span class="line">        lock.unlock();</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>signal()设计逻辑</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">    将当前lock对象关联的条件队列中等待时间最长的线程节点，这里为何不是说头节点呢？因为头节点或者其他节点都有可能变成取消状态，那么真正处理的目标是那些非取消状态的且等待时间最长的线程节点转移到阻塞队列中</span></span><br><span class="line"><span class="comment">     * Moves the longest-waiting thread, if one exists, from the</span></span><br><span class="line"><span class="comment">     * wait queue for this condition to the wait queue for the</span></span><br><span class="line"><span class="comment">     * owning lock.</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@throws</span> IllegalMonitorStateException if &#123;<span class="doctag">@link</span> #isHeldExclusively&#125;</span></span><br><span class="line"><span class="comment">     *         returns &#123;<span class="doctag">@code</span> false&#125;</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">signal</span><span class="params">()</span> </span>&#123;</span><br><span class="line">      	<span class="comment">// 显然生产者线程确实是独占锁资源的线程，这里不会抛出非法状态异常</span></span><br><span class="line">        <span class="keyword">if</span> (!isHeldExclusively())</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> IllegalMonitorStateException();</span><br><span class="line">        Node first = firstWaiter;</span><br><span class="line">        <span class="keyword">if</span> (first != <span class="keyword">null</span>)</span><br><span class="line">            doSignal(first);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * Removes and transfers nodes until hit non-cancelled one or</span></span><br><span class="line"><span class="comment">     * null. Split out from signal in part to encourage compilers</span></span><br><span class="line"><span class="comment">     * to inline the case of no waiters.</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> first (non-null) the first node on condition queue</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line"><span class="comment">// 在将首个非取消状态的条件队列节点（也即Thread-0）转移到阻塞队列，且顺便在这一过程中移除条件队列中不是condition状态的节点。</span></span><br><span class="line"><span class="comment">// 需要注意的是：对于未曾研究过AQS工作原理的同学，也许会错以为条件队列的节点被signal后会马上去抢独占锁，实际并非如此。所谓的转移就是要求条件队列的节点被signal后要先移动到阻塞队列中去排队等候被唤醒，这种设计也保证了Condition的设计思路和AQS独占模式设计思路的一致性。</span></span><br><span class="line">    <span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">doSignal</span><span class="params">(Node first)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">do</span> &#123;</span><br><span class="line">          	<span class="comment">// 因为转移的是first节点，因此将firstWaiter后移指向第二个节点也即Thread-1，当然如果第二个节点已经是null说明当前条件队列的所有节点都转移到阻塞队列中。</span></span><br><span class="line">            <span class="keyword">if</span> ( (firstWaiter = first.nextWaiter) == <span class="keyword">null</span>)</span><br><span class="line">                lastWaiter = <span class="keyword">null</span>;</span><br><span class="line">          	<span class="comment">// first节点出队，也即Thread-0断开和后面的Thread-1链接。（如果first是取消状态，则正好可以在此过程删除这些取消状态的节点）</span></span><br><span class="line">            first.nextWaiter = <span class="keyword">null</span>;</span><br><span class="line">          <span class="comment">/* </span></span><br><span class="line"><span class="comment">          转移节点也不是随便转移的：只有first节点是非取消节点才能转移到阻塞队列。或者说</span></span><br><span class="line"><span class="comment">          只要转移操作失败（因为当前first节点是取消状态才会转移失败）且条件队列还存在下一个节点，就继续找一个非取消状态的节点去转移</span></span><br><span class="line"><span class="comment">          */</span></span><br><span class="line">        &#125; <span class="keyword">while</span> (!transferForSignal(first) &amp;&amp; <span class="comment">//真正转移的逻辑是在transferForSignal实施的</span></span><br><span class="line">                 (first = firstWaiter) != <span class="keyword">null</span>);</span><br><span class="line">    &#125;</span><br><span class="line">			</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Transfers a node from a condition queue onto sync queue.</span></span><br><span class="line"><span class="comment"> * Returns true if successful.</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@param</span> node the node</span></span><br><span class="line"><span class="comment"> * <span class="doctag">@return</span> true if successfully transferred (else the node was</span></span><br><span class="line"><span class="comment"> * cancelled before signal)</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">transferForSignal</span><span class="params">(Node node)</span> </span>&#123;</span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * If cannot change waitStatus, the node has been cancelled.</span></span><br><span class="line"><span class="comment">     // 这里正好回答了上面doSignal为何需要重试的原因：因为当前转移的节点已经变为取消状态了，因此在判断!transferForSignal(first)后需要继续找条件队列链表的下一个非取消节点来转移。</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="keyword">if</span> (!compareAndSetWaitStatus(node, Node.CONDITION, <span class="number">0</span>))</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * Splice onto queue and try to set waitStatus of predecessor to</span></span><br><span class="line"><span class="comment">     * indicate that thread is (probably) waiting. If cancelled or</span></span><br><span class="line"><span class="comment">     * attempt to set waitStatus fails, wake up to resync (in which</span></span><br><span class="line"><span class="comment">     * case the waitStatus can be transiently and harmlessly wrong).</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">  	<span class="comment">// 这里就是条件队列节点转移到阻塞队列的秘密：条件队列节点头节点（假设first是非取消节点）维持自己阻塞状态出队，然后使用enq方法将此头节（注意此节点依旧处于阻塞状态）点放入阻塞队列的队尾。</span></span><br><span class="line">    Node p = enq(node);</span><br><span class="line">    <span class="keyword">int</span> ws = p.waitStatus;</span><br><span class="line">		<span class="comment">// 如果前一个节点是取消状态ws&gt;0或者无法将前节点设为SIGNAL值，那么就无法让前节点来唤醒刚入阻塞队列的线程节点。为了处理这种特殊情况，直接唤醒此节点。</span></span><br><span class="line">    <span class="keyword">if</span> (ws &gt; <span class="number">0</span> || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))</span><br><span class="line">        LockSupport.unpark(node.thread);</span><br><span class="line">  	<span class="comment">// 执行到这里，说明：条件队列节点头节点（带着阻塞状态）已经成功进入阻塞队列且还处于阻塞状态</span></span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>有了对signal的底层设计解析，现在分析这几个线程之间的内部协调</p>
+<p>（1）生产者线程调用signal前，独占锁资源、阻塞队列和条件队列结构如下：</p>
+<p>独占锁资源：生产者持有</p>
+<p>阻塞队列：还未形成</p>
+<p>条件队列如下：</p>
+<p>firstWaiter(Thread-0,-2)-&gt;node(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>（2）生产者线程调用signal后，上面的独占锁资源、阻塞队列和条件队列结构如下：</p>
+<p>独占锁资源：生产者持有</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt;node(Thread-0,0) ，因为signal内部会将条件队列的头节点Thread-0转移（enq）到阻塞队列，此时Thread-0等待生产者线程使用unlock唤醒</p>
+<p>条件队列如下：</p>
+<p>firstWaiter(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>（3）生产者线程调用signal后且执行了lock.unlock()，唤醒了阻塞队列里面的Thread-0消费者线程，唤醒流程,lock.unlock—&gt;release—&gt;tryRelease—&gt;unparkSuccessor。上面的独占锁资源、阻塞队列和条件队列结构如下：</p>
+<p>独占锁资源：：Thread-0持有</p>
+<p>阻塞队列：head(null,0)</p>
+<p>条件队列如下：</p>
+<p>firstWaiter(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>（4）显然此时Thread-0可以从await唤醒的位置继续运行</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    lock.lock();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (list.isEmpty())</span><br><span class="line">            condition.await(); <span class="comment">// Thread-0从这里唤醒后，继续执行</span></span><br><span class="line">      			</span><br><span class="line">        list.remove(<span class="number">0</span>);</span><br><span class="line">      	<span class="comment">// Thread-0消费了生产者线程刚刚生产的车：也即对应的打印：Thread-0消费一台modelY</span></span><br><span class="line">        System.out.println(Thread.currentThread().getName() + <span class="string">&quot;消费一台modelY&quot;</span>);</span><br><span class="line">    &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">        e.printStackTrace();</span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">      	<span class="comment">// Thread-0释放独占锁 </span></span><br><span class="line">        lock.unlock();</span><br></pre></td></tr></table></figure>
+<p>当Thread-0消费了一台车并在finally释放锁资源前、后过程中，生产者线程同时会进行第二次循环，执行流程如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title">run</span><span class="params">()</span> </span>&#123;</span><br><span class="line">  	<span class="comment">//第二次循环：</span></span><br><span class="line">    <span class="keyword">while</span> (<span class="keyword">true</span>)&#123;</span><br><span class="line">        lock.lock(); <span class="comment">// Thread-0执行lock.unlock()前，生产者线程在第二次循环执行到lock.lock()时，因为此时锁资源还被消费者Thread-0占用，因此生产者只能进入阻塞队列等待。直到Thread-0执行lock.unlock()后，生产者马上抢占锁成功（因为消费者线程Thread-1~Thread-4还是条件队列中等待）</span></span><br><span class="line">        <span class="keyword">this</span>.list.add(<span class="keyword">new</span> ModelY());</span><br><span class="line">        System.out.println(<span class="string">&quot;生产了一台modelY&quot;</span>);</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Thread.sleep(<span class="number">2000</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        condition.signal(); <span class="comment">// 通知条件队列里面的消费者Thread-1线程，以后的执行流程就按（2）~（4）不断循环执行，直到条件队列的消费者Thread-4完成lock.unlock()后，之后就没有消费者线程去消费生产者线程新生产的车，对应main程序可以观察到不断打印&quot;生产了一台modelY&quot;</span></span><br><span class="line">        lock.unlock();</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+<h4 id="await响应中断的逻辑分析"><a href="#await响应中断的逻辑分析" class="headerlink" title="await响应中断的逻辑分析"></a>await响应中断的逻辑分析</h4><p>在上面await设计分析中，重点放在消费者线程入队、释放锁资源、阻塞操作的原理分析。在这一小节，则重点分析await是被设计为可响应外界中断的，await响应中断的逻辑相对复杂，两种特别的中断处理策略：</p>
+<p>（1）中断处理策略1：如果条件队列的线程节点（例如上面提到的Thread-0）在waiting过程中被外界中断过，且还未被生产者signal过，那么此线程调用await就需要抛出InterruptedException</p>
+<p>（2）中断处理策略2：如果条件队列的线程节点（例如上面提到的Thread-0）在waiting过程中没被外界中断，而是在signal后，再被外界中断过，那么此线程调用await只需补一次<code>selfInterrupt()</code></p>
+<p>当然此方法的注释也给出详细的说明（4、6）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment">Implements interruptible condition wait.</span></span><br><span class="line"><span class="comment">1. If current thread is interrupted, throw InterruptedException.</span></span><br><span class="line"><span class="comment">2. Save lock state returned by getState.</span></span><br><span class="line"><span class="comment">3. Invoke release with saved state as argument, throwing IllegalMonitorStateException if it fails.</span></span><br><span class="line"><span class="comment">4. Block until signalled or interrupted.</span></span><br><span class="line"><span class="comment">5. Reacquire by invoking specialized version of acquire with saved state as argument.</span></span><br><span class="line"><span class="comment">6. If interrupted while blocked in step 4, throw InterruptedException.</span></span><br><span class="line"><span class="comment">*/</span></span><br></pre></td></tr></table></figure>
+<p>所以到此你应该猜测“await响应中断的设计中”是通过什么方式判断线程节点到底是被signal过还是没被signal呢？</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">				<span class="comment">// 使用interruptMode表征阻塞队列的线程的中断模式，根据情况，取以下两种值</span></span><br><span class="line">        <span class="comment">/**</span></span><br><span class="line"><span class="comment">        对应上述的中断模式2，这里的exit是指线程从阻塞队列获取锁资源后采取的处理中断策略（别错把exit看成是条件队列的线程出队）</span></span><br><span class="line"><span class="comment">        Mode meaning to reinterrupt on exit from wait </span></span><br><span class="line"><span class="comment">        */</span></span><br><span class="line">        <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> REINTERRUPT =  <span class="number">1</span>;</span><br><span class="line">        <span class="comment">/**</span></span><br><span class="line"><span class="comment">        中断模式2：对应上述的中断模式1</span></span><br><span class="line"><span class="comment">        Mode meaning to throw InterruptedException on exit from wait </span></span><br><span class="line"><span class="comment">        */</span></span><br><span class="line">        <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="keyword">int</span> THROW_IE    = -<span class="number">1</span>;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/**</span></span><br><span class="line"><span class="comment">        如果当前线程节点在signal前就被外界中断，则标记为为THROW_IE。</span></span><br><span class="line"><span class="comment">        如果当前线程节点在signal之后被外界中断，那么则标记为REINTERRUPT，</span></span><br><span class="line"><span class="comment">        如果当前节点在阻塞队列都没有被外界中断，则标记为0</span></span><br><span class="line"><span class="comment">         * Checks for interrupt, returning THROW_IE if interrupted</span></span><br><span class="line"><span class="comment">         * before signalled, REINTERRUPT if after signalled, or</span></span><br><span class="line"><span class="comment">         * 0 if not interrupted.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="function"><span class="keyword">private</span> <span class="keyword">int</span> <span class="title">checkInterruptWhileWaiting</span><span class="params">(Node node)</span> </span>&#123;</span><br><span class="line">            <span class="keyword">return</span> Thread.interrupted() ?</span><br><span class="line">                (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :</span><br><span class="line">                <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 以下就是判断当前线程节点到底是有没有被signal过的核心设计</span></span><br><span class="line"><span class="comment">     * Transfers node, if necessary, to sync queue after a cancelled wait.</span></span><br><span class="line"><span class="comment">     * Returns true if thread was cancelled before being signalled.</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> node the node</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@return</span> true if cancelled before the node was signalled</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="function"><span class="keyword">final</span> <span class="keyword">boolean</span> <span class="title">transferAfterCancelledWait</span><span class="params">(Node node)</span> </span>&#123;</span><br><span class="line">      	<span class="comment">/* 1、在条件队列的线程节点，其waitStatus一定是CONDITION，因此如果这里能CAS成功就说明：在signal之前，该线程已经被取消（被外界中断），但仍然需要将此节点放入阻塞队列。</span></span><br><span class="line"><span class="comment">      			thread was cancelled before being signalled.</span></span><br><span class="line"><span class="comment">        */</span></span><br><span class="line">        <span class="keyword">if</span> (compareAndSetWaitStatus(node, Node.CONDITION, <span class="number">0</span>)) &#123;</span><br><span class="line">            enq(node);</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">        	2、执行流来到这里，说明此时线程节点waitStatus不是CONDITION肯定被signal过，也即出了条件队列而且在转移到阻塞队列的过程中（可能还未进入阻塞队列），waitStatus在转移逻辑transferForSignal被更改过。换句话说：线程节点被signal过，已经出了条件队列但还未成功进入阻塞队列，因为enq()操作需要此线程和其他线程竞争入阻塞队列队尾，因此出现这种“incomplete transfer”不完整的转移是有可能的，但此情况即罕见又短暂，那么线程自己通过spin直到enq完成入阻塞队列就行，这就是源码注释要表达的含义。</span></span><br><span class="line"><span class="comment">        	</span></span><br><span class="line"><span class="comment">         * If we lost out to a signal(), then we can&#x27;t proceed</span></span><br><span class="line"><span class="comment">         * until it finishes its enq().  Cancelling during an</span></span><br><span class="line"><span class="comment">         * incomplete transfer is both rare and transient, so just</span></span><br><span class="line"><span class="comment">         * spin.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="keyword">while</span> (!isOnSyncQueue(node))</span><br><span class="line">            Thread.yield();</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/**</span></span><br><span class="line"><span class="comment">         * Unlinks cancelled waiter nodes from condition queue.</span></span><br><span class="line"><span class="comment">         * Called only while holding lock. This is called when</span></span><br><span class="line"><span class="comment">         * cancellation occurred during condition wait, and upon</span></span><br><span class="line"><span class="comment">         * insertion of a new waiter when lastWaiter is seen to have</span></span><br><span class="line"><span class="comment">         * been cancelled. This method is needed to avoid garbage</span></span><br><span class="line"><span class="comment">         * retention in the absence of signals. So even though it may</span></span><br><span class="line"><span class="comment">         * require a full traversal, it comes into play only when</span></span><br><span class="line"><span class="comment">         * timeouts or cancellations occur in the absence of</span></span><br><span class="line"><span class="comment">         * signals. It traverses all nodes rather than stopping at a</span></span><br><span class="line"><span class="comment">         * particular target to unlink all pointers to garbage nodes</span></span><br><span class="line"><span class="comment">         * without requiring many re-traversals during cancellation</span></span><br><span class="line"><span class="comment">         * storms.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">				<span class="comment">/* </span></span><br><span class="line"><span class="comment">				两种情况会调用unlinkCancelledWaiters方法：</span></span><br><span class="line"><span class="comment">				1、addConditionWaiter，添加一个新节点到条件队列队尾时，如果队尾节点恰好是取消状态的节点，则使用unlinkCancelledWaiters剔除它</span></span><br><span class="line"><span class="comment">				2、在await方法中，当线程节点在条件队列中被中断（此时还未被signal，对应的interruptMode为THROW_IE），那么表示此节点取消在条件队列的排队，需要将其剔除。</span></span><br><span class="line"><span class="comment">				*/</span></span><br><span class="line">        <span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">unlinkCancelledWaiters</span><span class="params">()</span> </span>&#123;</span><br><span class="line">            Node t = firstWaiter; <span class="comment">// 每次循环，t滑向当前要处理的节点，相当于遍历指针</span></span><br><span class="line">            Node trail = <span class="keyword">null</span>; <span class="comment">// trail指向非取消状态的节点</span></span><br><span class="line">          	<span class="comment">// </span></span><br><span class="line">            <span class="keyword">while</span> (t != <span class="keyword">null</span>) &#123;</span><br><span class="line">                Node next = t.nextWaiter;</span><br><span class="line">                <span class="comment">// 1、如果t指向的当前节点是取消状态，断开t和子链next的连接（也即将t剔除出队）</span></span><br><span class="line">                <span class="keyword">if</span> (t.waitStatus != Node.CONDITION) &#123;</span><br><span class="line">                    t.nextWaiter = <span class="keyword">null</span>;</span><br><span class="line">         <span class="comment">//1.1 如果trail还是null，说明条件队列的第一个节点是取消节点，把next作为条件队列的头节点即可</span></span><br><span class="line">                    <span class="keyword">if</span> (trail == <span class="keyword">null</span>)</span><br><span class="line">                        firstWaiter = next;</span><br><span class="line">         <span class="comment">// 1.2 如果trial不为空，将trail--&gt;t(cancelled)--&gt;next变成trail--&gt;next</span></span><br><span class="line">                    <span class="keyword">else</span></span><br><span class="line">                        trail.nextWaiter = next;</span><br><span class="line">         <span class="comment">/*1.3 如果来到条件队列队尾，那么原条件队列的所有取消状态的节点都被剔除，之后的条件队列：</span></span><br><span class="line"><span class="comment">         firstWaiter(CONDITION)--&gt;全部都是CONDITION状态的节点--&gt;lastWaiter(CONDITION)    </span></span><br><span class="line"><span class="comment">         */</span> </span><br><span class="line">                    <span class="keyword">if</span> (next == <span class="keyword">null</span>)</span><br><span class="line">                        lastWaiter = trail;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">else</span></span><br><span class="line">                 <span class="comment">// 2、说明t当前处理节点是正常状态，trail滑向（指向）t</span></span><br><span class="line">                    trail = t;</span><br><span class="line">              	<span class="comment">// 3、t滑向下一个条件队列节点</span></span><br><span class="line">                t = next;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">        <span class="comment">/**</span></span><br><span class="line"><span class="comment">        根据线程节点interruptMode被标记的状态：要么抛出异常、要么补一次自我中断、或者无需做其他操作</span></span><br><span class="line"><span class="comment">         * Throws InterruptedException, reinterrupts current thread, or</span></span><br><span class="line"><span class="comment">         * does nothing, depending on mode.</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        <span class="function"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title">reportInterruptAfterWait</span><span class="params">(<span class="keyword">int</span> interruptMode)</span></span></span><br><span class="line"><span class="function">            <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">            <span class="keyword">if</span> (interruptMode == THROW_IE)</span><br><span class="line">                <span class="keyword">throw</span> <span class="keyword">new</span> InterruptedException();</span><br><span class="line">            <span class="keyword">else</span> <span class="keyword">if</span> (interruptMode == REINTERRUPT)</span><br><span class="line">                selfInterrupt();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">// 以下以Thread-0调用await后进行中断逻辑分析，从唤醒处开始：</span></span><br><span class="line">        <span class="function"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title">await</span><span class="params">()</span> <span class="keyword">throws</span> InterruptedException </span>&#123;</span><br><span class="line">          	<span class="comment">// 如果Thread-0在进入条件队列等待之前就已经被外界中断过，此线程直接抛出异常，不再参与条件队列等待</span></span><br><span class="line">            <span class="keyword">if</span> (Thread.interrupted())</span><br><span class="line">                <span class="keyword">throw</span> <span class="keyword">new</span> InterruptedException();</span><br><span class="line">            Node node = addConditionWaiter();</span><br><span class="line">            <span class="keyword">int</span> savedState = fullyRelease(node);</span><br><span class="line">            <span class="keyword">int</span> interruptMode = <span class="number">0</span>;</span><br><span class="line">            <span class="keyword">while</span> (!isOnSyncQueue(node)) &#123;</span><br><span class="line">                LockSupport.park(<span class="keyword">this</span>); </span><br><span class="line">                <span class="comment">/* Thread-0被唤醒后继续之后执行流，被唤醒的原因有以下两种：</span></span><br><span class="line"><span class="comment">                  1、被生产者线程使用signal唤醒的</span></span><br><span class="line"><span class="comment">                  注意：很多人以为是被生产者线程signal方法唤醒，这是理解不透彻的表现：signal方法只是把条件队列的Thread-0转移到阻塞队列中，真正唤醒Thread-0的代码是：生产者线程执行lock.unlock()内部使用unparkSuccessor唤醒阻塞队列里面的Thread-0（前提假设Thread-0是此队列的第一个线程节点）</span></span><br><span class="line"><span class="comment">              		2、其他线程中断了Thread-0导致唤醒</span></span><br><span class="line"><span class="comment">              		为了找出是哪种中断，需要在checkInterruptWhileWaiting进行判断，以便让Thread-0从阻塞队列出队拿到锁资源后，补充对应的中断类型（或者抛出InterruptedException或者补一个selfInterrupt()）</span></span><br><span class="line"><span class="comment">              	*/</span></span><br><span class="line"></span><br><span class="line">            <span class="comment">/* ②	醒来后的Thread-0使用Thread.interrupted()进行自我中断状态检查，如果自己在等待（线程休眠）过程中被中断过，则会跳出循环去到下面③的逻辑。</span></span><br><span class="line"><span class="comment">             	当然如果Thread-0没被中断过，那么回到while就满足OnSyncQueue，因此也会跳出while循环，意味着interruptMode为0</span></span><br><span class="line"><span class="comment">             */</span></span><br><span class="line">                <span class="keyword">if</span> ((interruptMode = checkInterruptWhileWaiting(node)) != <span class="number">0</span>)</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="comment">/* ③ 由于Thread-0还在阻塞队列，运行到这里，就需要使用独占不可中断的acquireQueued方法重新获取锁资源，由于生产者线程执行②所提到的unlock后，此时Thread-0一定能acquireQueued成功获取独占锁（假设没有外界线程和Thread-0抢锁）：</span></span><br><span class="line"><span class="comment">         （1）acquireQueued返回true表示线程节点在阻塞队列中又被中断过1次，因此可以将interruptMode设为REINTERRUPT表示此线程节点被中断两次</span></span><br><span class="line"><span class="comment">         （2）当然对于Thread-0已经占有独占锁来说，acquireQueued返回的interrupted=false，因此会跳过此逻辑</span></span><br><span class="line"><span class="comment">           */</span> </span><br><span class="line">            <span class="keyword">if</span> (acquireQueued(node, savedState) &amp;&amp; interruptMode != THROW_IE)</span><br><span class="line">                interruptMode = REINTERRUPT;</span><br><span class="line">          	<span class="comment">// ④ 如果interruptMode是THROW_IE那么执行流从②跳过③来到这里，说明此线程节点在条件队列中就被中断过（还未被signal），因此需要将此线程节点剔除出条件队列</span></span><br><span class="line">            <span class="keyword">if</span> (node.nextWaiter != <span class="keyword">null</span>) <span class="comment">// clean up if cancelled</span></span><br><span class="line">                unlinkCancelledWaiters();</span><br><span class="line">          	<span class="comment">// ⑤ Thread-0从条件队列到阻塞队列出队的全过程是否发生的中断，都在这里得到最终的响应：如果是在signal前被外界中断，则THROW_IE，也即抛出异常；否则就是在signal后在阻塞队列等待锁期间被外界中断过，补上一个 selfInterrupt()即可</span></span><br><span class="line">            <span class="keyword">if</span> (interruptMode != <span class="number">0</span>)</span><br><span class="line">                reportInterruptAfterWait(interruptMode);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<h4 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h4><p>有了以上完整的条件队列设计原理，本文的demo的内部线程之间的协调则很好理解：</p>
+<ul>
+<li>（1）5个消费者线程公平模式lock.lock()之后在await执行前</li>
+</ul>
+<p>条件队列：空</p>
+<p>独占锁资源：Thread-0</p>
+<p>其他4个线程因为Thread-0占有锁资源，只能先进入lock关联的CLH阻塞队列：</p>
+<p>head(null,-1)&lt;-&gt;node(Thread1,-1)&lt;-&gt;node(Thread2,-1)&lt;-&gt;node(Thread3,-1)&lt;-&gt;node(Thread4,0)-&gt;null</p>
+<ul>
+<li>（2）Thread-0执行await操作后，await操作包括的动作：进入条件队列、释放锁资源、阻塞自己</li>
+</ul>
+<p>条件队列：firstWaiter(Thread-0,-2)-&gt;null  (因为Thread-0进入条件队列)</p>
+<p>独占线程：Thread-1 （因为Thread-0 fullyRelease()内部使用unparkSuccessor唤醒了阻塞队列的第一个线程节点Thread-1）</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt;node(Thread2,-1)&lt;-&gt;node(Thread3,-1)&lt;-&gt;node(Thread4,0)-&gt;null</p>
+<ul>
+<li>（3）接着Thread-1唤醒后执行await，重复以上(2)流程，直到Thread-4也执行await后有：</li>
+</ul>
+<p>阻塞队列：head(null,0)</p>
+<p>条件队列：firstWaiter(Thread-0,-2)-&gt;node(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>独占锁资源：null</p>
+<p>可以看到，此时5个消费者线程都阻塞在lock关联下的条件队列，如果main程序没有安排生产者线程去signal此条件队列，那么main程序就会这种情况下挂起。</p>
+<ul>
+<li>（4）接着生产者线程启动，加锁成功，执行到signal，将条件队列的中阻塞状态的Thread-0转移（transferForSignal）到阻塞队列</li>
+</ul>
+<p>独占锁资源：生产者线程持有</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt;node(Thread-0,0)&lt;-&gt;null    （Thread-0等待生产者释放锁资源）</p>
+<p>条件队列：firstWaiter(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<ul>
+<li>（5）生产者完成signal后，执行到lock.unlock()后，也即使用unparkSuccessor唤醒阻塞队列的Thread-0</li>
+</ul>
+<p>（注意：由于生产者此时可以进行第二次循环再次抢占锁但因为Thread-0已经持有锁，因此生产者线程此时会阻塞在阻塞队列）</p>
+<p>独占锁资源：Thread-0持有</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt; 生产者线程</p>
+<p>条件队列：firstWaiter(Thread1,-2)-&gt;node(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>Thread-0继续执行“消费”代码：打印”生产了一台modelY”，后unlock释放锁资源</p>
+<ul>
+<li>（6）生产者进行第二次循环后，因为Thread-0释放锁可以唤醒阻塞队列生产者线程，因此它能加锁成功，之后又来到signal，将条件队列的中阻塞状态的Thread-1转移到阻塞队列</li>
+</ul>
+<p>独占锁资源：生产者线程持</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt;node(Thread-1,0)&lt;-&gt;null    （等待生产者释放锁资源）</p>
+<p>条件队列：firstWaiter(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<ul>
+<li>（7）生产者完成signal后，执行到lock.unlock()，也即使用unparkSuccessor唤醒阻塞队列的Thread-1</li>
+</ul>
+<p>独占锁资源：Thread-1持有</p>
+<p>（注意：由于生产者此时可以进行第二次循环再次抢占锁但因为Thread-1已经持有锁，因此生产者线程此时会阻塞在阻塞队列）</p>
+<p>阻塞队列：head(null,-1)&lt;-&gt; 生产者线程</p>
+<p>条件队列：firstWaiter(Thread2,-2)-&gt;node(Thread3,-2)-&gt;node(Thread4,-2)-&gt;null</p>
+<p>Thread-1继续执行“消费”代码：打印”生产了一台modelY”，后unlock释放锁资源</p>
+<p>之后的循环逻辑类似，这里不再累赘。</p>
+<p>如果你能清晰描述上述多个消费者和生产者线程的内部协调机制，那么才算是真正理解了AQS的底层设计及其源代码实现。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98/" rel="tag"># Java高级主题</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/06/19/Java%E5%B9%B6%E5%8F%91%E8%BF%9B%E9%98%B6%E7%B3%BB%E5%88%97%EF%BC%9Ajdk1.8%E7%9A%84ConcurrentHashMap%E6%BA%90%E7%A0%81%E6%B7%B1%E5%85%A5%E5%88%86%E6%9E%90%EF%BC%88%E4%BA%8C%EF%BC%89/" rel="prev" title="Java高级主题：jdk1.8的ConcurrentHashMap源码深入分析（二）">
+      <i class="fa fa-chevron-left"></i> Java高级主题：jdk1.8的ConcurrentHashMap源码深入分析（二）
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/07/10/%E5%9F%BA%E4%BA%8EAQS%E6%9D%A1%E4%BB%B6%E9%98%9F%E5%88%97%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%90%84%E7%A7%8DXXBlockingQueue%E5%88%86%E6%9E%90/" rel="next" title="Java高级主题：基于AQS条件队列实现的各种XXBlockingQueue分析">
+      Java高级主题：基于AQS条件队列实现的各种XXBlockingQueue分析 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%85%B3%E4%BA%8E%E6%9D%A1%E4%BB%B6%E9%98%9F%E5%88%97%E5%92%8C%E9%98%BB%E5%A1%9E%E9%98%9F%E5%88%97%E7%9A%84%E8%AF%B4%E6%98%8E"><span class="nav-number">1.</span> <span class="nav-text">关于条件队列和阻塞队列的说明</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9F%BA%E4%BA%8ECondition%E5%AE%9E%E7%8E%B0%E7%9A%84%E7%94%9F%E4%BA%A7%E8%80%85%E5%92%8C%E6%B6%88%E8%B4%B9%E8%80%85%E6%A8%A1%E5%9E%8B"><span class="nav-number">2.</span> <span class="nav-text">基于Condition实现的生产者和消费者模型</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B6%88%E8%B4%B9%E8%80%85%E7%BA%BF%E7%A8%8B%E7%9A%84await%E5%BA%95%E5%B1%82%E8%AE%BE%E8%AE%A1%E8%A7%A3%E6%9E%90"><span class="nav-number">3.</span> <span class="nav-text">消费者线程的await底层设计解析</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%94%9F%E4%BA%A7%E8%80%85%E7%BA%BF%E7%A8%8B%E7%9A%84signal%E5%BA%95%E5%B1%82%E8%AE%BE%E8%AE%A1%E8%A7%A3%E6%9E%90"><span class="nav-number">4.</span> <span class="nav-text">生产者线程的signal底层设计解析</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#await%E5%93%8D%E5%BA%94%E4%B8%AD%E6%96%AD%E7%9A%84%E9%80%BB%E8%BE%91%E5%88%86%E6%9E%90"><span class="nav-number">5.</span> <span class="nav-text">await响应中断的逻辑分析</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%B0%8F%E7%BB%93"><span class="nav-number">6.</span> <span class="nav-text">小结</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt=""
+      src="https://www.linuxprobe.com/wp-content/uploads/2018/06/QQ%E5%9B%BE%E7%89%8720180625205006.png">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description">一个聪明的、友好的且专注于高水平技术总结的个人博客</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">74</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">50</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2019 – 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">yield-bytes</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-area"></i>
+    </span>
+    <span title="站点总字数">1.1m</span>
+    <span class="post-meta-divider">|</span>
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+    <span title="站点阅读时长">17:22</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/pjax/pjax.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+<script src="/js/bookmark.js"></script>
+
+  <script>
+var pjax = new Pjax({
+  selectors: [
+    'head title',
+    '#page-configurations',
+    '.content-wrap',
+    '.post-toc-wrap',
+    '.languages',
+    '#pjax'
+  ],
+  switches: {
+    '.post-toc-wrap': Pjax.switches.innerHTML
+  },
+  analytics: false,
+  cacheBust: false,
+  scrollTo : !CONFIG.bookmark.enable
+});
+
+window.addEventListener('pjax:success', () => {
+  document.querySelectorAll('script[data-pjax], script#page-configurations, #pjax script').forEach(element => {
+    var code = element.text || element.textContent || element.innerHTML || '';
+    var parent = element.parentNode;
+    parent.removeChild(element);
+    var script = document.createElement('script');
+    if (element.id) {
+      script.id = element.id;
+    }
+    if (element.className) {
+      script.className = element.className;
+    }
+    if (element.type) {
+      script.type = element.type;
+    }
+    if (element.src) {
+      script.src = element.src;
+      // Force synchronous loading of peripheral JS.
+      script.async = false;
+    }
+    if (element.dataset.pjax !== undefined) {
+      script.dataset.pjax = '';
+    }
+    if (code !== '') {
+      script.appendChild(document.createTextNode(code));
+    }
+    parent.appendChild(script);
+  });
+  NexT.boot.refresh();
+  // Define Motion Sequence & Bootstrap Motion.
+  if (CONFIG.motion.enable) {
+    NexT.motion.integrator
+      .init()
+      .add(NexT.motion.middleWares.subMenu)
+      .add(NexT.motion.middleWares.postList)
+      .bootstrap();
+  }
+  NexT.utils.updateSidebarPosition();
+});
+</script>
+
+
+
+
+  
+
+
+
+
+  
+<script src="/js/local-search.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div id="pjax">
+  
+
+  
+
+  
+
+    </div>
+</body>
+</html>
